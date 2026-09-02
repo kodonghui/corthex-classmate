@@ -165,3 +165,68 @@ test store::tests::the_system_sqlite_is_new_enough ... ok
 | Windows MAX_PATH | `target` 경로가 190자를 넘으면 `'-fuse-linker-plugin', but liblto_plugin.dll not found` 라는 엉뚱한 링크 오류와 빌드 스크립트 `os error 3` 이 난다 | 저장소 자리는 짧아 문제없다. 임시 폴더에서 돌릴 때는 `CARGO_TARGET_DIR` 을 짧게 지정하라고 README 2-4 에 적었다 |
 | 측정 환경이 하나 | 손실 창 25 측정 전부 같은 PC · 같은 디스크에서 났다. HDD 나 느린 디스크에서는 값이 커질 수 있다 | 예산이 2,000 ms 로 실측값의 200배라 여유가 크다. 친구 베타 때 다시 잰다 |
 | 확장 쪽 장애 셋 미측정 | 사이드패널 재열기·공유 페이지 새로고침·캡처 중단은 담당 코드가 아직 없다 | Phase 2 에서 각 담당 단위가 측정하고 이 문서의 하위 판정 표를 갱신한다 |
+
+## 부록 — 1라운드 완성 (2026-09-02)
+
+> 위의 판정·측정값 문단은 그대로 둔다. 여기는 Phase 2 1라운드에서 **session-store 단위(7)가
+> 무엇을 채웠는지**만 덧붙인 자리다. 판정은 바뀌지 않았다(PASS 유지).
+
+### 무엇을 채웠나
+
+| 남아 있던 구멍 | 채운 것 | 어디 |
+|---|---|---|
+| 프레임 **파일** 저장이 없었다 (메타를 담을 자리도, 파일을 놓을 자리도 없었음) | `frames` 표 + `<data_dir>/<periodId>/frames/<id>.webp` + `frame.store` → `frame.stored` 왕복 | `src/store/frames.rs` · `src/main.rs` |
+| `bytesBase64` 를 읽을 방법이 없었다 (crate 를 더하지 않기로 함) | std 만으로 쓴 RFC 4648 디코더 | `src/store/base64.rs` |
+| `state.changed` 의 payload 를 아무도 보지 않았다 | `from`·`to` 가 계약의 여섯 `TutorState` 안이고 서로 다른지 검사 | `src/store/mod.rs` |
+| 강제 종료 복구를 **SQLite 파일 하나**로만 쟀다 | 프레임 파일까지 포함한 복구 측정을 한 건 더함 | `tests/recovery.rs` |
+
+### 프레임까지 포함한 강제 종료 측정 (새로 잰 것)
+
+자식이 10 ms 간격으로 **프레임 한 장씩**(WebP 34바이트 + `frames` 행 + `screen.frame` 기록) 쓰다가
+500 ms 뒤 `TerminateProcess` 로 죽는다. 재시작 뒤 표의 모든 행에 대해 파일 존재·바이트 수·내용·
+`screen.frame` 기록을 대조한다.
+
+| 항목 | 값 | 측정 방법 | 시각 |
+|---|---|---|---|
+| 남은 프레임 | 41~42장 / 회 | `cargo test --test recovery -- --nocapture` 3회 | 2026-09-02 |
+| 손실 창 (프레임) | 5 · 7 · 9 ms | 죽인 시각 − 마지막으로 남은 프레임의 `capturedAt` | 2026-09-02 |
+| `integrity_check` · `journal_mode` | `ok` · `wal` (3/3) | 재시작 직후 | 2026-09-02 |
+| 표 ↔ 파일 ↔ 기록 대조 | 어긋난 짝 0 (3/3) | 남은 모든 `frames` 행에 대해 파일과 `screen.frame` 을 찾아 대조 | 2026-09-02 |
+| 재시작 뒤 이어 쓰기 | 성공 (3/3) | 다시 연 저장소에 프레임 한 장 더 저장 | 2026-09-02 |
+| 테스트 수 | 41 → **65** (lib 30→50 · bin 9→11 · 통합 2→4) | `cargo test -p classmate-host` | 2026-09-02 |
+
+### 순서를 이렇게 고른 이유
+
+`store_frame` 은 **파일을 먼저 옮기고 그 다음에 트랜잭션을 커밋한다.** 그래서 강제 종료 뒤 남을 수
+있는 어긋남은 한 방향뿐이다.
+
+```
+검사 전부 통과 ─▶ <id>.webp.part 에 쓰기 ─▶ rename ─▶ [트랜잭션: screen.frame + frames 행] ─▶ commit
+                                          ▲                                                   ▲
+                          여기서 죽으면: 파일만 있고 행이 없다        여기서 죽으면: 셋 다 없다
+                          (짝 없는 파일 · 아무도 읽지 않으므로 해가 없다)
+```
+
+반대 순서(행 먼저 · 파일 나중)라면 "표에는 있는데 파일이 없는" 프레임이 생기고, 나중에 복습자료를
+만들 때 빈 이미지를 만난다. 그쪽이 더 나쁘므로 지금 순서를 골랐다. 트랜잭션이 실패하면 방금 옮긴
+파일도 지운다.
+
+### 결정에 미치는 영향 (덧붙임)
+
+- **확장이 준 문자열은 파일 자리를 정하지 못한다.** 계약의 `ScreenFrame.path` 는 받아서 **대조만**
+  하고, 실제 경로는 호스트가 `id` 로 `frames/<id>.webp` 를 다시 계산한다. `id` 는
+  `^sf-[A-Za-z0-9_-]{1,60}$` 라 `.` 도 `/` 도 `\` 도 섞일 수 없다.
+- **교시 폴더는 계약 모양의 `periodId` 로만 만든다.** `store::is_safe_period_id`("파일 이름으로
+  안전한가")보다 좁은 `frames::is_contract_period_id`(`YYYY-MM-DD-p<n>`)를 프레임에만 따로 쓴다.
+- **프레임 파일에도 fsync 를 하지 않는다.** SQLite 를 `synchronous=NORMAL` 로 둔 것과 같은 이유이고,
+  같은 한계(전원 차단 시 마지막 몇 장 소실)를 함께 진다.
+- **오류 이유는 고정 낱말이다.** `StoreError::reason_code()` 가 `duplicate-frame` ·
+  `frame-path-mismatch` · `invalid-frame-id` · `invalid-base64` 처럼 기계가 분기할 값을 준다.
+  사람이 읽는 문구는 stderr 로만 나가고, 어느 쪽에도 파일 경로와 확장이 보낸 본문이 섞이지 않는다.
+
+### 남은 위험 (덧붙임)
+
+| 위험 | 내용 | 지금 어떻게 다루나 |
+|---|---|---|
+| 짝 없는 `.webp` · `.part` 파일 | 강제 종료 순간에 쓰던 파일이 폴더에 남을 수 있다. 표에 없으므로 읽히지는 않지만 디스크는 차지한다 | 지금은 그대로 둔다. 교시 종료나 복습자료 생성 때 표에 없는 파일을 치우는 일은 다음 단위(`html-exporter`)에서 정한다 |
+| fixtures 의 `path` 가 고정 계약과 다르다 | `fixtures/.../screen-frames.json` 은 `frames/frame-001.webp` 로 적혀 있는데 고정 계약은 `frames/<id>.webp` 다. 지금 코드로는 fixture 를 그대로 넣으면 거절된다 | fixtures 는 이 단위의 소유가 아니라 고치지 않았다. 시험은 호스트가 계산한 경로로 바꿔 넣고, 어느 쪽을 맞출지는 계약 소유자가 정한다 |

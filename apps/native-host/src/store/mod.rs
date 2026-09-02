@@ -24,7 +24,9 @@
 //!   글자 집합을 좁혀서 받고, 내보내기 경로는 `.jsonl` 로 끝나고 부모 폴더가 이미 있을 때만 받는다.
 //! - 오류 문구에 파일 경로를 담지 않는다. 경로에는 사용자 이름이 들어가기 때문이다.
 
+pub mod base64;
 pub mod clock;
+pub mod frames;
 
 use std::env;
 use std::fmt;
@@ -64,6 +66,19 @@ pub const SESSION_EVENT_TYPES: &[&str] = &[
     "connector.status",
 ];
 
+/// 계약이 허락하는 튜터 상태 이름 전부.
+///
+/// 정본은 `packages/contracts/schemas/common.schema.json` 의 `TutorState.enum` 이고
+/// 여기 목록이 그와 같은지는 `tutor_states_match_the_contract` 시험이 원본 파일과 맞대어 본다.
+pub const TUTOR_STATES: &[&str] = &[
+    "CAPTURE",
+    "ANSWER_MINIMAL",
+    "EXIT_RECALL",
+    "FEEDBACK",
+    "FADE_SUPPORT",
+    "DELAYED_CHECK",
+];
+
 /// 세션 기록 한 줄. 필드는 `session-event.schema.json` 의 required 다섯 개와 같다.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SessionEvent {
@@ -88,12 +103,26 @@ pub struct StoredEvent {
 pub enum StoreError {
     /// 교시 이름을 파일 이름으로 쓸 수 없다.
     InvalidPeriodId,
+    /// 교시 이름이 계약의 `PeriodId`(`YYYY-MM-DD-p<n>`) 모양이 아니다.
+    PeriodIdShape,
     /// 이벤트의 `periodId` 가 이 저장소의 교시와 다르다.
     PeriodMismatch,
     /// 계약에 없는 사건 이름이다.
     UnknownEventType,
     /// `id` 가 비어 있거나 `payload` 가 객체가 아니다.
     MalformedEvent(&'static str),
+    /// `state.changed` 의 `from`·`to` 가 계약의 여섯 상태가 아니거나 서로 같다.
+    InvalidStateTransition,
+    /// 프레임 `id` 가 `^sf-[A-Za-z0-9_-]{1,60}$` 가 아니다.
+    InvalidFrameId,
+    /// 요청의 `path` 가 호스트가 `id` 로 다시 계산한 값과 다르다.
+    FramePathMismatch,
+    /// 프레임 메타의 어느 칸이 계약과 어긋난다.
+    MalformedFrame(&'static str),
+    /// 같은 `id` 의 프레임이 이미 있다.
+    DuplicateFrame,
+    /// `bytesBase64` 를 바이트로 읽지 못했다.
+    InvalidBase64(base64::Base64Error),
     /// WAL 이 켜지지 않았다. 담긴 값은 실제로 켜진 모드다.
     JournalMode(String),
     /// 내보내기 경로를 받을 수 없다.
@@ -115,9 +144,30 @@ impl fmt::Display for StoreError {
                 formatter,
                 "교시 이름이 파일 이름으로 쓸 수 없는 모양입니다 (영문·숫자·`-`·`_`·`.` 1~{PERIOD_ID_MAX_CHARS}자)"
             ),
+            Self::PeriodIdShape => write!(
+                formatter,
+                "교시 이름이 계약의 모양(YYYY-MM-DD-p<n>)이 아닙니다"
+            ),
             Self::PeriodMismatch => write!(formatter, "이 저장소의 교시와 다른 periodId 입니다"),
             Self::UnknownEventType => write!(formatter, "계약에 없는 사건 이름입니다"),
             Self::MalformedEvent(field) => write!(formatter, "{field} 값이 계약과 어긋납니다"),
+            Self::InvalidStateTransition => write!(
+                formatter,
+                "state.changed 의 from·to 가 계약의 여섯 상태가 아니거나 서로 같습니다"
+            ),
+            Self::InvalidFrameId => write!(
+                formatter,
+                "프레임 id 가 sf- 로 시작하는 영문·숫자·`-`·`_` 1~60자가 아닙니다"
+            ),
+            Self::FramePathMismatch => write!(
+                formatter,
+                "프레임 path 가 호스트가 id 로 다시 계산한 값과 다릅니다"
+            ),
+            Self::MalformedFrame(field) => {
+                write!(formatter, "프레임의 {field} 값이 계약과 어긋납니다")
+            }
+            Self::DuplicateFrame => write!(formatter, "같은 id 의 프레임이 이미 있습니다"),
+            Self::InvalidBase64(reason) => write!(formatter, "bytesBase64 · {reason}"),
             Self::JournalMode(actual) => {
                 write!(formatter, "journal_mode 가 wal 이 아니라 {actual} 입니다")
             }
@@ -138,9 +188,44 @@ impl fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
+impl StoreError {
+    /// 확장에게 돌려보낼 짧은 이유표.
+    ///
+    /// 사람이 읽는 [`fmt::Display`] 문구와 달리 **기계가 분기하기 좋은 고정 낱말**이다.
+    /// 문구는 다듬어도 이 값은 그대로 두어야 확장 쪽 처리가 깨지지 않는다.
+    /// 어느 값에도 파일 경로나 확장이 보낸 본문이 섞이지 않는다.
+    pub fn reason_code(&self) -> &'static str {
+        match self {
+            Self::InvalidPeriodId => "invalid-period-id",
+            Self::PeriodIdShape => "period-id-shape",
+            Self::PeriodMismatch => "period-mismatch",
+            Self::UnknownEventType => "unknown-event-type",
+            Self::MalformedEvent(_) => "malformed-event",
+            Self::InvalidStateTransition => "invalid-state-transition",
+            Self::InvalidFrameId => "invalid-frame-id",
+            Self::FramePathMismatch => "frame-path-mismatch",
+            Self::MalformedFrame(_) => "malformed-frame",
+            Self::DuplicateFrame => "duplicate-frame",
+            Self::InvalidBase64(_) => "invalid-base64",
+            Self::JournalMode(_) => "journal-mode",
+            Self::UnusableExportPath => "unusable-export-path",
+            Self::NoDataDir => "no-data-dir",
+            Self::Io(_, _) => "io",
+            Self::Sqlite(_) => "sqlite",
+            Self::Json(_) => "json",
+        }
+    }
+}
+
 impl From<rusqlite::Error> for StoreError {
     fn from(error: rusqlite::Error) -> Self {
         Self::Sqlite(error)
+    }
+}
+
+impl From<base64::Base64Error> for StoreError {
+    fn from(error: base64::Base64Error) -> Self {
+        Self::InvalidBase64(error)
     }
 }
 
@@ -189,6 +274,9 @@ impl SessionStore {
              CREATE INDEX IF NOT EXISTS events_at ON events (at);",
         )?;
 
+        // 프레임 표는 `frames` 모듈이 정본을 들고 있다. `IF NOT EXISTS` 라 예전 파일도 그대로 열린다.
+        connection.execute_batch(frames::FRAMES_SCHEMA)?;
+
         Ok(Self {
             period_id: period_id.to_string(),
             path,
@@ -225,6 +313,9 @@ impl SessionStore {
         }
         if clock::rfc3339_to_epoch_millis(&event.at).is_none() {
             return Err(StoreError::MalformedEvent("at"));
+        }
+        if event.kind == "state.changed" {
+            check_state_changed(&event.payload)?;
         }
 
         let payload =
@@ -392,6 +483,28 @@ pub fn sqlite_version() -> &'static str {
     rusqlite::version()
 }
 
+/// `state.changed` 의 payload 가 계약과 맞는지 본다.
+///
+/// **이 한 종류만 본다.** 상태기계는 앱이 통제하고(§3-4) 그 흐름을 나중에 되짚는 근거가 이
+/// 두 칸이라, 모르는 상태 이름이나 제자리 전이(`from == to`)가 파일에 남으면 되짚을 수 없다.
+/// 다른 사건의 payload 는 각자 담당 단위가 볼 몫이라 여기서 손대지 않는다.
+fn check_state_changed(payload: &Value) -> Result<()> {
+    let from = payload
+        .get("from")
+        .and_then(Value::as_str)
+        .ok_or(StoreError::InvalidStateTransition)?;
+    let to = payload
+        .get("to")
+        .and_then(Value::as_str)
+        .ok_or(StoreError::InvalidStateTransition)?;
+
+    if !TUTOR_STATES.contains(&from) || !TUTOR_STATES.contains(&to) || from == to {
+        return Err(StoreError::InvalidStateTransition);
+    }
+
+    Ok(())
+}
+
 /// 교시 이름이 파일 이름으로 안전한지 본다. 경로 구분자·상위 폴더 표기를 막는다.
 pub fn is_safe_period_id(period_id: &str) -> bool {
     if period_id.is_empty() || period_id.chars().count() > PERIOD_ID_MAX_CHARS {
@@ -431,6 +544,8 @@ mod tests {
     use super::*;
     use std::collections::BTreeSet;
     use std::sync::atomic::{AtomicU32, Ordering};
+
+    use serde_json::json;
 
     const FIXTURE_PERIOD: &str = "2026-09-02-p3";
 
@@ -771,6 +886,112 @@ mod tests {
             .collect();
 
         assert_eq!(ours, contract, "계약의 사건 이름 목록과 같아야 한다");
+    }
+
+    #[test]
+    fn tutor_states_match_the_contract() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/contracts/schemas/common.schema.json");
+        let text = fs::read_to_string(&path).expect("계약 스키마를 읽을 수 있어야 한다");
+        let schema: Value = serde_json::from_str(&text).expect("스키마는 JSON 이다");
+
+        let contract: BTreeSet<String> = schema["definitions"]["TutorState"]["enum"]
+            .as_array()
+            .expect("TutorState.enum 이 있어야 한다")
+            .iter()
+            .map(|value| value.as_str().expect("문자열이다").to_string())
+            .collect();
+        let ours: BTreeSet<String> = TUTOR_STATES
+            .iter()
+            .map(|name| (*name).to_string())
+            .collect();
+
+        assert_eq!(ours, contract, "계약의 상태 이름 목록과 같아야 한다");
+    }
+
+    #[test]
+    fn the_golden_state_changes_are_accepted_as_they_are() {
+        let dir = temp_dir("state-ok");
+        let store = SessionStore::open(&dir, FIXTURE_PERIOD).expect("열려야 한다");
+
+        // fixtures 의 state.changed 네 줄(ev-p3-013 · 018 · 021 · 026)을 손대지 않고 넣는다.
+        let changes: Vec<SessionEvent> = fixture_events()
+            .into_iter()
+            .filter(|event| event.kind == "state.changed")
+            .collect();
+        let ids: Vec<&str> = changes.iter().map(|event| event.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            vec!["ev-p3-013", "ev-p3-018", "ev-p3-021", "ev-p3-026"]
+        );
+
+        for change in &changes {
+            store.append(change).expect("계약대로면 들어가야 한다");
+        }
+        assert_eq!(store.count().expect("셈"), 4);
+    }
+
+    #[test]
+    fn state_changes_that_break_the_contract_are_refused() {
+        let dir = temp_dir("state-bad");
+        let store = SessionStore::open(&dir, FIXTURE_PERIOD).expect("열려야 한다");
+        let good = fixture_events()
+            .into_iter()
+            .find(|event| event.kind == "state.changed")
+            .expect("fixtures 에 state.changed 가 있다");
+
+        let cases: [(&str, Value); 6] = [
+            ("모르는 to", json!({ "from": "CAPTURE", "to": "SLEEP" })),
+            (
+                "모르는 from",
+                json!({ "from": "capture", "to": "FEEDBACK" }),
+            ),
+            ("제자리 전이", json!({ "from": "CAPTURE", "to": "CAPTURE" })),
+            ("payload 없음", json!({})),
+            ("to 만 있음", json!({ "to": "FEEDBACK" })),
+            (
+                "문자열이 아님",
+                json!({ "from": "CAPTURE", "to": ["FEEDBACK"] }),
+            ),
+        ];
+
+        for (index, (label, payload)) in cases.into_iter().enumerate() {
+            let mut broken = good.clone();
+            broken.id = format!("ev-state-{index:03}");
+            broken.payload = payload;
+
+            assert!(
+                matches!(
+                    store.append(&broken),
+                    Err(StoreError::InvalidStateTransition)
+                ),
+                "{label} 은 거절해야 한다"
+            );
+        }
+
+        assert_eq!(store.count().expect("셈"), 0);
+        assert_eq!(
+            StoreError::InvalidStateTransition.reason_code(),
+            "invalid-state-transition"
+        );
+    }
+
+    #[test]
+    fn other_event_payloads_are_not_second_guessed() {
+        // 범위를 넘지 않는다는 뜻이다. state.changed 가 아니면 payload 안을 보지 않는다.
+        let dir = temp_dir("state-scope");
+        let store = SessionStore::open(&dir, FIXTURE_PERIOD).expect("열려야 한다");
+
+        let odd = SessionEvent {
+            id: "ev-scope-001".to_string(),
+            period_id: FIXTURE_PERIOD.to_string(),
+            at: "2026-09-02T10:32:18+09:00".to_string(),
+            kind: "panel.opened".to_string(),
+            payload: json!({ "from": "SLEEP", "to": "SLEEP", "whatever": 1 }),
+        };
+
+        store.append(&odd).expect("다른 사건은 그대로 받는다");
+        assert_eq!(store.count().expect("셈"), 1);
     }
 
     #[test]

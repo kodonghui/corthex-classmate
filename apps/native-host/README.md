@@ -109,6 +109,28 @@ Chrome 확장                     classmate-host.exe
 짧아서 문제가 없지만, 임시 폴더에서 cargo 를 돌릴 때는
 `CARGO_TARGET_DIR=C:/Users/<이름>/AppData/Local/Temp/ccsq` 처럼 짧은 경로를 지정하세요.
 
+### 2-5. 화면 프레임 (`frames` 표 + `.webp` 파일)
+
+화면이 바뀐 순간의 WebP 한 장은 **파일 하나 · 표 한 줄 · 기록 한 줄** 세 자리에 함께 남습니다.
+확장이 `{"type":"frame.store","periodId":"…","frame":{ScreenFrame 아홉 칸},"bytesBase64":"…"}` 를
+보내면 호스트는 `{"type":"frame.stored","periodId":"…","id":"sf-p3-001","path":"frames/sf-p3-001.webp","bytes":34,"seq":10}`
+으로 답하고, 실패하면 `{"type":"error","message":"frame store failed","reason":"<고정 낱말>","received":"frame.store"}`
+로 답한 뒤 **프로세스는 계속 삽니다**. 파일은 `%LOCALAPPDATA%\CorthexClassmate\sessions\<periodId>\frames\<id>.webp`
+에 놓이고, 같은 교시의 `<periodId>.sqlite` 안 `frames` 표에 메타(`id` PK · `period_id` · `captured_at` ·
+`path` · `width` · `height` · `hash` · `changed_from_prev` · `source` · `bytes` · `seq`)가,
+`events` 표에는 `screen.frame` 한 줄(payload `{"screenFrameId":…,"changedFromPrev":…}`)이 **같은
+트랜잭션으로** 들어갑니다. 검사는 전부 파일을 만들기 전에 끝내고, 파일은 `<id>.webp.part` 에 다 쓴 뒤
+`rename` 으로 옮기며, 트랜잭션이 실패하면 방금 옮긴 파일을 지웁니다. 그래서 **표에 있는데 파일이 없는
+프레임은 생기지 않습니다**(반대로 강제 종료 순간의 짝 없는 파일 한 장은 남을 수 있고, 아무 데서도
+읽히지 않으므로 해가 없습니다). 받아들이는 값은 `id` 가 `^sf-[A-Za-z0-9_-]{1,60}$`, `periodId` 가
+계약의 `YYYY-MM-DD-p<n>`, `hash` 가 소문자 16진 8~64자, `source` 가 `meet-tab`·`fixture`,
+`width`·`height` 가 1 이상입니다. 무엇보다 **확장이 보낸 `path` 는 파일 자리를 정하지 않습니다** —
+호스트가 `id` 로 `frames/<id>.webp` 를 다시 계산해 **대조만** 하고 다르면 거절합니다(§4-7 · Gate D 결정).
+`bytesBase64` 는 의존성 없이 `src/store/base64.rs` 가 읽으며 공백·줄바꿈·URL 안전판 글자를 거절합니다.
+봉투 전체는 프로토콜 상한 1 MiB 안이어야 하고, 그보다 큰 프레임은 확장이 보내기 전에 건너뜁니다.
+`state.changed` 기록도 이때부터 payload 를 봅니다 — `from`·`to` 가 계약의 여섯 `TutorState` 안에 있고
+서로 달라야 하며, 다른 사건의 payload 는 그대로 받습니다.
+
 ---
 
 ## 3. 빌드와 테스트 (Windows · Git Bash · 저장소 루트에서)
