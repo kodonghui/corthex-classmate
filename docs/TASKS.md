@@ -62,7 +62,8 @@
   - [x] (5) tiro-connectors `904e2f3` — 확장 test 122(tiro 36→71) · flush() · tiro.hint_degraded · periodNumber 주입 · MCP/API 스텁 · 관찰기가 class 속성 변화를 놓치던 버그 수정
   - [x] (6) meet-capture `a817def` — 확장 test 169(capture 42→89) · threshold/sampleIntervalMs · EncoderSurface 주입 · FrameSink/MemoryFrameSink · frame.store 봉투 + 1 MiB 가드
   - [x] (9) transport `4735e53` — cargo 40+3(doc) · clippy 0 · fmt ok · `scripts/*.test.mjs` 27 · `host-roundtrip.mjs` hello 수신 · framing 복사(루트 protocol.rs 무변경) · 손 검증기(스키마 8종 include_str!, 유효 예시 14·무효 3·golden-ioc 통과, 모르는 키워드는 오류) · register-host dry-run 이 파일을 쓰지 않음 + 진입점 가드 · Cargo.lock 은 serde_json 3줄
-  - [ ] (7) session-store · (8) providers — 워커 진행 중
+  - [x] (7) session-store `08c6932` — cargo 65(lib 50·bin 11·통합 4) · clippy 0 · fmt ok · std base64 디코더 · `frames` 표 + `frame.store` Router 왕복 · `state.changed` from/to 검증 · 프레임 포함 복구 시험(손실 창 5~9 ms, 어긋난 짝 0) · fixture 경로 불일치는 A 안으로 해소(`5484f2d`)
+  - [ ] (8) providers — 워커 진행 중
 - [ ] 1라운드 후속(워커 메모 이월)
   - [ ] 사이드패널(2라운드): CSS 적재 순서 = design-tokens → `@classmate/ui-base/styles.css` → `@classmate/ui-classmate/styles.css` · fonts.css 의 bare specifier `@import` 가 WXT/Vite 빌드에서 해석되는지 확인
   - [ ] 사이드패널(2라운드): Alt+S 는 화면이 `e.code === "KeyS"` 로 듣기(StuckButton 은 kbd 안내만) · 접힘 타이머는 tutor-core FoldTimer · SourceFooter count 는 term 있을 때만 화면이 셈 · 대기 문구 3종은 tutor-core 상수 재사용 · 화면 분기는 TutorState 가 아니라 note 축
@@ -74,6 +75,7 @@
   - [ ] tiro: background 가 tiro.hint_degraded/selector_broken 을 connector.status payload 로 싣기 · tiro.stop 보내는 쪽(세션 관리) · classmate.periodNumber 쓰는 쪽(설정) · 새로고침 뒤 seq 이어 붙이기(세션 스토어) · 배너 등급(class-partial/structure) 결정
   - [ ] capture: background.ts 의 frameSink 를 NativeHostFrameSink 로 교체 · frame.stored/error 응답 처리 · 재연결 정책 · 캡처 버튼이 생기면 onClicked 갈래·`classmateCapture` 콘솔 손잡이 제거
   - [ ] transport 후속: 2라운드에 `src/main.rs` 가 `classmate_transport::framing` 을 쓰고 `src/protocol.rs` 삭제 · 루트 Cargo.toml 에 의존성 추가 · `Router::handle` 앞에 `validate_envelope` · 계약이 새 키워드/정규식/format 을 쓰면 `schema.rs` 도 함께 확장(UnsupportedSchema 로 멈춤)
+  - [ ] session-store 후속: 강제 종료 때 남는 짝 없는 `.webp`/`.part` 정리 시점(교시 종료 vs 복습자료 생성) 결정 · `StoreError::reason_code()` 낱말 목록(invalid-frame-id · frame-path-mismatch · duplicate-frame · invalid-base64 · malformed-frame · period-id-shape · invalid-state-transition)을 확장이 분기값으로 쓸지와 계약 문서화 여부
 - [x] 부채 해소(Gate D): `protocol::read_frame` 이 본문을 끝까지 읽은 UTF-8·JSON 오류는 `{"type":"error","message":"unreadable message"}` 로 답하고 계속 삶 · 헤더/본문 절단·상한 초과만 종료 (테스트 `serve_survives_a_frame_it_cannot_read`)
 - [ ] 부채: native-host `store::SESSION_EVENT_TYPES` 는 contracts `session-event.schema.json` enum 의 손 사본(테스트가 시험 시점에 대조) → Rust 타입 생성(typify)이 붙으면 생성물로 교체
 - [ ] 부채: rusqlite `=0.30.0` 고정(winsqlite3 기능이 0.31 부터 삭제) → MSVC 전환 시 `bundled` 로 바꾸고 고정 해제
