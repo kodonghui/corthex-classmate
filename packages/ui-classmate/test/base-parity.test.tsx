@@ -1,5 +1,8 @@
-// 기본 요소(internal/base)가 정본 jsx 와 같은 참·거짓 판정을 쓰는지 봅니다.
-// 이름과 props 가 같아도 판정이 다르면 2라운드에 @classmate/ui-base 로 갈아 끼울 때 화면이 조용히 바뀝니다.
+// 배럴이 내주는 기본 요소가 정본 jsx 와 같은 참·거짓 판정을 쓰는지 봅니다.
+//
+// 1라운드에는 internal/base 의 사본을 보는 시험이었습니다. 2라운드에 그 자리가 @classmate/ui-base 로
+// 바뀌었으니, 이제는 "갈아 끼운 뒤에도 판정이 그대로인가"를 보는 시험입니다. 이름과 props 가 같아도
+// 판정이 다르면 화면이 조용히 바뀝니다(StatusDot 의 label 이 그런 자리입니다).
 
 import { afterEach, describe, expect, it } from "vitest";
 

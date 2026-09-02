@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "@classmate/contracts": "workspace:*",
-    "lucide-react": "^1.38.0",
+    "@classmate/ui-base": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

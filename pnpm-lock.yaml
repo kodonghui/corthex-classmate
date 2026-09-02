@@ -190,9 +190,9 @@ importers:
       '@classmate/contracts':
         specifier: workspace:*
         version: link:../contracts
-      lucide-react:
-        specifier: ^1.38.0
-        version: 1.38.0(react@19.2.8)
+      '@classmate/ui-base':
+        specifier: workspace:*
+        version: link:../ui-base
       react:
         specifier: ^19.2.8
         version: 19.2.8

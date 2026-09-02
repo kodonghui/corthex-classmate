@@ -10,6 +10,10 @@
 //    (core·forms·feedback·surfaces·navigation·overlay 22개 + classmate 10개)
 //  - 정본 `design-system/ui_kits/sidepanel/*.jsx` 에서 실제로 쓰인 이름 (docs/DECISIONS.md 가 소스 정본으로 적었습니다)
 //  - 정본 `design-system/readme.md` ICONOGRAPHY 절의 어휘
+//  - 사이드패널 화면(2라운드)과 `@classmate/ui-classmate` 가 쓰는 이름 8개:
+//    arrow-up · files · history · list · message-circle · message-square-text · minimize-2 · refresh-cw.
+//    정본에서는 `.jsx` 가 아니라 각 폴더의 `*.card.html`·`*.prompt.md` 예시에 나옵니다. 그래서 위 재귀
+//    훑기로는 안 잡히고, `test/icons.test.ts` 가 이 여덟 이름을 따로 이름 대고 요구합니다.
 // 금지: `sparkles` · `bot` · `brain` (docs/DECISIONS.md 디자인 정본 적용 기본값). 넣지 않습니다.
 //
 // `test/icons.test.ts` 가 위 두 곳을 재귀로 훑어 쓰인 이름을 뽑고 이 맵과 대조합니다.
@@ -17,6 +21,7 @@
 
 import {
   ArrowLeft,
+  ArrowUp,
   Bookmark,
   Check,
   ChevronDown,
@@ -27,14 +32,21 @@ import {
   CircleHelp,
   Clock,
   CodeXml,
+  Files,
   GitCompare,
   Hand,
+  History,
   Info,
+  List,
   LoaderCircle,
+  MessageCircle,
+  MessageSquareText,
   Mic,
+  Minimize2,
   Minus,
   Monitor,
   PauseCircle,
+  RefreshCw,
   Settings2,
   Trash2,
   WifiOff,
@@ -45,6 +57,7 @@ import {
 /** kebab-case 아이콘 이름 → lucide-react 컴포넌트. */
 export const ICON_MAP = {
   "arrow-left": ArrowLeft, // 돌아가기
+  "arrow-up": ArrowUp, // 질문 보내기 (전사 위로 올리기)
   bookmark: Bookmark, // 붙잡음
   check: Check, // 체크박스 켜짐 · 고른 추측
   "chevron-down": ChevronDown, // 펼침 표시
@@ -55,14 +68,21 @@ export const ICON_MAP = {
   "circle-help": CircleHelp, // 추론
   clock: Clock, // 자료 지연
   "code-xml": CodeXml, // IntelliJ
+  files: Files, // 복습자료·기록 묶음
   "git-compare": GitCompare, // 내 코드와 비교
   hand: Hand, // 지금 막혔어요
+  history: History, // 기록 화면
   info: Info, // 알림 배너
+  list: List, // 목록 보기
   "loader-circle": LoaderCircle, // 버튼 진행 표시
+  "message-circle": MessageCircle, // 후속 질문
+  "message-square-text": MessageSquareText, // 답 · 대화
   mic: Mic, // 전사(Tiro)
+  "minimize-2": Minimize2, // 답 접기
   minus: Minus, // 체크박스 중간 상태
   monitor: Monitor, // Meet 화면
   "pause-circle": PauseCircle, // 잠시 멈춤 배너
+  "refresh-cw": RefreshCw, // 다시 시도
   "settings-2": Settings2, // 설정
   "trash-2": Trash2, // 오늘 기록 지우기 (ui_kits/sidepanel/SettingsScreen.jsx)
   "wifi-off": WifiOff, // 연결 끊김 배너

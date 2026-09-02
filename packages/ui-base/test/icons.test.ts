@@ -118,6 +118,25 @@ describe("아이콘 맵", () => {
     }
   });
 
+  it("사이드패널·ui-classmate 가 쓰는 이름 8개도 맵에 있다", () => {
+    // 2라운드에 @classmate/ui-classmate 의 internal/base 사본을 이 패키지로 갈아 끼우면서
+    // 그쪽 맵이 담고 있던 여덟 이름을 여기로 옮겼습니다. 정본에서는 `.jsx` 가 아니라 각 폴더의
+    // `*.card.html`·`*.prompt.md` 예시에 나오는 이름이라 위의 재귀 훑기로는 잡히지 않습니다.
+    // 그래서 이름을 손으로 적어 요구합니다. 하나라도 빠지면 그 자리에 빈 span 이 그려집니다.
+    for (const name of [
+      "arrow-up",
+      "files",
+      "history",
+      "list",
+      "message-circle",
+      "message-square-text",
+      "minimize-2",
+      "refresh-cw",
+    ]) {
+      expect(lookupIcon(name), `${name} 은 맵에 있어야 합니다`).toBeDefined();
+    }
+  });
+
   it("아이콘이 아닌 name 속성은 아이콘으로 세지 않는다", () => {
     // 정본 SettingsScreen 의 <RadioGroup name="len"> 은 폼 필드 이름입니다.
     expect(iconNamesInCanon()).not.toContain("len");
