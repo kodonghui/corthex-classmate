@@ -19,6 +19,7 @@ export {
   periodFileName,
   periodKey,
 } from "./assets.ts";
+export type { FrameRef } from "./assets.ts";
 export {
   ANSWER_DETAIL_LABELS_KO,
   ANSWER_STATUS_LABELS_KO,

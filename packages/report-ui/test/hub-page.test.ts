@@ -63,6 +63,18 @@ describe("하루 허브 · 모자란 자료", () => {
     expect(findUnbalancedTags(html)).toEqual([]);
   });
 
+  it("교시 번호가 겹치면 밀려난 번들에 링크를 걸지 않는다", () => {
+    const first = makeSyntheticBundle({ periodId: "2026-09-02-p1", index: 1, subject: "먼저 온 1교시" });
+    const second = makeSyntheticBundle({ periodId: "2026-09-02-p1-again", index: 1, subject: "나중에 온 1교시" });
+    const html = renderHubHtml([first, second], { tokenCss: STUB_TOKEN_CSS });
+    expect(html).toContain('<a href="period-1.html">먼저 온 1교시</a>');
+    // 밀려난 번들도 period-1.html 이라 링크를 걸면 다른 교시가 열립니다. 그래서 글자로만 적습니다.
+    expect(html).toContain("나중에 온 1교시");
+    expect(html).not.toContain('<a href="period-1.html">나중에 온 1교시</a>');
+    expect(html).toContain("교시 번호가 없거나, 그 번호 칸이 이미 차 있어요.");
+    expect(html).toContain("1교시 칸이 이미 차 있어 상세 페이지를 만들지 않았어요");
+  });
+
   it("교시 번호를 모르는 번들은 따로 모아 둔다", () => {
     const nameless = makeSyntheticBundle({
       periodId: "2026-09-02-morning",

@@ -6,7 +6,7 @@ import { EVIDENCE_LABELS_KO as CONTRACT_EVIDENCE_LABELS_KO } from "@classmate/co
 
 import { readPeriodBundle } from "../src/bundle.ts";
 import { ANSWER_STATUS_LABELS_KO } from "../src/labels.ts";
-import { renderPeriodHtml } from "../src/render.ts";
+import { joinInlineCss, renderHubHtml, renderPeriodHtml } from "../src/render.ts";
 import { findUnbalancedTags, GOLDEN_BUNDLE_DIR, makeSyntheticBundle, STUB_TOKEN_CSS } from "./helpers.ts";
 import type { Answer, TranscriptSegment } from "@classmate/contracts";
 
@@ -147,5 +147,26 @@ describe("모델이 준 문자열은 태그가 되지 않는다 (§4-7)", () => 
 
   it("이스케이프한 뒤에도 태그 짝은 맞다", () => {
     expect(findUnbalancedTags(html)).toEqual([]);
+  });
+});
+
+describe("인라인 <style> 방어선", () => {
+  it("보통 CSS 는 줄바꿈으로 그대로 잇는다", () => {
+    expect(joinInlineCss([":root{ --a: 1px; }", "", ".x{ color: red; }"])).toBe(
+      ":root{ --a: 1px; }\n\n.x{ color: red; }",
+    );
+  });
+
+  it("</style 가 든 CSS 는 조용히 넘기지 않고 던진다", () => {
+    expect(() => joinInlineCss([":root{}", "</style><script>alert(1)</script>"])).toThrow(/style/);
+    expect(() => joinInlineCss(["</ STYLE >"])).toThrow(/style/);
+  });
+
+  it("바깥에서 넘긴 tokenCss 로도 문서를 깨뜨릴 수 없다", () => {
+    const attack = "</style><script>alert(1)</script><style>";
+    expect(() => renderPeriodHtml(makeSyntheticBundle(), { tokenCss: attack })).toThrow(/style/);
+    expect(() => renderHubHtml([], { tokenCss: attack })).toThrow(/style/);
+    // 막지 않았다면 만들어졌을 문서에는 <script> 가 그대로 들어갑니다.
+    expect(renderPeriodHtml(makeSyntheticBundle(), { tokenCss: STUB_TOKEN_CSS })).not.toContain("<script");
   });
 });

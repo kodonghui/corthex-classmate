@@ -65,12 +65,12 @@ export const PAGE_CSS = `
   font: var(--type-body);
 }
 
+/* 카드는 헤어라인 테두리만 씁니다. 정본은 그림자를 떠 있는 것(Dialog · Toast · Tooltip)에만 허락합니다. */
 .card {
   background: var(--surface-card);
   border: var(--border-w) solid var(--border-hairline);
   border-radius: var(--radius-lg);
   padding: var(--space-6);
-  box-shadow: var(--shadow-sm);
 }
 .card + .card { margin-top: var(--space-5); }
 .card-title { margin: 0 0 var(--space-4); font: var(--type-body-strong); color: var(--text-body); }
@@ -153,15 +153,18 @@ export const PAGE_CSS = `
 .code-block code { font: var(--type-code); white-space: pre; }
 .card > .code-block { margin-top: var(--space-5); }
 
-.frame { display: grid; grid-template-columns: max-content 1fr; gap: var(--space-6); align-items: start; }
+/* 수업 화면은 읽으라고 넣는 그림입니다. 그림 칸을 max-content 로 두면 1280px 원본이 페이지를 밀어내므로
+   두 칸 모두 minmax(0, ...) 으로 접히게 둡니다. 크기 값은 정본 토큰에 없어 명시 값을 씁니다(README 참고). */
+.frame { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--space-6); align-items: start; }
 .frame-image {
-  width: var(--space-10);
-  height: var(--space-10);
+  width: 100%;
+  max-width: 100%;
+  height: auto;
+  max-height: 360px;
   object-fit: contain;
   background: var(--surface-sunken);
   border: var(--border-w) solid var(--border-hairline);
   border-radius: var(--radius-sm);
-  image-rendering: pixelated;
 }
 
 .timeline { margin: 0; padding: 0; list-style: none; }
