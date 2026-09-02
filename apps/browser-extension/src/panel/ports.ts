@@ -1,6 +1,7 @@
 // 사이드패널 스토어와 바깥(라이브 어댑터 · service worker)이 만나는 자리의 타입만 둡니다.
 // 2라운드 고정 계약 (다). 구현은 replay-store.ts(단위 1b)와 src/live/**(단위 2)가 맡고,
 // 이 파일의 타입은 세 단위가 같은 문장을 보도록 오케스트레이터가 미리 못 박았습니다.
+// 패널 쪽 구현은 `ReplayStore`(라이브 모드 · `ReplayStore.live({ periodId, startMs, askPort })`)입니다.
 
 import type {
   Answer,

@@ -4,7 +4,14 @@
 import { createValidator, formatErrors, type SchemaName } from "@classmate/contracts";
 import { describe, expect, it } from "vitest";
 
-import { GOLDEN_BUNDLE, GOLDEN_TERMS, guessesForLine, parseJsonl } from "./golden-bundle";
+import {
+  emptyBundle,
+  GOLDEN_BUNDLE,
+  GOLDEN_TERMS,
+  guessesForLine,
+  LIVE_EDITOR_PLACEHOLDER_ID,
+  parseJsonl,
+} from "./golden-bundle";
 
 function expectValid(schema: SchemaName, value: unknown, what: string): void {
   const validate = createValidator(schema);
@@ -53,5 +60,26 @@ describe("골든 fixture 묶음", () => {
 
   it("parseJsonl 은 빈 줄을 건너뛴다", () => {
     expect(parseJsonl<{ a: number }>('{"a":1}\n\n  \n{"a":2}\n')).toEqual([{ a: 1 }, { a: 2 }]);
+  });
+});
+
+describe("라이브 빈 묶음", () => {
+  const START = Date.parse("2026-09-02T10:00:00+09:00");
+
+  it("자료는 비어 있고 편집기 자리표시는 계약 스키마를 통과한다", () => {
+    const bundle = emptyBundle("2026-09-02-p9", START);
+    expect(bundle.transcript).toHaveLength(0);
+    expect(bundle.frames).toHaveLength(0);
+    expect(bundle.events).toHaveLength(0);
+    expect(bundle.questions).toEqual({});
+    expect(bundle.answers).toEqual({});
+    expect(bundle.editor.id).toBe(LIVE_EDITOR_PLACEHOLDER_ID);
+    expectValid("editor-context", bundle.editor, "라이브 자리표시 편집기 문맥");
+  });
+
+  it("제목은 넘긴 값을 쓰고 없으면 '수업' 이다", () => {
+    expect(emptyBundle("2026-09-02-p9", START).subject).toBe("수업");
+    expect(emptyBundle("2026-09-02-p9", START, "IoC 와 DI").subject).toBe("IoC 와 DI");
+    expect(emptyBundle("2026-09-02-p9", START).periodIndex).toBe(1);
   });
 });
