@@ -1,0 +1,26 @@
+import React from 'react';
+import { css, cx } from '../core/cm.js';
+import { Icon } from '../core/Icon.jsx';
+
+css('cm-chip', `
+.cm-chip{display:inline-flex;align-items:center;gap:6px;height:var(--control-h-sm);padding:0 10px;border:1px solid var(--border-hairline);border-radius:var(--radius-md);background:var(--surface-card);color:var(--text-secondary);font:var(--type-label);cursor:pointer;white-space:nowrap;transition:var(--transition-color);user-select:none;margin:0;-webkit-tap-highlight-color:transparent}
+.cm-chip:hover{background:var(--surface-hover);color:var(--text-body);border-color:var(--border-strong)}
+.cm-chip:active{background:var(--surface-pressed)}
+.cm-chip:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.cm-chip--selected,.cm-chip--selected:hover{background:var(--ink-50);border-color:var(--ink-200);color:var(--ink-700)}
+.cm-chip[disabled]{color:var(--text-disabled);background:var(--surface-card);border-color:var(--border-hairline);cursor:default}
+.cm-chipgroup{display:flex;flex-wrap:wrap;gap:6px}
+`);
+
+export function Chip({ icon, selected = false, disabled = false, children, className, type = 'button', ...rest }) {
+  return (
+    <button type={type} className={cx('cm-chip', selected && 'cm-chip--selected', className)} aria-pressed={selected || undefined} disabled={disabled} {...rest}>
+      {icon ? <Icon name={icon} size={14} /> : null}
+      {children}
+    </button>
+  );
+}
+
+export function ChipGroup({ children, className, style }) {
+  return <div className={cx('cm-chipgroup', className)} style={style}>{children}</div>;
+}

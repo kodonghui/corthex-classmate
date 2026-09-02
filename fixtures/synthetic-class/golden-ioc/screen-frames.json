@@ -1,0 +1,24 @@
+[
+  {
+    "id": "sf-p3-001",
+    "periodId": "2026-09-02-p3",
+    "capturedAt": "2026-09-02T10:32:16+09:00",
+    "path": "frames/frame-001.webp",
+    "width": 1,
+    "height": 1,
+    "hash": "9c3a7e5510e2c8b4",
+    "changedFromPrev": true,
+    "source": "fixture"
+  },
+  {
+    "id": "sf-p3-002",
+    "periodId": "2026-09-02-p3",
+    "capturedAt": "2026-09-02T10:32:40+09:00",
+    "path": "frames/frame-002.webp",
+    "width": 1,
+    "height": 1,
+    "hash": "9c3a7e551062c1a4",
+    "changedFromPrev": true,
+    "source": "fixture"
+  }
+]

@@ -1,0 +1,21 @@
+{
+  "id": "q-p3-002",
+  "periodId": "2026-09-02-p3",
+  "askedAt": "2026-09-02T10:32:52+09:00",
+  "kind": "code-flow",
+  "text": "생성자 주입으로 바꾸면 무엇이 달라져요?",
+  "anchor": {
+    "segmentId": "ts-p3-008",
+    "word": "생성자"
+  },
+  "snapshot": {
+    "transcriptSegmentIds": ["ts-p3-006", "ts-p3-007", "ts-p3-008"],
+    "screenFrameId": "sf-p3-002",
+    "editorContextId": "ec-p3-001",
+    "ages": {
+      "transcriptSec": 3,
+      "screenSec": 12,
+      "editorSec": 35
+    }
+  }
+}

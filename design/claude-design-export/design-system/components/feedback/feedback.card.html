@@ -1,0 +1,26 @@
+<!-- @dsCard group="Components" viewport="700x400" name="Feedback · Badge, Tag, Evidence, StatusDot, Banner, Toast, Tooltip" subtitle="Quiet status, labeled evidence, calm banners" -->
+<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{padding:16px}.g{display:grid;grid-template-columns:90px 1fr;row-gap:14px;align-items:start}.l{font:var(--type-caption);color:var(--text-tertiary);padding-top:4px}.r{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}.col{display:flex;flex-direction:column;gap:8px;min-width:0}.frame{width:380px;background:var(--surface-canvas);border:1px solid var(--border-hairline);border-radius:var(--radius-lg);overflow:hidden;position:relative}</style></head><body><div id="root"></div>
+<script type="text/babel">
+const ns = window.CorthexClassmateDesignSystem_a7a453;
+if (!ns) { document.getElementById('root').textContent = '번들이 아직 컴파일되지 않았어요'; } else {
+const { Badge, Tag, Evidence, StatusDot, Banner, Toast, Tooltip, IconButton } = ns;
+const { useState } = React;
+const Row = ({l, children}) => <><div className="l">{l}</div><div className="r">{children}</div></>;
+function App(){ return <div className="g">
+  <Row l="badge"><Badge tone="accent">3</Badge><Badge tone="soft">새 답변</Badge><Badge>12</Badge><Badge tone="live">기록 중</Badge><Badge tone="paused">일부 멈춤</Badge><Badge tone="off">끊김</Badge><Badge tone="accent" dot /><Badge tone="live" dot /></Row>
+  <Row l="tag"><Tag>3교시</Tag><Tag icon="mic" tone="sunken">Tiro</Tag><Tag mono>@Autowired</Tag><Tag tone="accent" onRemove={()=>{}}>의존성 주입</Tag><Tag icon="monitor">Meet 화면</Tag></Row>
+  <Row l="evidence"><Evidence type="verified" source="tiro" /><Evidence type="partial" source="meet" /><Evidence type="inferred" reason="테스트 이야기" /><Evidence type="delayed" source="intellij" /><Evidence type="verified" source="intellij">OrderService.java 3행</Evidence><Evidence type="inferred" block reason="선생님이 '주입'이라고만 말해서 생성자 주입으로 봤어요" style={{maxWidth:240}} /></Row>
+  <Row l="status dot"><StatusDot state="live" label="3교시 기록 중" /><StatusDot state="paused" label="Tiro 멈춤" /><StatusDot state="off" label="연결 끊김" /><StatusDot state="idle" label="수업 전" /><StatusDot state="live" label="기록 중" muted /></Row>
+  <Row l="banner"><div className="col" style={{width:'100%'}}><Banner tone="paused" title="Tiro 전사가 멈췄어요" description="Meet 화면과 코드는 계속 기록하고 있어요." action="다시 연결" onDismiss={()=>{}} /><div style={{display:'flex',gap:8}}><Banner tone="off" title="AI 연결을 기다리고 있어요" description="막힌 순간은 계속 저장돼요." style={{flex:1}} /><Banner tone="info" title="저장한 순간은 기록에서 볼 수 있어요" style={{flex:1}} /></div></div></Row>
+  <Row l="toast"><Toast icon="bookmark" message="저장했어요 · 설명을 준비하고 있어요" action="보기" /><Toast tone="light" icon="circle-check" live message="Tiro가 다시 연결됐어요" /></Row>
+  <Row l="tooltip"><Tooltip content="기록" open><IconButton icon="history" label="기록" /></Tooltip><span style={{width:24}} /><Tooltip content="Tiro 14:02" side="right" open><IconButton icon="mic" label="Tiro" /></Tooltip></Row>
+</div>; }
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+</script></body></html>

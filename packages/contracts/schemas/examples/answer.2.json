@@ -1,0 +1,10 @@
+{
+  "id": "ans-p3-004",
+  "questionId": "q-p3-004",
+  "createdAt": "2026-09-02T10:34:05+09:00",
+  "conclusion": "한 줄로 정리하고 있어요",
+  "evidence": "stale",
+  "chips": ["방금 내용", "더 쉽게"],
+  "provider": "claude",
+  "status": "queued"
+}

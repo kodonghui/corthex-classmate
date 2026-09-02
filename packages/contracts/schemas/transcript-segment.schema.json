@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/transcript-segment.schema.json",
+  "title": "TranscriptSegment",
+  "description": "교시 전사에서 흘러온 문장 한 조각입니다. 확장이 받은 도착 시각을 항상 남깁니다.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/definitions/Id" },
+    "periodId": { "$ref": "common.schema.json#/definitions/PeriodId" },
+    "seq": {
+      "description": "한 교시 안에서 이 조각의 순서입니다. 1 부터 늘어납니다.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "text": {
+      "description": "전사 문장 본문입니다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "state": {
+      "description": "final 은 확정된 문장, partial 은 아직 바뀔 수 있는 문장입니다.",
+      "type": "string",
+      "enum": ["final", "partial"]
+    },
+    "arrivedAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "spokenAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "source": {
+      "description": "이 조각이 어디에서 왔는지입니다.",
+      "type": "string",
+      "enum": ["tiro-share", "tiro-api", "fixture"]
+    }
+  },
+  "required": ["id", "periodId", "seq", "text", "state", "arrivedAt", "source"],
+  "additionalProperties": false
+}

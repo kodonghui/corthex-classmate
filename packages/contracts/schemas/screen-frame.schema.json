@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/screen-frame.schema.json",
+  "title": "ScreenFrame",
+  "description": "화면이 바뀐 순간만 남긴 WebP 프레임 한 장입니다. 전체 영상은 남기지 않습니다.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/definitions/Id" },
+    "periodId": { "$ref": "common.schema.json#/definitions/PeriodId" },
+    "capturedAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "path": {
+      "description": "교시 세션 폴더를 기준으로 한 WebP 상대 경로입니다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "width": {
+      "description": "프레임 가로 픽셀 수입니다.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "height": {
+      "description": "프레임 세로 픽셀 수입니다.",
+      "type": "integer",
+      "minimum": 1
+    },
+    "hash": {
+      "description": "변화 감지에 쓰는 dHash 값을 소문자 16진 문자열로 적습니다.",
+      "type": "string",
+      "pattern": "^[0-9a-f]+$",
+      "minLength": 8,
+      "maxLength": 64
+    },
+    "changedFromPrev": {
+      "description": "바로 앞 프레임과 견주어 화면이 바뀌었는지입니다.",
+      "type": "boolean"
+    },
+    "source": {
+      "description": "이 프레임이 어디에서 왔는지입니다.",
+      "type": "string",
+      "enum": ["meet-tab", "fixture"]
+    }
+  },
+  "required": [
+    "id",
+    "periodId",
+    "capturedAt",
+    "path",
+    "width",
+    "height",
+    "hash",
+    "changedFromPrev",
+    "source"
+  ],
+  "additionalProperties": false
+}

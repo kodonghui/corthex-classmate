@@ -1,0 +1,124 @@
+<!-- @dsCard group="Classmate side panel" viewport="560x900" name="Side panel · 듣는 중 → 단어 잡기 → 여백 메모 → 돌아가기" subtitle="Interactive: the teacher's words stream in; tap a dotted word (or a sentence) to catch the stuck moment" -->
+<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Corthex Classmate · 사이드패널</title>
+<link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>
+html,body{height:100%}
+body{background:#D8D4CC;display:flex;align-items:flex-start;justify-content:center;gap:20px;padding:20px;box-sizing:border-box;min-height:100vh}
+.cm-panel{position:relative;height:900px;max-height:calc(100vh - 40px);background:var(--surface-canvas);border:1px solid var(--paper-5);border-radius:var(--radius-lg);box-shadow:var(--shadow-md);overflow:hidden;display:flex;flex-direction:column;transition:width var(--duration-slow) var(--ease-out);flex:none}
+.cm-screen{display:flex;flex-direction:column;height:100%;min-height:0;animation:cm-fade-in var(--duration-base) var(--ease-enter) both}
+.cm-screen__body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;padding:12px var(--panel-inset) 16px;display:flex;flex-direction:column;gap:12px;scrollbar-width:thin;scrollbar-color:var(--paper-5) transparent}
+.cm-screen__body--flow{justify-content:flex-start;padding:16px calc(var(--panel-inset) + 4px) 20px}
+.cm-screen__body--flow>.cm-tf{margin-top:auto}
+.cm-screen__body--flush{padding-left:0;padding-right:0;gap:0}
+.cm-screen__bar{flex:none;padding:10px var(--panel-inset) 12px;border-top:1px solid var(--border-hairline);background:var(--surface-canvas)}
+.cm-kbd{display:inline-block;min-width:14px;padding:0 4px;border:1px solid var(--border-strong);border-bottom-width:2px;border-radius:3px;font:var(--type-time);font-size:10.5px;color:var(--text-secondary);background:var(--surface-card);text-align:center;line-height:14px;vertical-align:1px}
+.cm-group__label{font:var(--type-caption);color:var(--text-tertiary);padding:14px var(--panel-inset) 4px;position:sticky;top:0;background:var(--surface-canvas);z-index:1}
+.cm-rows{display:flex;flex-direction:column}
+.cm-rows>*+*{border-top:1px solid var(--border-hairline)}
+.cm-foot-note{margin:0;padding:20px var(--panel-inset) 8px;font:var(--type-caption);color:var(--text-4);text-align:center}
+.cm-set{display:flex;flex-direction:column;gap:12px;padding:16px var(--panel-inset)}
+.cm-set+.cm-set{border-top:1px solid var(--border-hairline)}
+.cm-set__h{font:var(--type-caption);color:var(--text-tertiary)}
+.cm-reply{padding:0 4px}
+.cm-reply__q{font:var(--type-caption);color:var(--text-tertiary);margin-bottom:4px}
+.cm-reply__a{font:var(--type-body);letter-spacing:var(--text-body-ls);color:var(--text-body)}
+.cm-demo{width:150px;flex:none;display:flex;flex-direction:column;gap:14px;padding:14px;background:var(--surface-card);border:1px solid var(--border-hairline);border-radius:var(--radius-lg);font:var(--type-caption);color:var(--text-tertiary);position:sticky;top:20px}
+.cm-demo__l{font-weight:700;color:var(--text-secondary)}
+.cm-demo__n{line-height:16px}
+@media (max-width:760px){body{flex-direction:column;align-items:center}.cm-demo{width:100%;max-width:520px;position:static}}
+</style></head><body><div id="root"></div>
+<script type="text/babel" src="data.jsx"></script>
+<script type="text/babel" src="ListeningScreen.jsx"></script>
+<script type="text/babel" src="DetailScreen.jsx"></script>
+<script type="text/babel" src="HistoryScreen.jsx"></script>
+<script type="text/babel" src="SettingsScreen.jsx"></script>
+<script type="text/babel">
+(() => {
+const ns = window.CorthexClassmateDesignSystem_a7a453;
+if (!ns) { document.getElementById('root').textContent = '번들이 아직 컴파일되지 않았어요'; return; }
+const { Tabs, Switch, Button } = ns;
+const { useState, useEffect, useRef } = React;
+const INSET = { 360: 14, 380: 16, 520: 20 };
+const START = new Date(); START.setHours(10, 32, 10, 0);
+const COLLAPSE_MS = 18000, PREP_MS = 1600;
+
+function App() {
+  const [width, setWidth] = useState(380);
+  const [screen, setScreen] = useState('home');
+  const [clock, setClock] = useState(START.getTime());
+  const [elapsed, setElapsed] = useState(-8);
+  const [moments, setMoments] = useState([]);
+  const [current, setCurrent] = useState(null);
+  const [tiroDown, setTiroDown] = useState(false);
+  const [aiDown, setAiDown] = useState(false);
+  const frozen = useRef(null);
+  useEffect(() => { const t = setInterval(() => { setClock(c => c + 1000); setElapsed(e => e + 1); }, 1000); return () => clearInterval(t); }, []);
+  // transcript lines that have "happened"; while Tiro is down nothing new arrives
+  useEffect(() => { if (tiroDown && frozen.current == null) frozen.current = elapsed; if (!tiroDown) frozen.current = null; }, [tiroDown]);
+  const cutoff = tiroDown && frozen.current != null ? frozen.current : elapsed;
+  const lines = window.CM_TRANSCRIPT.filter(l => l.at <= cutoff);
+  // resolve preparing → ready, and ready → collapsed on the clock
+  useEffect(() => {
+    setMoments(ms => ms.map(m => {
+      if (m.state === 'preparing' && !aiDown && clock >= m.readyAt) return { ...m, state: 'ready', collapseAt: clock + COLLAPSE_MS };
+      if (m.state === 'ready' && m.collapseAt && clock >= m.collapseAt) return { ...m, state: 'collapsed' };
+      return m;
+    }));
+  }, [clock, aiDown]);
+  const lastLine = lines[lines.length - 1];
+  const fmt = ms => { const d = new Date(ms); return [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join(':'); };
+  const catchTerm = (lineId, idx, seg) => {
+    const key = `${lineId}:${idx}`;
+    setMoments(ms => [...ms.filter(m => m.lineId !== lineId || m.state === 'collapsed').map(m => m.lineId === lineId ? { ...m, dismissed: true } : m), { id: 'm' + Date.now(), lineId, segKey: key, term: seg.text, time: fmt(clock), caughtAt: elapsed, state: 'preparing', readyAt: clock + PREP_MS }]);
+  };
+  const catchSentence = lineId => {
+    setMoments(ms => [...ms.map(m => m.lineId === lineId ? { ...m, dismissed: true } : m), { id: 'm' + Date.now(), lineId, term: null, time: fmt(clock), caughtAt: elapsed, state: 'choosing' }]);
+  };
+  const onGuess = (id, g) => setMoments(ms => ms.map(m => {
+    if (m.id !== id) return m;
+    const idx = Number(g.replace('g', '')) - 1; const term = (window.CM_GUESS_TERM[m.lineId] || [])[idx] || 'new';
+    return { ...m, guess: g, term, state: 'preparing', readyAt: clock + PREP_MS };
+  }));
+  const onChip = (id, c) => setMoments(ms => ms.map(m => m.id === id ? { ...m, chip: m.chip === c ? null : c, collapseAt: null } : m));
+  const onExpand = id => setMoments(ms => ms.map(m => m.id === id ? { ...m, state: 'ready', collapseAt: null } : m));
+  const onDetail = id => { setMoments(ms => ms.map(m => m.id === id ? { ...m, opened: true, collapseAt: null } : m)); setCurrent(id); setScreen('detail'); };
+  const onFollowUp = fid => setMoments(ms => ms.map(m => {
+    if (m.id !== current) return m; const a = window.CM_ANSWERS[m.term] || {};
+    const q = fid === 'easier' ? '더 쉽게' : fid === 'why' ? '왜 필요한데?' : '방금 내용';
+    const ans = fid === 'easier' ? a.easier : fid === 'why' ? a.why : `선생님은 지금 ${(([...lines].reverse().find(l => l.now) || {}).now) || '같은 내용을'} 이어가고 있어요. 마지막 문장: "${lastLine ? lastLine.segments.map(s => s.text).join('') : ''}"`;
+    return { ...m, reply: { q, a: ans, reason: fid === 'recent' ? '전사 마지막 문장 기준' : fid === 'easier' ? '비유로 바꿔 말했어요' : '수업 흐름에서 추론' } };
+  }));
+  useEffect(() => {
+    const onKey = e => { if (e.altKey && (e.key === 's' || e.key === 'S') && screen === 'home' && lastLine) { e.preventDefault(); catchSentence(lastLine.id); } };
+    window.addEventListener('keydown', onKey); return () => window.removeEventListener('keydown', onKey);
+  }, [screen, lastLine, clock]);
+  const cur = moments.find(m => m.id === current);
+
+  let view;
+  if (screen === 'detail' && cur) view = <DetailScreen key={cur.id} moment={cur} lines={lines} aiDown={aiDown} onBack={() => setScreen('home')} onFollowUp={onFollowUp} />;
+  else if (screen === 'history') view = <HistoryScreen moments={moments} onBack={() => setScreen('home')} onOpen={id => { setMoments(ms => ms.map(m => m.id === id ? { ...m, opened: true } : m)); setCurrent(id); setScreen('detail'); }} />;
+  else if (screen === 'settings') view = <SettingsScreen onBack={() => setScreen('home')} count={moments.length} onClear={() => { setMoments([]); setScreen('home'); }} />;
+  else view = <ListeningScreen lines={lines} clock={clock} moments={moments} tiroDown={tiroDown} aiDown={aiDown} onTerm={catchTerm} onSentence={catchSentence} onGuess={onGuess} onChip={onChip} onDetail={onDetail} onExpand={onExpand} onHistory={() => setScreen('history')} onSettings={() => setScreen('settings')} onReconnect={() => setTiroDown(false)} />;
+
+  return <>
+    <div className="cm-panel" style={{ width, '--panel-inset': INSET[width] + 'px' }} data-screen-label={screen}>
+      <div key={screen} style={{ display: 'contents' }}>{view}</div>
+    </div>
+    <aside className="cm-demo" aria-label="시연 컨트롤">
+      <span className="cm-demo__l">시연</span>
+      <div><div className="cm-demo__n" style={{ marginBottom: 6 }}>패널 폭</div><Tabs variant="segmented" size="sm" value={String(width)} onChange={v => setWidth(Number(v))} aria-label="패널 폭" items={[{ id: '360', label: '360' }, { id: '380', label: '380' }, { id: '520', label: '520' }]} /></div>
+      <Switch label="전사 끊김" labelPosition="end" checked={tiroDown} onChange={e => setTiroDown(e.target.checked)} />
+      <Switch label="튜터 끊김" labelPosition="end" checked={aiDown} onChange={e => setAiDown(e.target.checked)} />
+      <Button size="sm" onClick={() => { setElapsed(-8); setMoments([]); setScreen('home'); }}>수업 처음부터</Button>
+      <p className="cm-demo__n" style={{ margin: 0 }}>점선 단어를 누르면 붙잡아요. 문장을 누르거나 Alt+S면 문장 전체.</p>
+    </aside>
+  </>;
+}
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+})();
+</script></body></html>

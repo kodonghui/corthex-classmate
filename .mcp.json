@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tiro": {
+      "type": "http",
+      "url": "https://mcp.tiro.ooo/mcp"
+    }
+  }
+}

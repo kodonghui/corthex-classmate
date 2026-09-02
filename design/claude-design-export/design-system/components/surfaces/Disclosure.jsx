@@ -1,0 +1,33 @@
+import React, { useId, useState } from 'react';
+import { css, cx } from '../core/cm.js';
+import { Icon } from '../core/Icon.jsx';
+
+css('cm-disclosure', `
+.cm-disc{border-top:1px solid var(--border-hairline);min-width:0}
+.cm-disc--first{border-top:0}
+.cm-disc__btn{display:flex;align-items:center;justify-content:space-between;gap:8px;width:100%;min-height:40px;padding:8px 0;background:transparent;border:0;margin:0;text-align:left;cursor:pointer;color:var(--text-secondary);font:var(--type-label);transition:var(--transition-color);border-radius:var(--radius-sm)}
+.cm-disc__btn:hover{color:var(--text-body)}
+.cm-disc__btn:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.cm-disc__lbl{display:flex;align-items:center;gap:8px;min-width:0}
+.cm-disc__meta{font:var(--type-caption);color:var(--text-tertiary);font-weight:400}
+.cm-disc__chev{color:var(--text-tertiary);transition:transform var(--duration-base) var(--ease-out);display:flex}
+.cm-disc--open .cm-disc__chev{transform:rotate(180deg)}
+.cm-disc--open .cm-disc__btn{color:var(--text-body)}
+.cm-disc__body{padding:0 0 12px;font:var(--type-body);letter-spacing:var(--text-body-ls);color:var(--text-body);animation:cm-fade-in var(--duration-base) var(--ease-enter) both}
+`);
+
+export function Disclosure({ label, meta, icon, open, defaultOpen = false, onToggle, first = false, children, className, style }) {
+  const [inner, setInner] = useState(defaultOpen);
+  const isOpen = open === undefined ? inner : open;
+  const id = useId();
+  const toggle = () => { const next = !isOpen; if (open === undefined) setInner(next); onToggle && onToggle(next); };
+  return (
+    <div className={cx('cm-disc', isOpen && 'cm-disc--open', first && 'cm-disc--first', className)} style={style}>
+      <button type="button" className="cm-disc__btn" aria-expanded={isOpen} aria-controls={`cm-disc-${id}`} onClick={toggle}>
+        <span className="cm-disc__lbl">{icon ? <Icon name={icon} size={16} /> : null}<span>{label}</span>{meta ? <span className="cm-disc__meta">{meta}</span> : null}</span>
+        <span className="cm-disc__chev"><Icon name="chevron-down" size={16} /></span>
+      </button>
+      {isOpen ? <div id={`cm-disc-${id}`} className="cm-disc__body">{children}</div> : null}
+    </div>
+  );
+}

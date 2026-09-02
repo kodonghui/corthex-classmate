@@ -1,0 +1,2 @@
+# register-host.mjs 가 만드는 매니페스트는 PC 마다 절대 경로와 확장 ID 가 달라 커밋하지 않는다.
+manifest/*.json

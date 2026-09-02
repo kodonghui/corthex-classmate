@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<!-- @template name="Side panel · 듣는 중 (단어 잡기)" description="Listening screen of the 380×900 Chrome side panel: the teacher's words flow, a dotted word is tapped, the answer sits under the sentence as a margin note, one quiet status line at the bottom. Tweaks: note state, 전사 끊김." -->
+<helmet><script src="./ds-base.js"></script><script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script><style>body{margin:0;background:#D8D4CC}</style></helmet>
+<div style="width:380px;height:900px;margin:20px auto;background:#FBF9F4;border:1px solid #C8C4BC;border-radius:8px;overflow:hidden;display:flex;flex-direction:column;position:relative;box-shadow:0 1px 2px rgba(20,22,31,0.06), 0 6px 16px rgba(20,22,31,0.08);--panel-inset:16px" data-screen-label="듣는 중">
+<x-import component-from-global-scope="CorthexClassmateDesignSystem_a7a453.PanelHeader" status="{{ headerStatus }}" title="IoC 컨테이너와 의존성 주입" subtitle="3교시" time="10:32:41" hint-size="100%,44px"></x-import>
+<div style="flex:1;min-height:0;display:flex;flex-direction:column;justify-content:flex-end;padding:16px 20px 20px">
+<x-import component-from-global-scope="CorthexClassmateDesignSystem_a7a453.TranscriptFlow" lines="{{ lines }}" active="{{ active }}" onTerm="{{ onTerm }}" renderAfter="{{ renderAfter }}" tip="걸리는 말을 누르세요 · 문장을 누르면 문장 전체를 붙잡아요" hint-size="100%,520px"></x-import>
+</div>
+<x-import component-from-global-scope="CorthexClassmateDesignSystem_a7a453.SourceFooter" sources="{{ sources }}" count="{{ count }}" warn="{{ warn }}" hint-size="100%,40px"></x-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;noteState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;none&quot;,&quot;preparing&quot;,&quot;ready&quot;,&quot;collapsed&quot;],&quot;default&quot;:&quot;ready&quot;,&quot;tsType&quot;:&quot;'none' | 'preparing' | 'ready' | 'collapsed'&quot;,&quot;section&quot;:&quot;State&quot;},&quot;tiroPaused&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;State&quot;}}">
+class Component extends DCLogic {
+  state = { active: 'l3:2', chip: null };
+  renderVals() {
+    const ns = window.CorthexClassmateDesignSystem_a7a453 || {};
+    const noteState = this.props.noteState ?? 'ready';
+    const tiroPaused = this.props.tiroPaused ?? false;
+    const lines = [
+      { id: 'l1', time: '10:31:24', segments: [{ text: '지금까지는 필요한 객체를 ' }, { text: 'new', term: true }, { text: '로 만들어 썼습니다.' }] },
+      { id: 'l2', time: '10:31:47', segments: [{ text: 'OrderService', term: true }, { text: '가 ' }, { text: 'OrderRepository', term: true }, { text: '를 직접 만들고 있죠.' }] },
+      { id: 'l3', time: '10:32:00', segments: [{ text: '객체를 직접 ' }, { text: 'new', term: true }, { text: '로 만들면 클래스끼리 ' }, { text: '강하게 묶입니다', term: true }, { text: '.' }] },
+      { id: 'l4', time: '10:32:18', segments: [{ text: '이제 ' }, { text: '생성 책임', term: true }, { text: '을 ' }, { text: '컨테이너', term: true }, { text: '에 맡겨 볼게요.' }] },
+      { id: 'l5', time: '10:32:41', segments: [{ text: '생성자', term: true }, { text: '로 받으면 어떤 ' }, { text: '구현', term: true }, { text: '이 오든 상관없어지죠.' }] },
+    ];
+    const C = 'new 자체가 틀린 건 아니지만, 객체를 바꾸거나 테스트하기 어려워져서 생성 책임을 분리해요.';
+    const E = '내가 직접 만들면 나중에 다른 걸로 바꾸기 힘들어요. 그래서 만드는 일을 남에게 맡겨요.';
+    const el = React.createElement;
+    const renderAfter = id => {
+      if (id === 'l3' && noteState !== 'none' && ns.MarginNote) {
+        const chip = this.state.chip;
+        const props = { term: 'new', time: '10:32:18', state: noteState, conclusion: chip === 'easier' ? E : C,
+          evidence: [{ type: 'verified', source: 'tiro' }, { type: 'partial', source: 'meet' }, { type: 'inferred', reason: '테스트 이야기' }],
+          chips: [{ id: 'easier', label: '더 쉽게', selected: chip === 'easier' }, { id: 'why', label: '왜 필요한데?' }, { id: 'mine', label: '내 코드와 비교', selected: chip === 'mine' }],
+          onChip: c => this.setState({ chip: chip === c ? null : c }), onDetail: () => {}, collapseText: '18초 뒤 접혀요 · 기록에 남아요', onExpand: () => {} };
+        const kids = chip === 'mine' && ns.CodeCompare ? el(ns.CodeCompare, { rows: [{ who: '선생님', code: 'private final OrderRepository repo;', tone: 'teacher' }, { who: '내 코드', code: '… repo = new OrderRepository();', tone: 'mine' }] }) : null;
+        return el(ns.MarginNote, props, kids);
+      }
+      if (id === 'l4' && noteState !== 'none' && ns.NowLine) return el(ns.NowLine, { style: { marginTop: 4 } }, '지금 · 생성자 주입 코드로 넘어갔어요');
+      return null;
+    };
+    return {
+      lines,
+      active: noteState === 'none' ? undefined : this.state.active,
+      onTerm: (id, i) => this.setState({ active: `${id}:${i}` }),
+      renderAfter,
+      headerStatus: tiroPaused ? 'paused' : 'live',
+      sources: [{ key: 'tiro', state: tiroPaused ? 'paused' : 'live', ago: tiroPaused ? '멈춤' : '4초 전' }, { key: 'meet', ago: '2초 전' }, { key: 'intellij', ago: '1초 전' }],
+      count: noteState === 'none' ? 0 : 1,
+      warn: tiroPaused ? { title: '전사가 잠시 멈췄어요.', description: '화면과 코드는 계속 기록하고 있어요.', action: '다시 연결', onAction: () => {} } : undefined,
+    };
+  }
+}
+</script>
+</body>
+</html>

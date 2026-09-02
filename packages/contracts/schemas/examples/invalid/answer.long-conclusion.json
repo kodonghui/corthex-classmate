@@ -1,0 +1,10 @@
+{
+  "id": "ans-p3-901",
+  "questionId": "q-p3-003",
+  "createdAt": "2026-09-02T10:32:24+09:00",
+  "conclusion": "바꾸거나 테스트하기 어려워져서 만드는 책임을 컨테이너에 맡겨 두는 편이에요",
+  "evidence": "confirmed",
+  "chips": ["더 쉽게", "내 코드와 비교"],
+  "provider": "mock",
+  "status": "answered"
+}

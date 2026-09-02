@@ -1,0 +1,14 @@
+{
+  "id": "ec-p3-007",
+  "periodId": "2026-09-02-p3",
+  "capturedAt": "2026-09-02T10:32:17+09:00",
+  "filePath": "src/main/java/com/example/order/OrderService.java",
+  "language": "java",
+  "visibleRange": {
+    "startLine": 12,
+    "endLine": 28
+  },
+  "excerpt": "public class OrderService {\n    private final OrderRepository repository = new OrderRepository();\n\n    public void place(Order order) {\n        repository.save(order);\n    }\n}",
+  "caretLine": 18,
+  "source": "fixture"
+}

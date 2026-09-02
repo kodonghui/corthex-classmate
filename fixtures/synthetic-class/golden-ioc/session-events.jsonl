@@ -1,0 +1,27 @@
+{"id":"ev-p3-001","periodId":"2026-09-02-p3","at":"2026-09-02T10:31:35+09:00","type":"period.started","payload":{"periodId":"2026-09-02-p3","subject":"IoC 컨테이너와 의존성 주입","index":3}}
+{"id":"ev-p3-002","periodId":"2026-09-02-p3","at":"2026-09-02T10:31:36+09:00","type":"connector.status","payload":{"connector":"tiro-share","state":"connected","latencySec":6}}
+{"id":"ev-p3-003","periodId":"2026-09-02-p3","at":"2026-09-02T10:31:37+09:00","type":"connector.status","payload":{"connector":"meet-tab","state":"connected","latencySec":2}}
+{"id":"ev-p3-004","periodId":"2026-09-02-p3","at":"2026-09-02T10:31:38+09:00","type":"connector.status","payload":{"connector":"intellij-mcp","state":"connected","latencySec":1}}
+{"id":"ev-p3-005","periodId":"2026-09-02-p3","at":"2026-09-02T10:31:40+09:00","type":"transcript.segment","payload":{"segmentId":"ts-p3-001","seq":1,"state":"final"}}
+{"id":"ev-p3-006","periodId":"2026-09-02-p3","at":"2026-09-02T10:31:52+09:00","type":"transcript.segment","payload":{"segmentId":"ts-p3-002","seq":2,"state":"final"}}
+{"id":"ev-p3-007","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:03+09:00","type":"transcript.segment","payload":{"segmentId":"ts-p3-003","seq":3,"state":"final"}}
+{"id":"ev-p3-008","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:14+09:00","type":"transcript.segment","payload":{"segmentId":"ts-p3-004","seq":4,"state":"final"}}
+{"id":"ev-p3-009","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:14+09:00","type":"transcript.segment","payload":{"segmentId":"ts-p3-005","seq":5,"state":"final"}}
+{"id":"ev-p3-010","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:16+09:00","type":"screen.frame","payload":{"screenFrameId":"sf-p3-001","changedFromPrev":true}}
+{"id":"ev-p3-011","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:17+09:00","type":"editor.context","payload":{"editorContextId":"ec-p3-001","filePath":"src/main/java/com/ohgiraffers/order/OrderService.java"}}
+{"id":"ev-p3-012","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:18+09:00","type":"question.asked","payload":{"questionId":"q-p3-001","kind":"confused","word":"new"}}
+{"id":"ev-p3-013","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:18+09:00","type":"state.changed","payload":{"from":"CAPTURE","to":"ANSWER_MINIMAL"}}
+{"id":"ev-p3-014","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:24+09:00","type":"answer.completed","payload":{"questionId":"q-p3-001","answerId":"ans-p3-001","evidence":"confirmed","provider":"mock"}}
+{"id":"ev-p3-015","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:26+09:00","type":"transcript.segment","payload":{"segmentId":"ts-p3-006","seq":6,"state":"final"}}
+{"id":"ev-p3-016","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:38+09:00","type":"transcript.segment","payload":{"segmentId":"ts-p3-007","seq":7,"state":"final"}}
+{"id":"ev-p3-017","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:40+09:00","type":"screen.frame","payload":{"screenFrameId":"sf-p3-002","changedFromPrev":true}}
+{"id":"ev-p3-018","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:42+09:00","type":"state.changed","payload":{"from":"ANSWER_MINIMAL","to":"CAPTURE"}}
+{"id":"ev-p3-019","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:49+09:00","type":"transcript.segment","payload":{"segmentId":"ts-p3-008","seq":8,"state":"final"}}
+{"id":"ev-p3-020","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:52+09:00","type":"question.asked","payload":{"questionId":"q-p3-002","kind":"code-flow","word":"생성자"}}
+{"id":"ev-p3-021","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:52+09:00","type":"state.changed","payload":{"from":"CAPTURE","to":"ANSWER_MINIMAL"}}
+{"id":"ev-p3-022","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:58+09:00","type":"answer.failed","payload":{"questionId":"q-p3-002","provider":"mock","message":"튜터 답변이 잠시 멈췄어요. 수업 기록과 질문 지점은 계속 저장하고 있어요. 연결되면 설명을 완성해 둘게요."}}
+{"id":"ev-p3-023","periodId":"2026-09-02-p3","at":"2026-09-02T10:32:59+09:00","type":"answer.queued","payload":{"questionId":"q-p3-002","answerId":"ans-p3-002-queued","evidence":"stale"}}
+{"id":"ev-p3-024","periodId":"2026-09-02-p3","at":"2026-09-02T10:33:00+09:00","type":"transcript.segment","payload":{"segmentId":"ts-p3-009","seq":9,"state":"partial"}}
+{"id":"ev-p3-025","periodId":"2026-09-02-p3","at":"2026-09-02T10:33:07+09:00","type":"answer.recovered","payload":{"questionId":"q-p3-002","answerId":"ans-p3-002","evidence":"partial","provider":"mock"}}
+{"id":"ev-p3-026","periodId":"2026-09-02-p3","at":"2026-09-02T10:33:09+09:00","type":"state.changed","payload":{"from":"ANSWER_MINIMAL","to":"CAPTURE"}}
+{"id":"ev-p3-027","periodId":"2026-09-02-p3","at":"2026-09-02T10:33:14+09:00","type":"period.ended","payload":{"periodId":"2026-09-02-p3","questionCount":2,"frameCount":2}}

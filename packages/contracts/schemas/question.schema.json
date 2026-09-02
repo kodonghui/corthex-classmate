@@ -1,0 +1,55 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/question.schema.json",
+  "title": "Question",
+  "description": "단어나 문장을 붙잡은 순간과 그때 봉인한 자료 묶음입니다.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/definitions/Id" },
+    "periodId": { "$ref": "common.schema.json#/definitions/PeriodId" },
+    "askedAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "kind": {
+      "description": "어떤 방식으로 붙잡았는지입니다.",
+      "type": "string",
+      "enum": ["missed", "confused", "code-flow", "teacher-evidence", "free"]
+    },
+    "text": {
+      "description": "직접 적은 질문 문장입니다. 단어만 붙잡았으면 넣지 않습니다.",
+      "type": "string"
+    },
+    "anchor": {
+      "title": "QuestionAnchor",
+      "description": "전사에서 붙잡은 자리입니다.",
+      "type": "object",
+      "properties": {
+        "segmentId": { "$ref": "common.schema.json#/definitions/Id" },
+        "word": {
+          "description": "붙잡은 낱말입니다.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["segmentId"],
+      "additionalProperties": false
+    },
+    "snapshot": {
+      "title": "QuestionSnapshot",
+      "description": "붙잡은 순간에 봉인한 자료들입니다. 뒤에 자료가 바뀌어도 이 묶음은 그대로 남습니다.",
+      "type": "object",
+      "properties": {
+        "transcriptSegmentIds": {
+          "description": "봉인한 전사 조각들의 식별자입니다. 최근 것이 뒤에 옵니다.",
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/definitions/Id" }
+        },
+        "screenFrameId": { "$ref": "common.schema.json#/definitions/Id" },
+        "editorContextId": { "$ref": "common.schema.json#/definitions/Id" },
+        "ages": { "$ref": "common.schema.json#/definitions/SourceAges" }
+      },
+      "required": ["transcriptSegmentIds", "ages"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["id", "periodId", "askedAt", "kind", "snapshot"],
+  "additionalProperties": false
+}

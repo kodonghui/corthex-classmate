@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "allow": [
+      "Bash(pnpm:*)",
+      "Bash(pnpm *)",
+      "Bash(cargo:*)",
+      "Bash(cargo *)",
+      "Bash(git add:*)",
+      "Bash(git add *)",
+      "Bash(git commit:*)",
+      "Bash(git commit *)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(node --check:*)",
+      "Bash(node apps/native-host/scripts/register-host.mjs:*)",
+      "Bash(node packages/contracts/scripts/generate.mjs:*)",
+      "Bash(npx playwright:*)",
+      "Bash(npx playwright *)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(git push)",
+      "Bash(* git push *)",
+      "Bash(rm:*)",
+      "Bash(rm -rf *)",
+      "Bash(* rm -rf *)",
+      "Bash(gh repo create:*)",
+      "Bash(gh repo create *)",
+      "Bash(node apps/native-host/scripts/register-host.mjs --apply:*)",
+      "Bash(reg add:*)",
+      "Bash(reg delete:*)"
+    ],
+    "deny": [
+      "Read(./.env*)",
+      "Read(**/.env*)",
+      "Read(**/*.token)",
+      "Read(.claude/settings.local.json)"
+    ]
+  },
+  "env": {
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
+  }
+}

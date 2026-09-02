@@ -1,0 +1,39 @@
+import React from 'react';
+import { css, cx } from './cm.js';
+import { Icon } from './Icon.jsx';
+
+css('cm-button', `
+.cm-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid transparent;border-radius:var(--radius-md);font:var(--type-label);letter-spacing:var(--text-label-ls);color:inherit;cursor:pointer;white-space:nowrap;transition:var(--transition-color);text-decoration:none;user-select:none;-webkit-tap-highlight-color:transparent;margin:0}
+.cm-btn:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.cm-btn[disabled]{cursor:default}
+.cm-btn--sm{height:var(--control-h-sm);padding:0 10px;font-size:12px}
+.cm-btn--md{height:var(--control-h-md);padding:0 14px}
+.cm-btn--lg{height:var(--control-h-lg);padding:0 18px;font-size:14px}
+.cm-btn--full{width:100%}
+.cm-btn--primary{background:var(--action-primary);color:var(--text-on-accent)}
+.cm-btn--primary:hover{background:var(--action-primary-hover)}
+.cm-btn--primary:active{background:var(--action-primary-active)}
+.cm-btn--primary[disabled]{background:var(--action-primary-disabled);color:var(--text-disabled)}
+.cm-btn--secondary{background:var(--surface-card);border-color:var(--border-strong);color:var(--text-body)}
+.cm-btn--secondary:hover{background:var(--surface-hover)}
+.cm-btn--secondary:active{background:var(--surface-pressed)}
+.cm-btn--secondary[disabled]{color:var(--text-disabled);border-color:var(--border-hairline);background:var(--surface-card)}
+.cm-btn--ghost{background:transparent;color:var(--text-secondary)}
+.cm-btn--ghost:hover{background:var(--surface-hover);color:var(--text-body)}
+.cm-btn--ghost:active{background:var(--surface-pressed)}
+.cm-btn--ghost[disabled]{color:var(--text-disabled);background:transparent}
+.cm-btn--danger{background:transparent;color:var(--status-off-text)}
+.cm-btn--danger:hover{background:var(--status-off-bg)}
+.cm-btn--danger[disabled]{color:var(--text-disabled)}
+`);
+
+export function Button({ variant = 'secondary', size = 'md', icon, iconRight, full = false, loading = false, disabled = false, children, className, type = 'button', ...rest }) {
+  const iconSize = size === 'sm' ? 14 : size === 'lg' ? 18 : 16;
+  return (
+    <button type={type} className={cx('cm-btn', `cm-btn--${variant}`, `cm-btn--${size}`, full && 'cm-btn--full', className)} disabled={disabled || loading} aria-busy={loading || undefined} {...rest}>
+      {loading ? <Icon name="loader-circle" size={iconSize} style={{ animation: 'cm-spin 1.2s linear infinite' }} /> : icon ? <Icon name={icon} size={iconSize} /> : null}
+      {children}
+      {iconRight ? <Icon name={iconRight} size={iconSize} /> : null}
+    </button>
+  );
+}

@@ -1,0 +1,151 @@
+/*
+  듣는 중 화면의 최소 스타일 (Phase 0 스켈레톤).
+
+  Phase 2 에 packages/design-tokens 로 갈아 끼웁니다. 그때 Pretendard Variable 과
+  전체 토큰(--paper-0…5 · --ink-50…900 · 상태색)이 들어오므로, 여기서는 화면 하나를
+  세우는 데 꼭 필요한 변수만 둡니다. 색은 반드시 변수로만 씁니다.
+*/
+
+:root {
+  --paper-0: #ffffff; /* 카드 · 헤더/푸터 면 */
+  --paper-1: #f7f7f5; /* 패널 바탕 */
+  --ink: #1b212a; /* 본문 잉크 */
+  --ink-600: #155d53; /* 유일한 악센트 */
+  --ink-400: #5d9b90; /* 포커스 링 · 조용한 상태 점 */
+
+  /* 위 다섯 색에서 파생. 새 색을 들이지 않기 위해 color-mix 를 씁니다. */
+  --hairline: color-mix(in srgb, var(--ink) 10%, transparent);
+  --ink-muted: color-mix(in srgb, var(--ink) 55%, var(--paper-1));
+  --ink-meta: color-mix(in srgb, var(--ink) 45%, var(--paper-0));
+
+  --panel-inset: 16px; /* 380px 기준 */
+  --header-height: 44px;
+}
+
+/* 좁은 패널(320~360)과 넓은 패널(520 이상)에서 여백만 바뀝니다. */
+@media (max-width: 360px) {
+  :root {
+    --panel-inset: 14px;
+  }
+}
+
+@media (min-width: 520px) {
+  :root {
+    --panel-inset: 20px;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  background: var(--paper-1);
+  color: var(--ink);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Apple SD Gothic Neo', 'Malgun Gothic',
+    system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* 키보드 포커스는 항상 보이게 (master-prompt §3-7). */
+:focus-visible {
+  outline: 2px solid var(--ink-400);
+  outline-offset: 2px;
+}
+
+/* 패널은 헤더 · 본문 · 푸터 세 칸. 본문만 늘어납니다. */
+.cm-panel {
+  display: grid;
+  grid-template-rows: var(--header-height) 1fr auto;
+  height: 100vh;
+  height: 100dvh;
+}
+
+.cm-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 var(--panel-inset);
+  background: var(--paper-0);
+  border-bottom: 1px solid var(--hairline);
+  min-width: 0;
+}
+
+.cm-panel__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+/* 상태 점 하나. 채도 있는 블록이 아니라 6px 점입니다. */
+.cm-status-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.cm-status-dot--idle {
+  background: var(--ink-400);
+}
+
+.cm-panel__body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--panel-inset);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.cm-empty {
+  margin: 0;
+  color: var(--ink-muted);
+  font-size: 13px;
+  text-align: center;
+  text-wrap: pretty;
+}
+
+.cm-panel__footer {
+  padding: 8px var(--panel-inset);
+  background: var(--paper-0);
+  border-top: 1px solid var(--hairline);
+  min-width: 0;
+}
+
+/* 한 줄 유지. 320px 에서도 잘리지 않는 길이입니다. */
+.cm-source-footer {
+  margin: 0;
+  color: var(--ink-meta);
+  font-size: 12px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 모션은 250ms 이하. 지금은 화면 전환이 없어 감속 설정만 존중합니다. */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

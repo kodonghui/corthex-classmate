@@ -1,0 +1,8 @@
+/* Minimal global defaults so any consumer page reads as Classmate. */
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--surface-canvas); color: var(--text-body); font: var(--type-body); letter-spacing: var(--text-body-ls); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; word-break: keep-all; overflow-wrap: anywhere; }
+a { color: var(--text-link); text-decoration: none; text-underline-offset: 2px; }
+a:hover { color: var(--text-link-hover); text-decoration: underline; }
+code, kbd, pre { font: var(--type-code); }
+::selection { background: var(--ink-100); color: var(--text-1); }
+:focus-visible { outline: none; box-shadow: var(--focus-ring); border-radius: var(--radius-sm); }

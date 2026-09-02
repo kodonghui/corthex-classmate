@@ -1,0 +1,7 @@
+# 이 PC 에는 Visual Studio Build Tools(link.exe) 가 없어 기본 MSVC 타깃은 링크 단계에서 실패한다.
+# GNU 툴체인은 rustup 이 자체 링커(rust-mingw)를 함께 내려 주므로 Build Tools 없이 빌드된다.
+# Build Tools 를 설치하면 channel 을 "stable" 로 되돌린다. 근거: docs/DECISIONS.md 2026-09-02.
+[toolchain]
+channel = "stable-x86_64-pc-windows-gnu"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

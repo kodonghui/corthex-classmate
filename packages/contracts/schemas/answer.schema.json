@@ -1,0 +1,78 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/answer.schema.json",
+  "title": "Answer",
+  "description": "붙잡은 질문에 대한 한 문장 결론과 그 뒤에 접혀 있는 설명입니다.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/definitions/Id" },
+    "questionId": { "$ref": "common.schema.json#/definitions/Id" },
+    "createdAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "conclusion": {
+      "description": "40자 이내 한 문장 결론입니다. 해요체로 적습니다.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 40
+    },
+    "evidence": { "$ref": "evidence-level.schema.json" },
+    "nowLine": {
+      "description": "수업이 지금 어디까지 갔는지 알리는 한 줄입니다. 보기 지금 · 생성자 주입 코드로 넘어갔어요",
+      "type": "string"
+    },
+    "chips": {
+      "description": "이어서 누를 수 있는 짧은 후속 요청 2~3개입니다.",
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "minItems": 2,
+      "maxItems": 3
+    },
+    "details": {
+      "title": "AnswerDetails",
+      "description": "자세히 화면에서 접혀 있는 네 자리입니다. 채운 자리만 펼쳐집니다.",
+      "type": "object",
+      "properties": {
+        "why": {
+          "description": "왜 그런가요 자리입니다.",
+          "type": "string"
+        },
+        "compareMyCode": {
+          "description": "내 코드와 비교 자리입니다.",
+          "type": "string"
+        },
+        "screenCode": {
+          "description": "선생님 화면 코드 자리입니다.",
+          "type": "string"
+        },
+        "teacherSaid": {
+          "description": "선생님이 말한 부분 자리입니다.",
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "provider": {
+      "description": "이 답을 만든 AI 제공자입니다.",
+      "type": "string",
+      "enum": ["claude", "codex", "mock"]
+    },
+    "status": {
+      "description": "답의 진행 상태입니다. 멈춘 답은 queued 로 남았다가 recovered 로 돌아옵니다.",
+      "type": "string",
+      "enum": ["answered", "queued", "error", "recovered"]
+    }
+  },
+  "required": [
+    "id",
+    "questionId",
+    "createdAt",
+    "conclusion",
+    "evidence",
+    "chips",
+    "provider",
+    "status"
+  ],
+  "additionalProperties": false
+}

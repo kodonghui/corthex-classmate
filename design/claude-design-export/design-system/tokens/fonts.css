@@ -1,0 +1,6 @@
+/* Webfonts. No brand font files were provided — CDN substitutes:
+   UI/Korean: Pretendard Variable (jsDelivr, dynamic subset; weights 400/500/700 via the variable axis). Code: IBM Plex Mono (400/500).
+   Pretendard replaces Gothic A1 (2026-09-02) for tighter Korean/Latin harmony — the same family Tiro's own UI uses.
+   To self-host, replace these @imports with @font-face rules pointing at ../assets/fonts/*.woff2. */
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap');

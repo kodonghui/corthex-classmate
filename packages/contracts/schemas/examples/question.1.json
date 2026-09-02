@@ -1,0 +1,24 @@
+{
+  "id": "q-p3-003",
+  "periodId": "2026-09-02-p3",
+  "askedAt": "2026-09-02T10:32:18+09:00",
+  "kind": "confused",
+  "text": "왜 new로 직접 만들면 안 돼요?",
+  "anchor": {
+    "segmentId": "ts-p3-019",
+    "word": "new"
+  },
+  "snapshot": {
+    "transcriptSegmentIds": [
+      "ts-p3-019",
+      "ts-p3-020"
+    ],
+    "screenFrameId": "sf-p3-042",
+    "editorContextId": "ec-p3-007",
+    "ages": {
+      "transcriptSec": 4,
+      "screenSec": 2,
+      "editorSec": 1
+    }
+  }
+}

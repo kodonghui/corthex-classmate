@@ -1,0 +1,2 @@
+# rustfmt 가 Windows 에서 CRLF 로 되돌려 놓지 않게 고정한다(.editorconfig 의 eol=lf 와 맞춘다).
+newline_style = "Unix"

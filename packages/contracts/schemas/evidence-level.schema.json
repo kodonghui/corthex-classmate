@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/evidence-level.schema.json",
+  "title": "EvidenceLevel",
+  "description": "답에 붙는 근거 단계 네 가지입니다. 색뿐 아니라 문구로도 구분합니다.",
+  "type": "string",
+  "enum": ["confirmed", "partial", "inferred", "stale"],
+  "x-labels-ko": {
+    "confirmed": "확인됨",
+    "partial": "일부 확인",
+    "inferred": "추론",
+    "stale": "자료 지연"
+  }
+}

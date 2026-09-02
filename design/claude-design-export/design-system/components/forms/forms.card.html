@@ -1,0 +1,25 @@
+<!-- @dsCard group="Components" viewport="700x380" name="Forms · Input, Select, Checkbox, Radio, Switch, Chip" subtitle="Fields sized for a 380px panel" -->
+<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{padding:16px}.g{display:grid;grid-template-columns:90px 1fr;row-gap:14px;align-items:start}.l{font:var(--type-caption);color:var(--text-tertiary);padding-top:4px}.r{display:flex;gap:8px;align-items:center;flex-wrap:wrap;min-width:0}.col{display:flex;flex-direction:column;gap:8px;min-width:0}.frame{width:380px;background:var(--surface-canvas);border:1px solid var(--border-hairline);border-radius:var(--radius-lg);overflow:hidden;position:relative}</style></head><body><div id="root"></div>
+<script type="text/babel">
+const ns = window.CorthexClassmateDesignSystem_a7a453;
+if (!ns) { document.getElementById('root').textContent = '번들이 아직 컴파일되지 않았어요'; } else {
+const { Input, Select, Checkbox, Radio, RadioGroup, Switch, Chip, ChipGroup, IconButton } = ns;
+const { useState } = React;
+const Row = ({l, children}) => <><div className="l">{l}</div><div className="r">{children}</div></>;
+function App(){ const [len,setLen]=useState('short'); const [sel,setSel]=useState('easier'); return <div className="g">
+  <Row l="input"><Input placeholder="짧게 물어봐도 돼요" icon="message-circle" trailing={<IconButton icon="arrow-up" label="보내기" size="sm" />} style={{width:260}} /><Input label="이름" hint="수업 기록에 표시돼요" defaultValue="김하늘" style={{width:180}} /><Input invalid hint="비어 있어요" placeholder="필수" style={{width:150}} /><Input disabled defaultValue="비활성" style={{width:110}} /></Row>
+  <Row l="select"><Select label="교시" options={['1교시','2교시','3교시','4교시']} defaultValue="3교시" style={{width:140}} /><Select size="sm" options={[{value:'ko',label:'한국어'},{value:'en',label:'English'}]} style={{width:120,alignSelf:'flex-end'}} /></Row>
+  <Row l="checkbox"><Checkbox label="Tiro 전사" description="최근 30초" defaultChecked /><Checkbox label="Meet 화면" indeterminate /><Checkbox label="IntelliJ 코드" /><Checkbox label="비활성" disabled defaultChecked /></Row>
+  <Row l="radio"><RadioGroup name="len" direction="row" value={len} onChange={setLen} options={[{value:'short',label:'짧게',description:'한 문장 결론만'},{value:'full',label:'자세히',description:'근거와 코드까지'},{value:'x',label:'비활성',disabled:true}]} /></Row>
+  <Row l="switch"><Switch label="막힌 순간 자동 저장" description="Tiro가 '질문 있나요'를 감지하면" defaultChecked style={{width:260}} /><Switch label="소리 알림" labelPosition="end" /><Switch label="비활성" labelPosition="end" disabled defaultChecked /></Row>
+  <Row l="chips"><ChipGroup>{[['easier','더 쉽게','minimize-2'],['example','예시 더','list'],['code','코드로','code-xml'],['why','왜 그런가요','circle-help']].map(([id,t,i])=><Chip key={id} icon={i} selected={sel===id} onClick={()=>setSel(id)}>{t}</Chip>)}<Chip disabled>비활성</Chip></ChipGroup></Row>
+</div>; }
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+}
+</script></body></html>

@@ -1,0 +1,23 @@
+<!-- @dsCard group="Components" viewport="700x300" name="Core · Button, IconButton, Icon" subtitle="Variants, sizes, states, icons" -->
+<!DOCTYPE html><html lang="ko"><head><meta charset="utf-8"><link rel="stylesheet" href="../../styles.css">
+<script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script src="../../_ds_bundle.js"></script>
+<style>body{padding:16px}.g{display:grid;grid-template-columns:90px 1fr;row-gap:12px;align-items:center}.l{font:var(--type-caption);color:var(--text-tertiary)}.r{display:flex;gap:8px;align-items:center;flex-wrap:wrap}</style></head><body><div id="root"></div>
+<script type="text/babel">
+const ns = window.CorthexClassmateDesignSystem_a7a453;
+if (!ns) { document.getElementById('root').textContent = '번들이 아직 컴파일되지 않았어요'; } else {
+const { Button, IconButton, Icon } = ns;
+const Row = ({l, children}) => <><div className="l">{l}</div><div className="r">{children}</div></>;
+ReactDOM.createRoot(document.getElementById('root')).render(<div className="g">
+  <Row l="variants"><Button variant="primary">지금 막혔어요</Button><Button>다시 연결</Button><Button variant="ghost">예시 더</Button><Button variant="danger">기록 지우기</Button></Row>
+  <Row l="sizes"><Button variant="primary" size="sm">더 쉽게</Button><Button variant="primary" size="md">코드로 보기</Button><Button variant="primary" size="lg" icon="arrow-left">수업으로 돌아가기</Button></Row>
+  <Row l="icons"><Button icon="refresh-cw">다시 연결</Button><Button variant="ghost" iconRight="chevron-down">왜 그런가요</Button><Button variant="primary" loading>저장 중</Button></Row>
+  <Row l="disabled"><Button variant="primary" disabled>지금 막혔어요</Button><Button disabled>다시 연결</Button><Button variant="ghost" disabled>예시 더</Button></Row>
+  <Row l="icon button"><IconButton icon="x" label="닫기" /><IconButton icon="history" label="기록" active /><IconButton icon="settings-2" label="설정" variant="secondary" /><IconButton icon="arrow-left" label="뒤로" size="sm" /><IconButton icon="mic" label="Tiro" disabled /></Row>
+  <Row l="icon 16/18/20"><span style={{color:'var(--text-secondary)'}}><Icon name="hand" size={16}/></span><span style={{color:'var(--text-secondary)'}}><Icon name="bookmark" size={18}/></span><span style={{color:'var(--ink-600)'}}><Icon name="circle-check" size={20}/></span><span style={{color:'var(--text-tertiary)'}}><Icon name="circle-help" size={20}/></span><span style={{color:'var(--text-secondary)'}}><Icon name="mic" size={18}/><Icon name="monitor" size={18} style={{marginLeft:8}}/><Icon name="code-xml" size={18} style={{marginLeft:8}}/></span></Row>
+</div>);
+}
+</script></body></html>

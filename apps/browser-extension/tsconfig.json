@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "//": "WXT 는 `wxt prepare`(postinstall) 때 .wxt/tsconfig.json 과 #imports 를 만듭니다. 그래서 pnpm install 전에는 이 파일이 풀리지 않고 typecheck 도 실패합니다.",
+  "//extends": "배열 extends 는 뒤가 이깁니다. 루트 base 를 먼저 깔고 WXT 생성본을 덮은 뒤, 아래 compilerOptions 로 base 의 strict 계열을 다시 못 박습니다.",
+  "extends": ["../../tsconfig.base.json", "./.wxt/tsconfig.json"],
+  "compilerOptions": {
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+    "jsx": "react-jsx",
+    "noEmit": true
+  }
+}

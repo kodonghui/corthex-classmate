@@ -1,0 +1,63 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/session-event.schema.json",
+  "title": "SessionEvent",
+  "description": "한 교시 세션에서 일어난 일을 시간 순서로 남기는 기록 한 줄입니다.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/definitions/Id" },
+    "periodId": { "$ref": "common.schema.json#/definitions/PeriodId" },
+    "at": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "type": {
+      "description": "어떤 일이 일어났는지입니다. 여기 없는 이름은 받지 않습니다.",
+      "type": "string",
+      "enum": [
+        "period.started",
+        "period.ended",
+        "transcript.segment",
+        "screen.frame",
+        "editor.context",
+        "question.asked",
+        "answer.completed",
+        "answer.queued",
+        "answer.failed",
+        "answer.recovered",
+        "state.changed",
+        "panel.opened",
+        "panel.closed",
+        "connector.status"
+      ]
+    },
+    "payload": {
+      "description": "type 마다 다른 딸림 값입니다. state.changed 일 때는 from 과 to 만 담습니다.",
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "required": ["id", "periodId", "at", "type", "payload"],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": { "type": { "const": "state.changed" } },
+        "required": ["type"]
+      },
+      "then": {
+        "properties": {
+          "payload": {
+            "title": "StateChangedPayload",
+            "description": "상태가 어디에서 어디로 옮겨 갔는지입니다.",
+            "type": "object",
+            "properties": {
+              "from": { "$ref": "common.schema.json#/definitions/TutorState" },
+              "to": { "$ref": "common.schema.json#/definitions/TutorState" }
+            },
+            "required": ["from", "to"],
+            "additionalProperties": false
+          }
+        },
+        "required": ["payload"]
+      }
+    }
+  ]
+}

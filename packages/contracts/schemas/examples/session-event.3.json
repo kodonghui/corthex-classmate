@@ -1,0 +1,10 @@
+{
+  "id": "ev-p3-126",
+  "periodId": "2026-09-02-p3",
+  "at": "2026-09-02T10:34:11+09:00",
+  "type": "answer.recovered",
+  "payload": {
+    "answerId": "ans-p3-004",
+    "queuedForSec": 6
+  }
+}

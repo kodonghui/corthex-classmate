@@ -1,0 +1,10 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // TypeScript 7 은 pnpm 이 심볼릭 링크로 놓은 node_modules/@types 를 자동으로 담지
+    // 않습니다. 이 패키지는 node:fs·node:path·node:url 을 쓰므로 node 타입을 못 박습니다.
+    "types": ["node"]
+  },
+  "include": ["src", "test", "scripts"]
+}

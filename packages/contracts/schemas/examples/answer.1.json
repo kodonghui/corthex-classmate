@@ -1,0 +1,17 @@
+{
+  "id": "ans-p3-003",
+  "questionId": "q-p3-003",
+  "createdAt": "2026-09-02T10:32:24+09:00",
+  "conclusion": "바꾸거나 테스트하기 어려워져서 생성 책임을 분리해요",
+  "evidence": "confirmed",
+  "nowLine": "지금 · 생성자 주입 코드로 넘어갔어요",
+  "chips": ["더 쉽게", "지금 화면 코드", "내 코드와 비교"],
+  "details": {
+    "why": "new 자체가 틀린 것은 아니에요. 다만 클래스 안에서 직접 만들면 바꿀 때마다 그 클래스도 함께 고쳐야 하고, 시험용 가짜 객체로 갈아 끼우기도 어려워져요. 그래서 만드는 책임을 컨테이너에 맡겨요.",
+    "compareMyCode": "지금 OrderService 15번째 줄은 new OrderRepository() 로 직접 만들고 있어요. 생성자 매개변수로 받으면 바깥에서 갈아 끼울 수 있어요.",
+    "screenCode": "선생님 화면에는 생성자에 OrderRepository 를 받는 형태가 떠 있어요.",
+    "teacherSaid": "객체를 직접 new로 만들면 클래스끼리 강하게 묶입니다."
+  },
+  "provider": "mock",
+  "status": "answered"
+}

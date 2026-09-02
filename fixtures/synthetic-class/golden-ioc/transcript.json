@@ -1,0 +1,91 @@
+[
+  {
+    "id": "ts-p3-001",
+    "periodId": "2026-09-02-p3",
+    "seq": 1,
+    "text": "자 그러면 지금까지 만든 주문 서비스를 다시 볼게요.",
+    "state": "final",
+    "arrivedAt": "2026-09-02T10:31:40+09:00",
+    "spokenAt": "2026-09-02T10:31:37+09:00",
+    "source": "fixture"
+  },
+  {
+    "id": "ts-p3-002",
+    "periodId": "2026-09-02-p3",
+    "seq": 2,
+    "text": "여기 보시면 OrderService 안에서 OrderRepository 를 직접 만들고 있죠.",
+    "state": "final",
+    "arrivedAt": "2026-09-02T10:31:52+09:00",
+    "spokenAt": "2026-09-02T10:31:49+09:00",
+    "source": "fixture"
+  },
+  {
+    "id": "ts-p3-003",
+    "periodId": "2026-09-02-p3",
+    "seq": 3,
+    "text": "이렇게 new 로 만들면 당장은 잘 돌아갑니다.",
+    "state": "final",
+    "arrivedAt": "2026-09-02T10:32:03+09:00",
+    "spokenAt": "2026-09-02T10:32:00+09:00",
+    "source": "fixture"
+  },
+  {
+    "id": "ts-p3-004",
+    "periodId": "2026-09-02-p3",
+    "seq": 4,
+    "text": "객체를 직접 new로 만들면 클래스끼리 강하게 묶입니다.",
+    "state": "final",
+    "arrivedAt": "2026-09-02T10:32:14+09:00",
+    "spokenAt": "2026-09-02T10:32:10+09:00",
+    "source": "fixture"
+  },
+  {
+    "id": "ts-p3-005",
+    "periodId": "2026-09-02-p3",
+    "seq": 5,
+    "text": "이제 생성 책임을 컨테이너에 맡겨 볼게요.",
+    "state": "final",
+    "arrivedAt": "2026-09-02T10:32:14+09:00",
+    "spokenAt": "2026-09-02T10:32:12+09:00",
+    "source": "fixture"
+  },
+  {
+    "id": "ts-p3-006",
+    "periodId": "2026-09-02-p3",
+    "seq": 6,
+    "text": "컨테이너가 대신 만들어 주면 우리는 언어테이션 하나만 붙이면 됩니다.",
+    "state": "final",
+    "arrivedAt": "2026-09-02T10:32:26+09:00",
+    "spokenAt": "2026-09-02T10:32:22+09:00",
+    "source": "fixture"
+  },
+  {
+    "id": "ts-p3-007",
+    "periodId": "2026-09-02-p3",
+    "seq": 7,
+    "text": "빌드 도구는 엔브이엔 을 쓰고 있으니 설정은 그대로 두셔도 됩니다.",
+    "state": "final",
+    "arrivedAt": "2026-09-02T10:32:38+09:00",
+    "spokenAt": "2026-09-02T10:32:34+09:00",
+    "source": "fixture"
+  },
+  {
+    "id": "ts-p3-008",
+    "periodId": "2026-09-02-p3",
+    "seq": 8,
+    "text": "그래서 생성자 주입 방식으로 코드를 바꿔 보겠습니다.",
+    "state": "final",
+    "arrivedAt": "2026-09-02T10:32:49+09:00",
+    "spokenAt": "2026-09-02T10:32:45+09:00",
+    "source": "fixture"
+  },
+  {
+    "id": "ts-p3-009",
+    "periodId": "2026-09-02-p3",
+    "seq": 9,
+    "text": "생성자에서 필요한 객체를 받아 오면 테스트에서 바꿔 끼우기가",
+    "state": "partial",
+    "arrivedAt": "2026-09-02T10:33:00+09:00",
+    "source": "fixture"
+  }
+]

@@ -1,0 +1,14 @@
+{
+  "id": "ec-p3-001",
+  "periodId": "2026-09-02-p3",
+  "capturedAt": "2026-09-02T10:32:17+09:00",
+  "filePath": "src/main/java/com/ohgiraffers/order/OrderService.java",
+  "language": "java",
+  "visibleRange": {
+    "startLine": 6,
+    "endLine": 17
+  },
+  "excerpt": "    private final OrderRepository orderRepository;\n    private final PaymentClient paymentClient;\n\n    public OrderService() {\n        // 여기서 직접 new 로 만들기 때문에 다른 구현으로 바꾸기 어렵습니다.\n        this.orderRepository = new OrderRepository();\n        this.paymentClient = new PaymentClient();\n    }\n\n    public Long placeOrder(String memberId, String itemCode, int quantity) {\n        Order order = new Order(memberId, itemCode, quantity);\n        Long orderId = orderRepository.save(order);",
+  "caretLine": 11,
+  "source": "fixture"
+}

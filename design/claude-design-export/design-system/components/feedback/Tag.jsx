@@ -1,0 +1,24 @@
+import React from 'react';
+import { css, cx } from '../core/cm.js';
+import { Icon } from '../core/Icon.jsx';
+
+css('cm-tag', `
+.cm-tag{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 7px;border-radius:var(--radius-sm);border:1px solid var(--border-hairline);background:var(--surface-card);color:var(--text-secondary);font:var(--type-caption);font-weight:500;white-space:nowrap;vertical-align:middle;max-width:100%}
+.cm-tag--sunken{background:var(--surface-sunken);border-color:transparent}
+.cm-tag--accent{background:var(--ink-50);border-color:var(--ink-200);color:var(--ink-700)}
+.cm-tag--mono{font:var(--type-code);font-size:11.5px}
+.cm-tag__x{display:inline-flex;margin:0 -3px 0 2px;padding:0;border:0;background:transparent;color:var(--text-tertiary);cursor:pointer;border-radius:var(--radius-xs)}
+.cm-tag__x:hover{color:var(--text-body)}
+.cm-tag__x:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.cm-tag__t{overflow:hidden;text-overflow:ellipsis}
+`);
+
+export function Tag({ tone = 'outline', icon, mono = false, onRemove, removeLabel = '삭제', children, className, style, ...rest }) {
+  return (
+    <span className={cx('cm-tag', tone === 'sunken' && 'cm-tag--sunken', tone === 'accent' && 'cm-tag--accent', mono && 'cm-tag--mono', className)} style={style} {...rest}>
+      {icon ? <Icon name={icon} size={12} /> : null}
+      <span className="cm-tag__t">{children}</span>
+      {onRemove ? <button type="button" className="cm-tag__x" aria-label={removeLabel} onClick={onRemove}><Icon name="x" size={12} /></button> : null}
+    </span>
+  );
+}

@@ -1,0 +1,9 @@
+{
+  "id": "ts-p3-020",
+  "periodId": "2026-09-02-p3",
+  "seq": 20,
+  "text": "이제 생성 책임을 컨테이너에 맡겨 볼게요.",
+  "state": "partial",
+  "arrivedAt": "2026-09-02T10:32:14+09:00",
+  "source": "fixture"
+}

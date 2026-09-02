@@ -1,0 +1,21 @@
+# Corthex Classmate 로컬 도우미 (Chrome Native Messaging Host).
+# 저장소 루트에 Cargo.toml 이 없으므로 이 crate 가 자기 자신의 워크스페이스 루트다.
+# 빈 [workspace] 는 나중에 루트에 워크스페이스가 생겨도 이 crate 가 끌려 들어가지 않게 막는다.
+[workspace]
+
+[package]
+name = "classmate-host"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Corthex Classmate 확장과 stdin/stdout 으로 이야기하는 Windows 로컬 도우미"
+license = "MIT"
+publish = false
+
+[dependencies]
+serde = { version = "^1", features = ["derive"] }
+serde_json = "^1"
+
+[[bin]]
+name = "classmate-host"
+path = "src/main.rs"

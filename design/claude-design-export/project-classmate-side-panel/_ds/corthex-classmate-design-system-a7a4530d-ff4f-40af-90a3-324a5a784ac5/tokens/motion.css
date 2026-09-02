@@ -1,0 +1,21 @@
+/* Motion. Short, decelerating, no bounce. Everything under 250ms; long-lived states (recording dot) breathe slowly. */
+:root{
+  --duration-instant: 80ms; /* @kind other */
+  --duration-fast: 120ms; /* @kind other */
+  --duration-base: 180ms; /* @kind other */
+  --duration-slow: 240ms; /* @kind other */
+  --duration-breathe: 2400ms; /* @kind other */
+  --ease-out: cubic-bezier(0.2, 0.7, 0.2, 1); /* @kind other */
+  --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1); /* @kind other */
+  --ease-enter: cubic-bezier(0.1, 0.8, 0.2, 1); /* @kind other */
+  --transition-color: color var(--duration-fast) var(--ease-out), background-color var(--duration-fast) var(--ease-out), border-color var(--duration-fast) var(--ease-out), box-shadow var(--duration-fast) var(--ease-out); /* @kind other */
+  --enter-offset: 4px;
+}
+@keyframes cm-fade-in { from { opacity: 0; transform: translateY(var(--enter-offset)); } to { opacity: 1; transform: none; } }
+@keyframes cm-fade-out { from { opacity: 1; } to { opacity: 0; } }
+@keyframes cm-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@keyframes cm-sweep { from { transform: translateX(-100%); } to { transform: translateX(200%); } }
+@keyframes cm-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  :root { --duration-fast: 0ms; /* @kind other */ --duration-base: 0ms; /* @kind other */ --duration-slow: 0ms; /* @kind other */ --enter-offset: 0px; }
+}

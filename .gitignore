@@ -1,0 +1,39 @@
+# --- Node / pnpm ---
+node_modules/
+.pnpm-store/
+dist/
+.output/
+.wxt/
+coverage/
+*.tsbuildinfo
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# --- Rust ---
+target/
+
+# --- Secrets (불변 원칙 §4-2) ---
+.env
+.env.*
+!.env.example
+*.token
+*.pem
+.claude/settings.local.json
+
+# --- Generated artifacts ---
+out/
+fixtures/**/private/
+test-results/
+playwright-report/
+docs/screenshots/*.tmp.png
+
+# --- OS / editor ---
+Thumbs.db
+.DS_Store
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# --- Design bundle scratch (원본 zip, 사용자 삭제 대기) ---
+design/_to_delete/

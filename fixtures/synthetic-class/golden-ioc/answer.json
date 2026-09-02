@@ -1,0 +1,17 @@
+{
+  "id": "ans-p3-001",
+  "questionId": "q-p3-001",
+  "createdAt": "2026-09-02T10:32:24+09:00",
+  "conclusion": "new 자체는 괜찮지만 바꾸기 어려워서 생성 책임을 나눠요",
+  "evidence": "confirmed",
+  "nowLine": "지금 · 생성자 주입 코드로 넘어갔어요",
+  "chips": ["더 쉽게", "지금 화면 코드", "왜 필요한데?"],
+  "details": {
+    "why": "new 로 직접 만들면 어떤 구현을 쓸지가 클래스 안에 박혀요. 다른 구현으로 바꾸려면 쓰는 쪽 코드까지 같이 고쳐야 해요.",
+    "compareMyCode": "지금 OrderService 는 생성자 안에서 OrderRepository 를 직접 만들고 있어요. 필요한 객체를 생성자 매개변수로 받아 오면 동작은 그대로 두고 바꿔 끼울 수 있어요.",
+    "screenCode": "화면 코드에서 this.orderRepository = new OrderRepository(); 줄이 강조돼 있어요. 잠시 뒤 같은 자리가 생성자 매개변수로 바뀌어요.",
+    "teacherSaid": "선생님은 객체를 직접 new 로 만들면 클래스끼리 강하게 묶인다고 말했어요. 이어서 생성 책임을 컨테이너에 맡겨 보자고 했어요."
+  },
+  "provider": "mock",
+  "status": "answered"
+}
