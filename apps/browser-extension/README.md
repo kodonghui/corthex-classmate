@@ -15,7 +15,7 @@ Corthex Classmate 의 Chrome 확장입니다. WXT · React 19 · TypeScript · M
 apps/browser-extension/
 ├─ wxt.config.ts                  매니페스트(name·permissions·side_panel·content_scripts) · React 모듈
 ├─ entrypoints/
-│  ├─ background.ts               MV3 서비스 워커 · 아이콘 클릭으로 사이드패널 열기 · 캡처 메시지
+│  ├─ background.ts               MV3 서비스 워커 — **배선만** (판단은 `src/background/**`)
 │  ├─ offscreen/                  Meet 탭 캡처용 Offscreen Document
 │  ├─ tiro-share.content.ts       Tiro 공유 페이지 관찰 content script
 │  └─ sidepanel/
@@ -24,6 +24,8 @@ apps/browser-extension/
 │     ├─ App.tsx                  `?replay=` 읽고 ReplayStore + PanelApp 조립
 │     └─ style.css                패널 레이아웃(키트 클래스를 전체 창에 맞춤) · reduced-motion
 ├─ src/panel/                     사이드패널 화면과 재생기 (아래 절)
+├─ src/background/                서비스 워커의 판단 — 라우터 · 도우미 연결 · 교시 로그 (아래 절)
+├─ src/live/                      패널 ↔ 서비스 워커 메시지 타입과 패널 쪽 어댑터 (아래 절)
 ├─ src/tiro/                      Tiro 공유 페이지 커넥터 (README 있음)
 ├─ src/capture/                   Meet 캡처 파이프라인 (README 있음)
 ├─ src/lib/format-time.ts         10:32:18 형식 · "4초 전" 문구
@@ -67,6 +69,121 @@ PanelApp.tsx         useSyncExternalStore · 1초 tick · Alt+S(e.code === "KeyS
 |---|---|---|
 | `sidepanel.html` | 1초마다 `tick` — fixture 를 실시간처럼 흘림 | 손으로 얹어 볼 때 |
 | `sidepanel.html?replay=manual` | 멈춤 — `window.classmateReplay.goto('answer')` 처럼 장면을 고름 | E2E · 스크린샷 |
+
+---
+
+## 서비스 워커 구조
+
+`entrypoints/background.ts` 는 **배선만** 합니다. 판단은 전부 `src/background/**` 에 있습니다.
+`entrypoints/**` 는 vitest 대상이 아니기 때문에(`vitest.config.ts` 의 `include` 가
+`src/**/*.test.ts`), 여기에 판단을 두면 시험할 방법이 없습니다.
+
+```text
+                  ┌──────────────── entrypoints/background.ts (배선) ────────────────┐
+                  │                                                                  │
+ content script ──┼─ chrome.runtime.onMessage ──▶ Router.handleRuntimeMessage         │
+ Offscreen 문서 ──┤                              └▶ 캡처 시작·정지·프레임(이 파일 몫) │
+                  │                                                                  │
+ 사이드패널 ──────┼─ chrome.runtime.onConnect ──▶ Router.openPanel / handlePanelMessage
+                  │   (이름 "classmate-panel")     / closePanel                       │
+                  │                                                                  │
+ 로컬 도우미 ─────┼─ chrome.runtime.connectNative("com.corthex.classmate")            │
+                  │        └▶ NativeHostClient ──▶ Router.handleHostPush / handleHostStatus
+                  │                                                                  │
+ 알람 ────────────┼─ chrome.alarms ──▶ keepalive(1분) · 교시 30분 종료                │
+                  └──────────────────────────────────────────────────────────────────┘
+```
+
+| 파일 | 역할 |
+|---|---|
+| `src/background/router.ts` | **순수 라우터.** `chrome` 을 직접 만지지 않고 주입된 얼굴로만 움직입니다. 아래 메시지 표가 전부 여기 있습니다 |
+| `src/background/host-client.ts` | 도우미 연결 — FIFO 짝짓기 · `hello` 왕복 뒤에야 "연결됨" · 백오프 1·2·4…≤30초 · 끊긴 동안 `event.append`/`frame.store` 보관(상한 200) |
+| `src/background/host-messages.ts` | 확장 ↔ 도우미 봉투(`ping` · `event.append` · `tutor.ask` · `tutor.retry`)와 좁힘 함수 |
+| `src/background/period-log.ts` | 이번 교시에 패널로 보낸 말 **최근 500건**(세그먼트 본문 포함). 패널을 닫았다 열면 이것을 되풀이합니다 |
+| `src/background/ids.ts` | 사건 이름표 `ev-<periodId>-s<8자리>-<순번>` · `at` 을 `+09:00` 으로 적기 |
+| `src/background/settings.ts` | `classmate.periodNumber` · `classmate.subject` · `classmate.provider` 읽기(쓰기는 설정 화면 몫) |
+| `src/background/tiro-messages.ts` | `tiro.*` 이름과 좁힘 함수 — content script 와 라우터가 같이 봅니다 |
+| `src/live/messages.ts` | 패널 ↔ 서비스 워커 메시지 타입 — 패널과 워커가 같이 봅니다 |
+| `src/live/attach.ts` | 패널 쪽 어댑터 `attachLive({inbox, outbox}, chrome.runtime)` |
+
+### 메시지 표 — 들어온 말 → 나가는 것
+
+| 들어온 말 | 도우미로 | 사이드패널로 |
+|---|---|---|
+| `tiro.segment {segment}` | `event.append` `transcript.segment {segmentId, seq, state, segment}` | 같은 사건 + `live.segment` |
+| `tiro.partial {partial}` | — | `live.segment`(`state:"partial"`, 식별자는 문단 자리로 고정) |
+| `tiro.hint_degraded {signal}` | `connector.status {tiro-share, paused, "hint-<등급>"}` · 회복하면 `connected` | 같은 사건 |
+| `tiro.selector_broken {signal}` | `connector.status {tiro-share, paused, "selector-broken"}` | 같은 사건 |
+| `capture.stats {state,…}` | `connector.status {meet-tab, …}` — **바뀔 때만** | 같은 사건 |
+| `capture.error {reason}` | `connector.status {meet-tab, off, reason}` | 같은 사건 |
+| `capture.frame {frame, bytes}` | `frame.store` 봉투(1 MiB 넘으면 건너뜀 · 꺼져 있으면 60장까지 보관) | `live.frame` |
+| `panel.event` `question.asked` | **붙이지 않음** — 도우미가 `tutor.ask` 를 받아 자기 기록본을 만들고 `tutor.event` 로 되밉니다 | — |
+| `panel.event` 그 밖(`state.changed` · `panel.*`) | `event.append` 그대로(패널이 지은 `id` 를 씁니다) | — (보낸 패널이 이미 압니다) |
+| `panel.ask {request}` | `tutor.ask {periodId, questionId, kind, word?, question?, provider, snapshot}` | 답이 `error` 면 `connector.status {provider, …}` |
+| `classmate.reconnect {native-host}` | 백오프를 기다리지 않고 지금 다시 붙습니다 | — |
+| `classmate.reconnect {tiro-share}` | 전사를 보내 온 탭에 `chrome.tabs.sendMessage` 로 `tiro.stop` → `tiro.start` | — |
+| `classmate.reconnect {meet-tab}` | 캡처 정지 → 마지막 탭으로 다시 시작 | — |
+| `classmate.reconnect {provider}` | 마지막 미완 질문으로 `tutor.retry` | 답이 `error` 면 `connector.status {provider, …}` |
+| 도우미 push `tutor.event {event}` | — (이미 도우미 안에 있습니다) | `live.event` |
+
+`connector.status` 는 **같은 상태가 이어지면 다시 내지 않습니다.** `capture.stats` 가 1초마다
+오기 때문에, 그대로 사건으로 만들면 60분 교시에 3,600줄이 쌓입니다.
+
+`chrome.runtime.sendMessage` 는 **content script 에 닿지 않습니다.** 확장 안의 다른 문서
+(Offscreen · 사이드패널)에만 배달되므로, `tiro.stop`·`tiro.start` 는 `chrome.tabs.sendMessage`
+로 탭을 찍어 보냅니다. 탭은 `chrome.tabs.query({url})`(= `tabs` 권한이 더 필요) 로 찾지 않고
+**우리에게 전사를 보내 온 탭**(`sender.tab.id`)을 적어 두었다가 그 탭에만 되말합니다.
+
+### 사건 이름표와 시각
+
+| 누가 만든 사건 | `id` 모양 |
+|---|---|
+| 패널 스토어 | `ev-<periodId>-x<8자리>-<순번>` |
+| **서비스 워커** | `ev-<periodId>-s<8자리>-<순번>` |
+| 로컬 도우미 | `ev-<periodId>-<8자리>` |
+
+8자리 토큰은 서비스 워커가 시작할 때 `crypto.randomUUID().slice(0,8)` 로 한 번 정합니다.
+MV3 워커는 30초를 놀면 내려갔다 다시 뜨는데, 그때마다 토큰이 새로 뽑히므로 순번이 1로
+돌아가도 앞 세대와 이름이 겹치지 않습니다. `at` 은 언제나 `+09:00` 표기입니다
+(`toISOString()` 은 `Z` 로 적어 계약 예시와 어긋납니다).
+
+교시 식별자는 **오늘 날짜 + 저장소의 교시 번호**로 정합니다 — `2026-09-02-p3`. 계약
+`PeriodId` 의 정규식이 이 모양이고, 도우미가 이 이름으로 세션 파일과 프레임 폴더를 만듭니다.
+
+### 끊겼다 다시 붙기
+
+| 무엇이 끊기나 | 어떻게 살아나나 |
+|---|---|
+| 사이드패널 닫기 → 열기 | 서비스 워커와 도우미는 계속 기록합니다. 다시 열면 교시 로그 500건을 처음부터 되풀이해 화면이 복원되고, 그 **뒤에** `panel.opened` 가 붙습니다 |
+| 공유 페이지 새로고침 | content script 가 다시 주입되어 `seq` 1부터 다시 셉니다. 기록이 겹치지 않는 것은 도우미가 사건 `id` 로 중복을 걸러(`duplicate: true` = 성공) 주기 때문입니다 |
+| 도우미 강제 종료 | `onDisconnect` → 백오프 1·2·4…≤30초. 끊긴 동안의 `event.append`·`frame.store` 는 들고 있다가 `hello` 왕복이 서면 순서대로 다시 보냅니다 |
+| 서비스 워커가 30초 유휴로 내려감 | 교시 로그를 `chrome.storage.session` 에 옮겨 적어 두었다가 다시 뜰 때 되살립니다. 패널 포트도 스스로 다시 붙습니다(`attachLive`) |
+| 패널이 30분째 닫혀 있음 | `chrome.alarms` 가 깨워 `period.ended {periodId, questionCount, frameCount}` 를 붙입니다 |
+
+`nativeMessaging` 권한이 있어도 도우미가 HKCU 에 등록돼 있지 않으면 `connectNative` 는 포트를
+주고 곧바로 끊습니다. **개발·E2E 에서는 그것이 정상 상태**라 백오프가 조용히 돌고
+`console.error` 를 쓰지 않습니다(첫 끊김에만 `console.warn` 한 줄).
+
+### 손 시험 갈래를 언제 지우나
+
+`background.ts` 의 `chrome.action.onClicked` 리스너와 `globalThis.classmateCapture` 손잡이는
+**사이드패널에 캡처 시작/중지 버튼이 생기면 함께 지웁니다.** 지금 남겨 둔 이유는 하나뿐입니다 —
+`chrome.tabCapture.getMediaStreamId` 가 요구하는 "사용자 제스처" 를 만들 수 있는 자리가 지금은
+아이콘 클릭뿐입니다. 버튼 클릭 자체가 그 제스처가 되므로 그때는 두 갈래가 필요 없습니다.
+(`chrome.sidePanel.setPanelBehavior({openPanelOnActionClick: true})` 때문에 아이콘 클릭은 실제로
+사이드패널만 열고 이 리스너는 불리지 않습니다. 손 시험 때 그 한 덩어리를 잠시 주석 처리하고
+다시 빌드하면 살아납니다 — `docs/spikes/gate-b-meet.md` §사람이 할 일 1.)
+
+### 확장 id 고정 (`CLASSMATE_EXTENSION_KEY`)
+
+도우미의 `allowed_origins` 에 `chrome-extension://<id>/` 를 미리 적으려면 확장 id 가 고정돼야
+합니다. `wxt.config.ts` 는 환경 변수 `CLASSMATE_EXTENSION_KEY` 가 **있을 때만** 그 값을
+`manifest.key` 에 **그대로** 넣습니다(값을 검사하지 않습니다. 빈 key 가 들어가면 Chrome 이
+확장을 아예 못 읽습니다). key 에서 id 를 뽑는 계산은 설치기(installer) 단위 몫입니다.
+
+```bash
+CLASSMATE_EXTENSION_KEY="<공개키 base64>" pnpm --filter @classmate/browser-extension build
+```
 
 ---
 
@@ -185,12 +302,42 @@ E2E 는 `chromium.launchPersistentContext` 에 `--load-extension` 으로 빌드�
 
 ---
 
-## 2라운드에서 바뀔 것
+## 라이브 모드 배선 (`entrypoints/sidepanel/App.tsx`)
 
-| 지금 | 2라운드 |
+fixture 재생기 대신 실제 커넥터를 붙일 때는 `attachLive` 를 씁니다. 스토어의 두 문
+(`PanelInbox` · `PanelOutbox`)만 넘기면 되고, 돌려받는 손잡이에서 `AskPort` 와 `reconnect` 를
+꺼내 씁니다.
+
+```tsx
+import { useEffect, useMemo } from 'react';
+import { attachLive } from '../../src/live/attach';
+
+const store = useMemo(() => new LiveStore(), []);          // 단위 1b 의 스토어
+const live = useMemo(
+  () => attachLive({ inbox: store, outbox: store }, chrome.runtime),
+  [store],
+);
+useEffect(() => () => live.detach(), [live]);              // 패널이 닫힐 때 뗍니다
+
+// live.ask                      → AskPort  (스토어의 `ask` 효과가 부릅니다)
+// live.reconnect('native-host') → 「다시 연결」 버튼
+// live.connected                → 포트가 붙어 있는지 (끊기면 스스로 다시 붙습니다)
+```
+
+`inbox` 와 `outbox` 로 같은 스토어 객체를 넘겨도 됩니다 — 두 인터페이스는 서로 겹치지
+않습니다. 세 번째 인자로 타이머와 `warn` 을 넣을 수 있습니다(시험에서 씁니다).
+
+---
+
+## 2라운드에서 바뀐 것 · 아직 남은 것
+
+| 지금 | 상태 |
 |---|---|
-| `ReplayStore` 가 fixture 사건을 흘림 | Tiro·Meet·로컬 도우미 이벤트를 같은 `pushEvent` 자리에 배선 |
-| 듣는 중 · 자세히 두 화면 | 기록 · 설정 화면(상태 G) · 개인정보 문구 |
-| 모의 제공자(fixture 답만 돌려줌) | 로컬 도우미의 provider-claude 경유 |
-| `background.ts` 의 캡처 손시험 갈래 | 패널의 캡처 시작/중지 버튼 |
-| ui-classmate 의 `internal/base` 복제 | `@classmate/ui-base` barrel 로 교체 |
+| `ReplayStore` 가 fixture 사건을 흘림 | 서비스 워커 쪽 배선 **완료** — `attachLive` 로 같은 `pushEvent` 자리에 꽂습니다. 패널 쪽 조립(`App.tsx`)은 오케스트레이터 몫 |
+| `background.ts` 의 `MemoryFrameSink` | **교체 완료** — `NativeHostFrameSink`(도우미로 봉투 · 꺼져 있으면 60장 폴백) |
+| 로컬 도우미 연결 없음 | **완료** — `connectNative("com.corthex.classmate")` · 백오프 1·2·4…≤30초 |
+| 듣는 중 · 자세히 두 화면 | 남음 — 기록 · 설정 화면(상태 G) · 개인정보 문구 |
+| 모의 제공자(fixture 답만 돌려줌) | 남음 — 확장은 `tutor.ask` 를 보낼 준비가 됐고, 도우미 쪽 제공자 배선이 붙으면 이어집니다. 그전까지는 도우미가 `not-implemented` 로 답하고 패널은 `connector.status {provider, off}` 를 봅니다 |
+| `background.ts` 의 캡처 손시험 갈래 | 남음 — 패널의 캡처 시작/중지 버튼이 생기면 지웁니다(위 「손 시험 갈래를 언제 지우나」) |
+| IntelliJ MCP 연결 | 남음 — `router.pushEditor(context)` 와 `live.editor` 자리만 열어 두었습니다 |
+| ui-classmate 의 `internal/base` 복제 | 남음 — `@classmate/ui-base` barrel 로 교체 |

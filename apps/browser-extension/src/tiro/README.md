@@ -200,16 +200,39 @@ seq 정렬    B, A                                     ← 화면과 반대
 실측에서 60분 교시도 문단 60개 남짓이라 가상 스크롤로 잘릴 규모가 아니고, 지속 신원은
 세션 스토어 몫으로 넘겨 두었습니다.
 
-## 2라운드에 넘기는 일
+## 받는 쪽 — 2라운드에 붙었습니다
 
-- **`connector.status` 로 옮겨 싣기.** `tiro.hint_degraded` 는 계약 밖 **커넥터 내부
-  이벤트**입니다. `session-event.schema.json` 의 `type` 열거 14개는 고정이고 이번 라운드에서
-  계약을 고치지 않기로 했습니다. background 가 이 신호를 받아 `connector.status` 세션 이벤트의
-  payload 로 실어 보내는 것이 다음 자리입니다. `tiro.selector_broken` 도 같습니다.
-- **background 수신부.** `entrypoints/background.ts` 는 다른 단위 소유라 이 단위가 만들지
-  않았습니다. 지금 content script 의 `sendMessage` 는 받는 쪽이 없어 조용히 떨어집니다.
-- **`tiro.stop` 을 보내는 쪽.** 듣는 쪽만 붙여 두었습니다. 교시 종료를 아는 세션 관리가 보냅니다.
+네 가지 메시지를 받는 쪽이 생겼습니다. 말의 이름과 좁힘 함수는 이제
+`src/background/tiro-messages.ts` 가 정본이고, content script 는 그것을 그대로 다시 냅니다
+(`entrypoints/**` 는 vitest 대상이 아니라 판정 함수를 `src/` 로 옮겨야 시험할 수 있습니다).
+
+| 보내는 말 | 라우터가 하는 일 (`src/background/router.ts`) |
+|---|---|
+| `tiro.segment` | 도우미에 `event.append` `transcript.segment {segmentId, seq, state, segment}` + 패널에 `live.segment` · 같은 사건 + `connector.status {tiro-share, connected}` |
+| `tiro.partial` | **패널에만** `live.segment`(`state: "partial"`). 기록하지 않습니다 — 아직 순번도 신원도 없고 확정되면 `tiro.segment` 로 다시 옵니다. 식별자는 문단 자리로 고정해 같은 줄이 갱신되게 합니다 |
+| `tiro.hint_degraded` | `connector.status {tiro-share, paused, "hint-<등급>"}` · `degraded:false` 로 돌아오면 `connected` |
+| `tiro.selector_broken` | `connector.status {tiro-share, paused, "selector-broken"}` |
+
+예고한 대로 **계약을 고치지 않고** 커넥터 내부 이벤트를 `connector.status` payload 로 옮겨
+실었습니다. 같은 상태가 이어지면 사건을 다시 내지 않습니다(공유 페이지가 조용히 깨진 채로
+있어도 기록이 초당 한 줄씩 늘지 않습니다).
+
+받는 쪽이 붙었으므로 `sendMessage` 는 이제 대개 성공합니다. 사이드패널이 닫혀 있고 서비스
+워커가 잠들어 있으면 잠깐 떨어질 수 있는데, 다음 문단이 워커를 다시 깨웁니다.
+
+### `tiro.stop` 과 `tiro.start` 를 보내는 쪽
+
+사람이 사이드패널에서 「전사 다시 연결」을 누르면 라우터가 `classmate.reconnect
+{connector:"tiro-share"}` 를 받아 `tiro.stop` → `tiro.start` 를 이 순서로 보냅니다.
+`stop` 이 진행 중 문단을 partial 세그먼트로 한 번 건지므로 마지막 한 문단이 버려지지
+않습니다. `tiro.start` 를 받아도 **주소가 공유 페이지가 아니면 시작하지 않습니다** — 시작
+판정은 언제나 주소가 합니다.
+
+## 아직 남은 일
+
 - **새로고침 뒤 순번 이어 붙이기.** 지금은 새 문서에서 `seq` 가 1부터 다시 시작합니다.
-  교시 전체를 아는 세션 스토어가 맡아야 합니다.
+  교시 전체를 아는 세션 스토어가 맡아야 합니다. 다만 기록이 겹치지는 않습니다 — 라우터가
+  만드는 사건 `id` 가 서비스 워커 세대마다 다르고, 도우미가 같은 `id` 를 `duplicate: true`
+  로 걸러 주기 때문입니다.
 - **1순위 커넥터 채우기.** `createMcpConnector` · `createApiConnector` 는 스텁입니다.
   Gate A 의 (a) 측정(사람의 MCP 인증)이 끝나야 무엇을 어떻게 폴링할지 정해집니다.

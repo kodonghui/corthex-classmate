@@ -20,6 +20,7 @@
  */
 
 import type { ScreenFrame } from '@classmate/contracts';
+import type { FrameStoreMessage } from './host-messages';
 import { buildFrameStore } from './host-messages';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_DURATION_MS } from './frame-store';
 
@@ -148,5 +149,221 @@ export class MemoryFrameSink implements FrameSink {
     if (!removed) return;
     this.byteTotal -= removed.bytes.byteLength;
     this.evictedCount += 1;
+  }
+}
+
+/**
+ * `frame.store` 봉투 하나를 도우미에 넣어 본 결말입니다.
+ *
+ * 왜 여기서 정의하는가: 봉투를 실제로 보내는 일은 서비스 워커의 `NativeHostClient` 가 하는데,
+ * 그 타입을 `src/capture/` 가 들여오면 캡처가 배경 배선을 알게 됩니다. 결말 세 가지만
+ * 여기서 정하고, `src/background/` 가 자기 결과를 이 모양으로 옮겨 줍니다.
+ */
+export type FrameStoreOutcome =
+  /** 도우미가 파일로 남겼습니다. `seq` 는 **기록 순번**이지 장 수가 아닙니다. */
+  | { kind: 'stored'; bytes: number; seq: number }
+  /** 도우미가 거절했습니다(`duplicate-frame` · `invalid-frame-id` 처럼 고정 낱말). */
+  | { kind: 'rejected'; reason: string }
+  /** 도우미가 꺼져 있거나 답이 없습니다. 들고 있다가 다시 보냅니다. */
+  | { kind: 'offline' };
+
+/** 봉투를 도우미로 보내는 출구입니다. 시험은 이 모양만 흉내 내면 됩니다. */
+export interface FrameStorePort {
+  store(message: FrameStoreMessage): Promise<FrameStoreOutcome>;
+}
+
+export interface NativeHostFrameSinkOptions {
+  /** 도우미가 꺼져 있을 때 들고 있을 장 수의 상한입니다. 기본 60장(1초에 한 장이면 1분). */
+  maxFallbackFrames?: number;
+  /** 들고 있을 base64 글자 수의 상한입니다. 기본 24 MiB. */
+  maxFallbackBytes?: number;
+  /** 사람이 읽을 한 줄입니다. 기본은 `console.warn`. */
+  warn?: (message: string) => void;
+  /** 한 장이 실제로 들어갔을 때 부릅니다. 교시 통계(`frameCount`)를 세는 자리입니다. */
+  onStored?: (result: { id: string; bytes: number; seq: number }) => void;
+  /** 도우미가 거절했을 때 부릅니다. 사이드패널의 화면 커넥터를 호박색으로 두는 자리입니다. */
+  onRejected?: (reason: string) => void;
+}
+
+export interface NativeHostFrameSinkStats extends FrameSinkStats {
+  /** 도우미가 거절한 장 수입니다(누적). */
+  rejected: number;
+  /** 지금 들고 있다가 다시 보낼 장 수입니다. */
+  waiting: number;
+  /** 다시 보내 성공한 장 수입니다(누적). */
+  resent: number;
+}
+
+/**
+ * 프레임을 **로컬 도우미로** 보내는 통입니다.
+ *
+ * ```text
+ *   store(frame, bytes)
+ *      │
+ *      ├─ buildFrameStore 로 봉투 (1 MiB 넘으면 여기서 건너뜀 · skippedTooLarge)
+ *      │
+ *      └─▶ port.store(봉투)
+ *              ├─ stored   ─▶ 셈만 하고 끝
+ *              ├─ rejected ─▶ 셈 + 사람에게 한 줄 (다시 보내지 않습니다 · 같은 이유로 또 거절됩니다)
+ *              └─ offline  ─▶ 메모리 폴백에 담아 둠 (상한을 넘으면 오래된 것부터 버림)
+ *
+ *   도우미가 돌아오면 flushWaiting() ──▶ 담아 둔 것을 담은 순서대로 다시 보냄
+ * ```
+ *
+ * **왜 거절된 장은 다시 보내지 않는가**: 거절 이유는 `duplicate-frame`·`invalid-frame-id`
+ * 처럼 봉투 자체의 문제라 몇 번을 보내도 같은 답이 옵니다. 반대로 `offline` 은 통로 문제라
+ * 통로가 살아나면 그대로 성공합니다. 둘을 섞으면 못 들어갈 장이 대기열을 영원히 막습니다.
+ *
+ * 불변 원칙 §4-1: 이 통은 프레임을 **로컬 도우미** 한 곳으로만 보냅니다. 네트워크로 나가는
+ * 코드가 없습니다.
+ */
+export class NativeHostFrameSink implements FrameSink {
+  readonly maxFallbackFrames: number;
+  readonly maxFallbackBytes: number;
+
+  private readonly port: FrameStorePort;
+  private readonly warn: (message: string) => void;
+  private readonly onStored: (result: { id: string; bytes: number; seq: number }) => void;
+  private readonly onRejected: (reason: string) => void;
+
+  /** 도우미가 꺼져 있는 동안 들고 있는 봉투들입니다. 담은 순서 그대로입니다. */
+  private waiting: FrameStoreMessage[] = [];
+  private waitingBytes = 0;
+
+  private storedCount = 0;
+  private skippedTooLargeCount = 0;
+  private rejectedCount = 0;
+  private evictedCount = 0;
+  private resentCount = 0;
+  private flushing = false;
+
+  constructor(port: FrameStorePort, options: NativeHostFrameSinkOptions = {}) {
+    this.port = port;
+    this.maxFallbackFrames = options.maxFallbackFrames ?? 60;
+    this.maxFallbackBytes = options.maxFallbackBytes ?? 24 * 1024 * 1024;
+    this.warn = options.warn ?? ((message) => console.warn(`[classmate] ${message}`));
+    this.onStored = options.onStored ?? (() => {});
+    this.onRejected = options.onRejected ?? (() => {});
+
+    if (this.maxFallbackFrames <= 0 || this.maxFallbackBytes <= 0) {
+      throw new RangeError('상한은 0 보다 커야 해요');
+    }
+  }
+
+  async store(frame: ScreenFrame, bytes: Uint8Array): Promise<void> {
+    const built = buildFrameStore(frame, bytes);
+    if (built.skipped) {
+      this.skippedTooLargeCount += 1;
+      this.warn(
+        `화면 한 장이 봉투 상한을 넘어 건너뜁니다 · ${built.envelopeBytes}바이트 · 건너뜀 누적 ${this.skippedTooLargeCount}장`,
+      );
+      return;
+    }
+    await this.deliver(built.message, false);
+  }
+
+  /**
+   * 도우미가 돌아왔을 때 들고 있던 것을 다시 보냅니다.
+   *
+   * 다시 보내는 도중에 또 끊기면 남은 것은 그대로 들고 있습니다(다시 담지 않고 자리만
+   * 지킵니다). 두 번 겹쳐 부르면 뒤엣것은 곧바로 돌아옵니다.
+   */
+  async flushWaiting(): Promise<void> {
+    if (this.flushing || this.waiting.length === 0) return;
+    this.flushing = true;
+    try {
+      const batch = this.waiting;
+      this.waiting = [];
+      this.waitingBytes = 0;
+      this.warn(`도우미가 돌아와 들고 있던 화면 ${batch.length}장을 다시 보냅니다`);
+      for (let i = 0; i < batch.length; i += 1) {
+        const message = batch[i];
+        if (message === undefined) continue;
+        const delivered = await this.deliver(message, true);
+        if (!delivered) {
+          // 또 끊겼습니다. 이미 `deliver` 가 이 장을 다시 담았으니 나머지만 이어 담습니다.
+          for (let k = i + 1; k < batch.length; k += 1) {
+            const rest = batch[k];
+            if (rest !== undefined) this.hold(rest);
+          }
+          return;
+        }
+      }
+    } finally {
+      this.flushing = false;
+    }
+  }
+
+  stats(): NativeHostFrameSinkStats {
+    return {
+      stored: this.storedCount,
+      skippedTooLarge: this.skippedTooLargeCount,
+      bytes: this.waitingBytes,
+      frames: this.waiting.length,
+      evicted: this.evictedCount,
+      rejected: this.rejectedCount,
+      waiting: this.waiting.length,
+      resent: this.resentCount,
+    };
+  }
+
+  /** 교시가 끝나면 들고 있던 것을 버립니다. 누적 통계는 그대로 둡니다. */
+  clear(): void {
+    this.waiting = [];
+    this.waitingBytes = 0;
+  }
+
+  /** @returns 도우미에 닿았으면 true, 꺼져 있어 들고 있게 됐으면 false 입니다. */
+  private async deliver(message: FrameStoreMessage, isResend: boolean): Promise<boolean> {
+    let outcome: FrameStoreOutcome;
+    try {
+      outcome = await this.port.store(message);
+    } catch (error: unknown) {
+      // 통로가 던지는 것은 통로 문제입니다. 들고 있다가 다시 보냅니다.
+      this.warn(
+        `화면 한 장을 보내지 못했어요 · ${error instanceof Error ? error.message : '알 수 없는 까닭'}`,
+      );
+      this.hold(message);
+      return false;
+    }
+
+    switch (outcome.kind) {
+      case 'stored':
+        this.storedCount += 1;
+        if (isResend) this.resentCount += 1;
+        this.onStored({ id: message.frame.id, bytes: outcome.bytes, seq: outcome.seq });
+        return true;
+      case 'rejected':
+        this.rejectedCount += 1;
+        this.warn(`도우미가 화면 한 장을 거절했어요 · ${outcome.reason}`);
+        this.onRejected(outcome.reason);
+        return true;
+      case 'offline':
+        this.hold(message);
+        return false;
+    }
+  }
+
+  /** 봉투 하나를 들고 있습니다. 상한을 넘으면 **오래된 것부터** 버립니다. */
+  private hold(message: FrameStoreMessage): void {
+    this.waiting.push(message);
+    this.waitingBytes += message.bytesBase64.length;
+
+    let dropped = 0;
+    while (
+      this.waiting.length > this.maxFallbackFrames ||
+      (this.waiting.length > 1 && this.waitingBytes > this.maxFallbackBytes)
+    ) {
+      const removed = this.waiting.shift();
+      if (removed === undefined) break;
+      this.waitingBytes -= removed.bytesBase64.length;
+      this.evictedCount += 1;
+      dropped += 1;
+    }
+    if (dropped > 0) {
+      this.warn(
+        `도우미가 꺼져 있어 오래된 화면 ${dropped}장을 버렸어요 · 들고 있는 것 ${this.waiting.length}장 · 버린 것 누적 ${this.evictedCount}장`,
+      );
+    }
   }
 }

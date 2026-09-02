@@ -193,16 +193,38 @@ node spikes/meet-capture-measure.mjs                   # Chromium 실측 (dhash�
 들여오면 Ajv 가 확장 번들에 섞여 MV3 콘텐츠 보안 정책에 걸립니다. 검증기
 (`createValidator`)는 시험 파일에서만 부릅니다.
 
-## 2라운드로 넘길 일
+## 받는 쪽 — 2라운드에 붙었습니다
 
-- `chrome.runtime.connectNative('com.corthex.classmate.host')` 연결. 바꿀 곳은
-  `entrypoints/background.ts` 의 `frameSink` 한 줄입니다. `MemoryFrameSink` 자리에 같은
-  `FrameSink` 인터페이스를 지키는 `NativeHostFrameSink` 를 끼우면 됩니다.
-- 호스트 답 처리. `frame.stored` 는 어느 `id` 가 어느 `path` 로 들어갔는지 확인하는 데 쓰고,
-  `error` 는 사람이 읽을 한 줄로 사이드패널에 올립니다. `seq` 는 호스트의 **이벤트 순번**이라
-  장 수가 아니므로 "몇 장까지 갔는지" 로 읽지 않습니다. 판별 함수 `isFrameStoredMessage` ·
-  `isHostErrorMessage` 는 이미 있습니다.
-- 재연결·재시도. 도우미가 죽었을 때 몇 장을 들고 기다릴지, 몇 번 다시 붙을지는 Gate D
-  판정 뒤에 정합니다. 지금은 메모리 통이 60분·48MiB 안에서 들고 있습니다.
+`capture.frame` 과 `capture.stats` · `capture.error` 를 받는 쪽이 생겼습니다. 받는 자리는
+`entrypoints/background.ts`(배선)와 `src/background/router.ts`(판단) 둘로 나뉩니다.
+
+```text
+Offscreen ──capture.frame──▶ background.storeFrame
+                               ├─▶ router.pushFrame(frame)         사이드패널에 화면 한 장
+                               └─▶ NativeHostFrameSink.store(...)  도우미로 봉투
+Offscreen ──capture.stats──▶ router.handleRuntimeMessage
+                               └─▶ connector.status {meet-tab, connected|paused|off}  ← 바뀔 때만
+Offscreen ──capture.error──▶ router.handleRuntimeMessage
+                               └─▶ connector.status {meet-tab, off, 이유}
+```
+
+1라운드에 예고한 대로 `MemoryFrameSink` 자리 **한 줄**만 `NativeHostFrameSink` 로 바뀌었고
+파이프라인·Offscreen 문서는 한 줄도 손대지 않았습니다. 호스트 이름은 1라운드 TODO 에 적혀
+있던 `com.corthex.classmate.host` 가 아니라 **`com.corthex.classmate`** 입니다(정본은
+`apps/native-host/scripts/register-host.mjs` 가 HKCU 에 넣는 이름).
+
+새 통은 `frame.stored` 를 성공으로, `error` 를 거절로 세고, 도우미가 꺼져 있으면 봉투를
+**60장·24 MiB 안에서** 들고 있다가 도우미가 돌아오면 `flushWaiting()` 으로 담은 순서대로
+다시 보냅니다. 거절당한 장은 다시 보내지 않습니다 — 이유가 `duplicate-frame` 처럼 봉투
+자체의 문제라 몇 번을 보내도 같은 답이 오고, 그 한 장이 대기열을 영원히 막기 때문입니다.
+`seq` 는 여전히 호스트의 **이벤트 순번**이라 장 수로 읽지 않습니다(장 수는 `stats().stored`).
+
+시험은 `src/background/native-frame-sink.test.ts` 에 있습니다(이 폴더의 1라운드 시험 파일을
+고치지 않으려고 자리를 나눴습니다).
+
+## 아직 남은 일
+
 - 사이드패널 캡처 버튼. 지금은 캡처 시작이 확장 아이콘 클릭과 서비스 워커 콘솔에서만
   됩니다. 버튼이 생기면 클릭 자체가 `tabCapture` 가 요구하는 사용자 제스처가 됩니다.
+  버튼이 생긴 뒤 무엇을 지우는지는 `apps/browser-extension/README.md` 의 「손 시험 갈래를
+  언제 지우나」에 적혀 있습니다.
