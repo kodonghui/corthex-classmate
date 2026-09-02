@@ -8,6 +8,8 @@ import {
   FOLD_MS,
   formatIso,
   initialState,
+  inputTimeOf,
+  MachineError,
   PREP_MS,
   runAll,
   transition,
@@ -285,6 +287,112 @@ describe("교시 끝과 그 뒤 단계", () => {
     expect(next.questionId).toBeNull();
     expect(next.lastSegmentId).toBeNull();
     expect(next.periodEnded).toBe(false);
+  });
+});
+
+describe("칩", () => {
+  // 칩은 한 줄 결론 자리에만 뜹니다. 다른 자리에서 누른 것은 기록에 흔적을 남기고 무시합니다.
+  const elsewhere = ["preparing", "waiting", "detail"] as const;
+
+  for (const note of elsewhere) {
+    it(`${note} 자리에서 누른 칩은 ignored 로 남는다`, () => {
+      const state = stateAt(T_ASKED, {
+        state: "ANSWER_MINIMAL",
+        note,
+        questionId: "q-1",
+        prepUntil: T_ASKED + PREP_MS,
+      });
+      const { next, effects } = transition(
+        state,
+        { kind: "chip", now: T_ASKED + 100, chipId: "더 쉽게" },
+        ENV,
+      );
+      expect(effects).toEqual([{ kind: "ignored", state: "ANSWER_MINIMAL", input: "chip" }]);
+      // 시각만 옮기고 나머지는 그대로입니다.
+      expect({ ...next, now: state.now }).toEqual(state);
+    });
+  }
+});
+
+describe("입력 시각 규칙", () => {
+  it("사건의 at 이 ISO-8601 이 아니면 MachineError 를 던지고 조용히 넘기지 않는다", () => {
+    const before = stateAt(T_ASKED, {
+      state: "ANSWER_MINIMAL",
+      note: "minimal",
+      questionId: "q-1",
+      foldDeadline: T_ASKED + FOLD_MS,
+    });
+    const broken = eventInput(event("answer.completed", "어제 오후", { answerId: "a-1" }));
+
+    expect(() => transition(before, broken, ENV)).toThrow(MachineError);
+    expect(() => transition(before, broken, ENV)).toThrow(/at 을 읽을 수 없습니다/);
+    // 던진 뒤에도 넣어 준 상태는 그대로입니다(부수 효과 없음).
+    expect(before.now).toBe(T_ASKED);
+    expect(before.foldDeadline).toBe(T_ASKED + FOLD_MS);
+  });
+
+  it("깨진 at 이 섞이면 runAll 도 그 자리에서 멈춘다", () => {
+    expect(() =>
+      runAll(
+        stateAt(T_ASKED),
+        [
+          eventInput(event("transcript.segment", AT, { segmentId: "ts-1" })),
+          eventInput(event("transcript.segment", "2026-13-45T99:99:99", { segmentId: "ts-2" })),
+        ],
+        ENV,
+      ),
+    ).toThrow(MachineError);
+  });
+
+  it("inputTimeOf 는 읽을 수 있는 시각만 돌려주고 나머지는 던진다", () => {
+    expect(inputTimeOf(eventInput(event("panel.opened", AT)))).toBe(T_ASKED);
+    expect(inputTimeOf({ kind: "tick", now: T_ASKED })).toBe(T_ASKED);
+    expect(() => inputTimeOf(eventInput(event("panel.opened", "not-a-time")))).toThrow(MachineError);
+    expect(() => inputTimeOf({ kind: "tick", now: Number.NaN })).toThrow(MachineError);
+  });
+
+  it("MachineError 는 어느 입력에서 났는지 들고 있다", () => {
+    try {
+      inputTimeOf(eventInput(event("answer.failed", "언제인지 모름")));
+      throw new Error("여기까지 오면 안 됩니다");
+    } catch (error) {
+      expect(error).toBeInstanceOf(MachineError);
+      expect((error as InstanceType<typeof MachineError>).input).toBe("answer.failed");
+      expect((error as Error).name).toBe("MachineError");
+    }
+  });
+
+  it("뒤로 가는 tick 은 통째로 무시하고 까닭을 남긴다", () => {
+    // 접힘 시각이 이미 지난 상태입니다. 뒤로 가는 tick 이 그대로 통하면 여기서 접혔을 것입니다.
+    const ready = stateAt(T_ASKED, {
+      state: "ANSWER_MINIMAL",
+      note: "minimal",
+      questionId: "q-1",
+      prepUntil: T_ASKED - 5_000,
+      foldDeadline: T_ASKED - 1,
+    });
+    const { next, effects } = transition(ready, { kind: "tick", now: T_ASKED - 5_000 }, ENV);
+
+    expect(effects).toEqual([
+      { kind: "ignored", state: "ANSWER_MINIMAL", input: "tick", reason: "time-went-backward" },
+    ]);
+    expect(next).toEqual(ready);
+    expect(next.now).toBe(T_ASKED);
+  });
+
+  it("늦게 도착한 사건은 처리하되 시계를 되돌리지는 않는다", () => {
+    const { next, effects } = transition(
+      stateAt(T_ASKED),
+      eventInput(
+        event("transcript.segment", formatIso(T_ASKED - 9_000, ENV.tzOffsetMinutes), {
+          segmentId: "ts-late",
+        }),
+      ),
+      ENV,
+    );
+    expect(next.lastSegmentId).toBe("ts-late");
+    expect(next.now).toBe(T_ASKED);
+    expect(effects).toEqual([]);
   });
 });
 

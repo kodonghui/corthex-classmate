@@ -34,7 +34,29 @@ CAPTURE ──question.asked/stuck──▶ ANSWER_MINIMAL ──18초 접힘·p
 | `emit` | 이 세션 사건을 기록에 남겨 주세요(`state.changed` · `question.asked`) |
 | `schedule` / `cancel` | 접힘 시계를 이 시각에 걸어 주세요 / 지워 주세요 |
 | `ask` | 이 질문과 봉인을 제공자에게 물어봐 주세요 |
-| `ignored` | 표에 칸이 없거나 조건이 맞지 않아 아무것도 하지 않았습니다 |
+| `ignored` | 표에 칸이 없거나 조건이 맞지 않아 아무것도 하지 않았습니다. 따로 알릴 까닭이 있으면 `reason` 이 붙습니다 |
+
+## 입력 규칙
+
+상태기계에 넣는 입력이 지켜야 할 것들입니다. 시각을 잘못 읽으면 그 시각이 `state.changed` 의 `at` 과 접힘 예약에
+그대로 실려 **영구 기록에 남기 때문에**, 시각만큼은 조용히 넘어가지 않습니다.
+
+1. **시각의 출처.** 사건(`{ kind: "event" }`)은 자기 `at`, 사람 조작은 넣어 준 `now`(epoch 밀리초)를 씁니다.
+2. **읽을 수 없는 시각은 예외입니다.** 사건의 `at` 이 ISO-8601 이 아니거나 조작의 `now` 가 유한한 수가 아니면
+   `transition` 이 `MachineError` 를 던집니다. 직전 시각으로 슬쩍 넘어가지 않습니다(`time.ts` 의 `parseIso` 와 같은
+   취지). 사건을 넣는 쪽이 기록에 남기기 전에 잡아야 하는 오류입니다.
+3. **`state.now` 는 뒤로 가지 않습니다.** 늦게 도착한 사건은 처리하되 시계는 직전 시각에 머뭅니다. 뒤로 가는
+   `tick` 은 새로 알려 주는 것이 없어 통째로 무시하고 `{ kind: "ignored", reason: "time-went-backward" }` 만 남깁니다.
+
+```ts
+try {
+  const { next, effects } = transition(state, { kind: "event", event }, env);
+} catch (error) {
+  if (error instanceof MachineError) {
+    // error.input 에 어느 입력이었는지 들어 있습니다. 그 사건은 기록에 넣지 않습니다.
+  }
+}
+```
 
 ## 봉인 규칙 (`sealSnapshot`)
 
@@ -71,12 +93,12 @@ pnpm --filter @classmate/tutor-core typecheck   # tsc --noEmit
 ```
 
 - `test/machine-table.test.ts` — 120칸 전수. 어느 칸에 규칙이 있는지, 밀었을 때 어디로 가는지를 표로 적어 두고 순회합니다.
-- `test/machine.test.ts` — 준비 1.6초 · 18초 접힘 · 칩 리셋 · 자세히 정지 · 교시 뒤 단계 이동.
+- `test/machine.test.ts` — 준비 1.6초 · 18초 접힘 · 칩 리셋 · 자세히 정지 · 교시 뒤 단계 이동 · 입력 시각 규칙(깨진 `at` → `MachineError`, 뒤로 가는 `tick` → `ignored`).
 - `test/snapshot.test.ts` — 봉인이 질문 이후 자료를 섞지 않는지, 나이 계산, 계약 검증기 통과.
 - `test/fold-timer.test.ts` — 가짜 시계·가짜 예약기로 18초를 손으로 밉니다.
 - `test/answer-flow.test.ts` — 오류 → 대기(queued) → 되살아남(recovered)과 계약 `Answer.status` 값.
 - `test/replay-fixtures.test.ts` — **e2e.** `session-events.jsonl` 27줄을 1초 간격으로 흘려보내 `state.changed` 4건(from·to)과 두 질문의 봉인을 fixture 그대로 다시 만듭니다.
-- `test/source-rules.test.ts` — `src/**` 에 브라우저 API 0건 · 계약은 `import type` 만.
+- `test/source-rules.test.ts` — `src/**` 에 브라우저 API 0건 · 계약은 `import type` 만. 검사기 자체도 가짜 소스로 확인합니다(값 재수출은 잡고, `export type { … } from` 은 통과하고, 주석 속 "import type" 에 속지 않습니다).
 
 ### e2e 재생에서 알아 둘 것
 

@@ -131,7 +131,12 @@ export interface MachineState {
   readonly lastEditorId: Id | null;
   /** 커넥터 이름 → 마지막으로 알려진 형편입니다. */
   readonly connectors: Readonly<Record<string, string>>;
-  /** 마지막으로 본 시각(ms)입니다. 입력이 들어올 때마다 앞으로만 갑니다. */
+  /**
+   * 마지막으로 본 시각(ms)입니다. **앞으로만 갑니다**(`transition` 이 강제합니다).
+   *
+   * 늦게 도착한 사건처럼 시각이 뒤로 가는 입력이 와도 이 값은 직전 시각에 머뭅니다.
+   * `tick` 이 뒤로 가면 아예 무시하고 `ignored`(reason: `time-went-backward`)만 남깁니다.
+   */
   readonly now: number;
 }
 
@@ -169,7 +174,18 @@ export type Effect =
       readonly snapshot: QuestionSnapshot | null;
     }
   /** 표에 칸이 없거나 조건이 맞지 않아 아무것도 하지 않았습니다. */
-  | { readonly kind: "ignored"; readonly state: TutorState; readonly input: InputKind };
+  | {
+      readonly kind: "ignored";
+      readonly state: TutorState;
+      readonly input: InputKind;
+      /** 보통(칸 없음·조건 어긋남)에는 붙지 않습니다. 따로 알릴 까닭이 있을 때만 붙습니다. */
+      readonly reason?: IgnoreReason;
+    };
+
+/** `ignored` 에 붙는 까닭입니다. */
+export type IgnoreReason =
+  /** 시각이 뒤로 가는 `tick` 이라 아무 일도 하지 않았습니다. */
+  "time-went-backward";
 
 export interface Env {
   readonly periodId: PeriodId;
@@ -612,7 +628,9 @@ const ANSWER_MINIMAL_RULES: Partial<Record<InputKind, TransitionRule>> = {
   chip: {
     note: "칩을 누르면 내용이 그 자리에서 바뀌고 접힘 시계가 18초로 되돌아갑니다",
     run: (ctx) => {
-      if (ctx.state.note !== "minimal") return {};
+      // 칩은 한 줄 결론 자리에만 뜹니다. 준비·대기·자세히에서는 다른 조건부 칸과 똑같이
+      // null 을 돌려주어 `ignored` 로 남깁니다(빈 Draft 를 돌려주면 기록에 흔적이 없습니다).
+      if (ctx.state.note !== "minimal") return null;
       const fold = armFold(ctx);
       return { patch: { foldDeadline: fold.deadline }, effects: fold.effects };
     },
@@ -745,21 +763,51 @@ export function hasRule(state: TutorState, input: InputKind): boolean {
 // 리듀서
 // ─────────────────────────────────────────────────────────────────────────────
 
+/**
+ * 입력의 시각을 읽을 수 없을 때 냅니다.
+ *
+ * 조용히 직전 시각으로 넘어가면 그 잘못된 시각이 `state.changed` 의 `at` 과 접힘 예약에
+ * 그대로 실려 영구 기록에 남습니다. `time.ts` 의 `parseIso` 가 0 을 돌려주지 않고 예외를
+ * 던지는 것과 같은 취지입니다.
+ */
+export class MachineError extends Error {
+  /** 문제가 된 입력의 이름입니다. */
+  readonly input: InputKind;
+
+  constructor(message: string, input: InputKind) {
+    super(message);
+    this.name = "MachineError";
+    this.input = input;
+  }
+}
+
 /** 입력의 이름을 뽑습니다. 사건이면 사건 이름, 조작이면 조작 이름입니다. */
 export function inputKindOf(input: MachineInput): InputKind {
   return input.kind === "event" ? input.event.type : input.kind;
 }
 
-/** 입력이 가리키는 시각(ms)입니다. 사건은 자기 `at`, 조작은 넣어 준 `now` 를 씁니다. */
-export function inputTimeOf(input: MachineInput, fallback: number): number {
-  if (input.kind === "event") {
-    try {
-      return parseIso(input.event.at);
-    } catch {
-      return fallback;
+/**
+ * 입력이 가리키는 시각(ms)입니다. 사건은 자기 `at`, 조작은 넣어 준 `now` 를 씁니다.
+ *
+ * 읽을 수 없으면 `MachineError` 를 던집니다. 삼키지 않습니다.
+ *   - 사건의 `at` 이 ISO-8601 이 아님(`parseIso` 가 던진 예외를 그대로 올립니다)
+ *   - 조작의 `now` 가 유한한 수가 아님(NaN · Infinity)
+ */
+export function inputTimeOf(input: MachineInput): number {
+  if (input.kind !== "event") {
+    if (!Number.isFinite(input.now)) {
+      throw new MachineError(`조작 ${input.kind} 의 now 가 시각이 아닙니다: ${input.now}`, input.kind);
     }
+    return input.now;
   }
-  return input.now;
+  try {
+    return parseIso(input.event.at);
+  } catch {
+    throw new MachineError(
+      `사건 ${input.event.type} 의 at 을 읽을 수 없습니다: ${String(input.event.at)}`,
+      input.event.type,
+    );
+  }
 }
 
 /**
@@ -769,10 +817,25 @@ export function inputTimeOf(input: MachineInput, fallback: number): number {
  *
  * 상태 이름이 바뀌면 `state.changed` 사건 초안을 **효과 맨 앞에** 자동으로 넣습니다.
  * 규칙이 깜빡해도 기록이 비지 않게 하려는 것입니다.
+ *
+ * 시각 규칙 두 가지는 README §입력 규칙과 같습니다.
+ *   - 입력의 시각을 읽을 수 없으면 `MachineError` 를 던집니다.
+ *   - `state.now` 는 뒤로 가지 않습니다. 뒤로 가는 `tick` 은 통째로 무시합니다.
  */
 export function transition(state: MachineState, input: MachineInput, env: Env): TransitionResult {
   const kind = inputKindOf(input);
-  const now = inputTimeOf(input, state.now);
+  const at = inputTimeOf(input);
+
+  // 뒤로 가는 tick 은 시계를 되돌릴 뿐 새로 알려 주는 것이 없어 통째로 무시합니다.
+  if (input.kind === "tick" && at < state.now) {
+    return {
+      next: state,
+      effects: [{ kind: "ignored", state: state.state, input: kind, reason: "time-went-backward" }],
+    };
+  }
+
+  // 늦게 도착한 사건도 시계를 되돌리지는 못합니다. 사건 자체는 그대로 처리합니다.
+  const now = Math.max(state.now, at);
   const moved: MachineState = { ...state, now };
   const ignored: Effect = { kind: "ignored", state: state.state, input: kind };
 
