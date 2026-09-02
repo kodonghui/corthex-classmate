@@ -192,7 +192,7 @@ const FRAME_PERIOD: &str = "2026-09-02-p9";
 
 /// fixtures 의 1x1 자리표시자 WebP 34바이트. 읽기만 한다.
 const FRAME_BYTES: &[u8] =
-    include_bytes!("../../../fixtures/synthetic-class/golden-ioc/frames/frame-001.webp");
+    include_bytes!("../../../fixtures/synthetic-class/golden-ioc/frames/sf-p3-001.webp");
 
 /// 죽을 때까지 프레임만 쓰는 자식.
 ///

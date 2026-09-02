@@ -57,7 +57,7 @@ describe("교시 상세 HTML · 번들 내용", () => {
   });
 
   it("화면 장면과 당시 코드가 나온다", () => {
-    expect(goldenHtml).toContain('src="frames/p3/frame-001.webp"');
+    expect(goldenHtml).toContain('src="frames/p3/sf-p3-001.webp"');
     expect(goldenHtml).toContain("src/main/java/com/ohgiraffers/order/OrderService.java");
     expect(goldenHtml).toContain("this.orderRepository = new OrderRepository();");
   });

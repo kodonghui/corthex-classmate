@@ -24,8 +24,8 @@ fixtures/
 │  └─ golden-ioc/                골든 시나리오 · IoC 컨테이너와 의존성 주입
 │     ├─ transcript.json         TranscriptSegment 9개
 │     ├─ screen-frames.json      ScreenFrame 2개
-│     ├─ frames/frame-001.webp   자리표시자 이미지 (1x1 lossless WebP)
-│     ├─ frames/frame-002.webp   자리표시자 이미지 (1x1 lossless WebP)
+│     ├─ frames/sf-p3-001.webp   자리표시자 이미지 (1x1 lossless WebP)
+│     ├─ frames/sf-p3-002.webp   자리표시자 이미지 (1x1 lossless WebP)
 │     ├─ editor-context.json     EditorContext 1개
 │     ├─ OrderService.java       editor-context 의 excerpt 를 포함하는 합성 전체 파일
 │     ├─ question.json           Question 1개 (첫 질문 q-p3-001)
@@ -67,7 +67,7 @@ E2E 는 실제 Tiro·Meet·IntelliJ 에 붙지 않고 이 폴더를 원본으로
 - 프레임 두 장은 **1x1 lossless WebP 자리표시자**입니다. 저장소에 실제 수업 화면을
   담지 않기 위해서이고, `screen-frames.json` 의 `width`·`height` 도 파일과 어긋나지
   않게 `1` 로 적었습니다. 실제 캡처를 붙일 때 함께 고칩니다.
-- `frame-001.webp` 와 `frame-002.webp` 는 **바이트 단위로 똑같은 파일**이고,
+- `sf-p3-001.webp` 와 `sf-p3-002.webp` 는 **바이트 단위로 똑같은 파일**이고,
   `screen-frames.json` 의 `hash` 두 개는 파일에서 계산한 dHash 가 아니라 화면이 바뀐 것처럼
   보이게 지어낸 값입니다. 실제 해시 계산을 확인하는 데 쓰면 안 됩니다.
 - `session-events.jsonl` 에서 `screen.frame`(10:32:16)이 `editor.context`(10:32:17)보다

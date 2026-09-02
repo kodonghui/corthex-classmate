@@ -32,14 +32,14 @@ describe("generateDay", () => {
   it("프레임 이미지를 frames/ 로 옮긴다", () => {
     const framesDir = path.join(outDir, "frames");
     expect(statSync(framesDir).isDirectory()).toBe(true);
-    expect(existsSync(path.join(framesDir, "p3", "frame-001.webp"))).toBe(true);
-    expect(existsSync(path.join(framesDir, "p3", "frame-002.webp"))).toBe(true);
+    expect(existsSync(path.join(framesDir, "p3", "sf-p3-001.webp"))).toBe(true);
+    expect(existsSync(path.join(framesDir, "p3", "sf-p3-002.webp"))).toBe(true);
     expect(result.assets).toHaveLength(2);
   });
 
   it("옮긴 이미지가 원본과 바이트까지 같다", () => {
-    const from = readFileSync(path.join(GOLDEN_BUNDLE_DIR, "frames", "frame-001.webp"));
-    const to = readFileSync(path.join(outDir, "frames", "p3", "frame-001.webp"));
+    const from = readFileSync(path.join(GOLDEN_BUNDLE_DIR, "frames", "sf-p3-001.webp"));
+    const to = readFileSync(path.join(outDir, "frames", "p3", "sf-p3-001.webp"));
     expect(to.equals(from)).toBe(true);
   });
 
@@ -47,7 +47,7 @@ describe("generateDay", () => {
     const hub = readFileSync(path.join(outDir, "hub.html"), "utf8");
     expect(hub).toContain('href="period-3.html"');
     const periodHtml = readFileSync(path.join(outDir, "period-3.html"), "utf8");
-    expect(periodHtml).toContain('src="frames/p3/frame-001.webp"');
+    expect(periodHtml).toContain('src="frames/p3/sf-p3-001.webp"');
     expect(periodHtml).toContain('href="hub.html"');
   });
 

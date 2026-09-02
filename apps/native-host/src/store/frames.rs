@@ -475,11 +475,14 @@ mod tests {
         let store = SessionStore::open(&dir, FIXTURE_PERIOD).expect("열려야 한다");
         let bytes = fixture_bytes();
 
-        // fixtures 의 screen-frames.json 은 path 를 `frames/frame-001.webp` 로 적어 두었다.
-        // 고정 계약은 `frames/<id>.webp` 이므로 호스트가 계산한 값으로 바꿔 넣는다
-        // (fixtures 는 이 단위의 소유가 아니라 고치지 않는다 — 보고의 DECISIONS_PROPOSAL 참고).
-        for mut meta in fixture_frames() {
-            meta.path = frame_path_for(&meta.id);
+        // fixtures 의 screen-frames.json 은 고정 계약대로 `frames/<id>.webp` 를 적어 둔다
+        // (1라운드 병합 때 A 안으로 맞춤). 호스트가 다시 계산한 값과 같아야 그대로 저장된다.
+        for meta in fixture_frames() {
+            assert_eq!(
+                meta.path,
+                frame_path_for(&meta.id),
+                "fixture 경로는 계약 모양이어야 한다"
+            );
             store.store_frame(&meta, &bytes).expect("저장되어야 한다");
         }
 
@@ -544,11 +547,11 @@ mod tests {
         let bytes = fixture_bytes();
 
         for bad in [
-            "frames/frame-001.webp",               // fixtures 가 쓰는 이름
+            "frames/frame-001.webp", // id 와 다른 파일 이름(예전 fixtures 이름)
             "../../../Windows/System32/evil.webp", // 폴더 밖
-            "frames\\sf-p3-001.webp",              // 구분자가 다르다
-            "frames/sf-p3-001.png",                // 확장자가 다르다
-            "sf-p3-001.webp",                      // frames/ 가 없다
+            "frames\\sf-p3-001.webp", // 구분자가 다르다
+            "frames/sf-p3-001.png",  // 확장자가 다르다
+            "sf-p3-001.webp",        // frames/ 가 없다
         ] {
             let mut meta = frame("sf-p3-001");
             meta.path = bad.to_string();

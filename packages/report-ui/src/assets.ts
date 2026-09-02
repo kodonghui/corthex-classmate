@@ -38,7 +38,7 @@ export function isSafeBundlePath(bundlePath: string): boolean {
 }
 
 /**
- * 출력 폴더 기준의 프레임 이미지 경로입니다. 보기 frames/p3/frame-001.webp
+ * 출력 폴더 기준의 프레임 이미지 경로입니다. 보기 frames/p3/sf-p3-001.webp
  * 경로를 쓸 수 없으면 undefined 를 돌려주고, 화면에는 그림 대신 안내 문구를 둡니다.
  */
 export function frameHref(ref: PeriodRef, bundlePath: string): string | undefined {

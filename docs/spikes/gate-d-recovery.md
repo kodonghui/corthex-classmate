@@ -229,4 +229,4 @@ test store::tests::the_system_sqlite_is_new_enough ... ok
 | 위험 | 내용 | 지금 어떻게 다루나 |
 |---|---|---|
 | 짝 없는 `.webp` · `.part` 파일 | 강제 종료 순간에 쓰던 파일이 폴더에 남을 수 있다. 표에 없으므로 읽히지는 않지만 디스크는 차지한다 | 지금은 그대로 둔다. 교시 종료나 복습자료 생성 때 표에 없는 파일을 치우는 일은 다음 단위(`html-exporter`)에서 정한다 |
-| fixtures 의 `path` 가 고정 계약과 다르다 | `fixtures/.../screen-frames.json` 은 `frames/frame-001.webp` 로 적혀 있는데 고정 계약은 `frames/<id>.webp` 다. 지금 코드로는 fixture 를 그대로 넣으면 거절된다 | fixtures 는 이 단위의 소유가 아니라 고치지 않았다. 시험은 호스트가 계산한 경로로 바꿔 넣고, 어느 쪽을 맞출지는 계약 소유자가 정한다 |
+| fixtures 의 `path` 가 고정 계약과 다르다 | `fixtures/.../screen-frames.json` 은 `frames/frame-001.webp` 로 적혀 있는데 고정 계약은 `frames/<id>.webp` 다. 지금 코드로는 fixture 를 그대로 넣으면 거절된다 | fixtures 는 이 단위의 소유가 아니라 고치지 않았다. 시험은 호스트가 계산한 경로로 바꿔 넣고, 어느 쪽을 맞출지는 계약 소유자가 정한다 → 해소: 병합 때 fixtures 를 A 안(경로·파일명 `frames/<id>.webp`)으로 고침 |
