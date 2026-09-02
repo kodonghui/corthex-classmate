@@ -22,6 +22,7 @@ target/
 .claude/settings.local.json
 
 # --- Generated artifacts ---
+installer/windows/dist/
 out/
 fixtures/**/private/
 test-results/
