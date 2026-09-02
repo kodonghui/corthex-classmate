@@ -16,7 +16,13 @@ export default defineConfig({
     name: 'Corthex Classmate',
     description: '수업 중 막힌 순간을 한 번에 붙잡고 한 문장으로 수업에 돌아가요',
     version: '0.0.1',
-    permissions: ['sidePanel', 'storage'],
+    // tabCapture: Meet 탭 화면을 잡는 권한입니다. 사용자 제스처(아이콘·패널 버튼 클릭)
+    //   뒤에만 chrome.tabCapture.getMediaStreamId 가 성공합니다.
+    // offscreen: 서비스 워커에 DOM 이 없어서 getUserMedia·canvas 를 대신 할
+    //   Offscreen 문서(entrypoints/offscreen/index.html → offscreen.html)를 여는 권한입니다.
+    // host_permissions 는 넣지 않습니다. tabCapture 는 사용자가 고른 탭 하나만 열고
+    //   호스트 접근 권한을 요구하지 않습니다.
+    permissions: ['sidePanel', 'storage', 'tabCapture', 'offscreen'],
     action: {
       default_title: 'Corthex Classmate',
     },
