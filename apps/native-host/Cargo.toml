@@ -11,10 +11,23 @@ rust-version = "1.75"
 description = "Corthex Classmate 확장과 stdin/stdout 으로 이야기하는 Windows 로컬 도우미"
 license = "MIT"
 publish = false
+# build.rs 는 windows-gnu 타깃에서 winsqlite3.dll 하나를 링커가 찾을 수 있는 자리에 놓는다.
+build = "build.rs"
 
 [dependencies]
 serde = { version = "^1", features = ["derive"] }
 serde_json = "^1"
+# SQLite 는 Windows 10 1709+ 에 들어 있는 System32\winsqlite3.dll 을 그대로 쓴다.
+# `bundled` 는 C 소스를 컴파일해야 하는데 이 PC 의 gnu 툴체인에는 C 컴파일러가 없다
+# (self-contained 의 x86_64-w64-mingw32-gcc.exe 는 링커 전용).
+# `winsqlite3` 기능은 rusqlite 0.30 / libsqlite3-sys 0.27 이 마지막으로 제공한다.
+# 0.31 이후(및 libsqlite3-sys 0.28 이후)에는 이 기능 이름이 없어서 올릴 수 없다.
+rusqlite = { version = "=0.30.0", default-features = false, features = ["winsqlite3"] }
+
+[lib]
+# 통합 테스트(tests/recovery.rs)가 store 모듈을 쓸 수 있게 라이브러리도 함께 만든다.
+name = "classmate_host"
+path = "src/lib.rs"
 
 [[bin]]
 name = "classmate-host"

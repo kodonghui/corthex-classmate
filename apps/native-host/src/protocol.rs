@@ -14,19 +14,36 @@ use serde_json::Value;
 /// 한 메시지 본문의 상한. Chrome 은 호스트 → 확장 방향 메시지를 1 MB 로 제한한다.
 pub const MAX_MESSAGE_BYTES: usize = 1024 * 1024;
 
-/// 프레임 하나를 읽는다.
+/// 프레임 하나를 읽은 결과.
 ///
-/// - 정상: `Ok(Some(value))`
-/// - 스트림이 프레임 경계에서 깨끗하게 닫힘(EOF): `Ok(None)`
-/// - 길이 헤더가 4바이트보다 짧게 끊김 / 본문이 잘림: `UnexpectedEof`
-/// - 상한 초과 · UTF-8 아님 · JSON 아님: `InvalidData`
-pub fn read_message<R: Read>(reader: &mut R) -> io::Result<Option<Value>> {
+/// 여기서 갈리는 것이 중요하다. **본문을 끝까지 읽었으면** 스트림은 다음 프레임 경계에
+/// 정확히 서 있으므로 오류로 답하고 **계속 살아 있어도 된다**([`Frame::Undecodable`]).
+/// 반대로 길이 헤더나 본문이 잘렸거나 상한을 넘어 본문을 건너뛰지 못했으면 다음 프레임이
+/// 어디서 시작하는지 알 수 없으므로 **살릴 수 없다**(그때는 `Err`).
+#[derive(Debug, PartialEq)]
+pub enum Frame {
+    /// 읽어서 JSON 으로 풀린 메시지.
+    Message(Value),
+    /// 본문은 끝까지 읽었지만 UTF-8 이나 JSON 이 아니었다. `detail` 에는 길이만 담고
+    /// 본문 원문은 담지 않는다(§4-7).
+    Undecodable { bytes: usize, detail: String },
+    /// 프레임 경계에서 스트림이 깨끗하게 닫혔다.
+    Eof,
+}
+
+/// 프레임 하나를 읽는다. 살릴 수 있는 오류와 살릴 수 없는 오류를 구분한다.
+///
+/// - 정상: `Ok(Frame::Message(value))`
+/// - 본문은 다 읽었으나 UTF-8·JSON 이 아님: `Ok(Frame::Undecodable { .. })`
+/// - 프레임 경계에서 닫힘: `Ok(Frame::Eof)`
+/// - 길이 헤더가 끊김 / 본문이 잘림 / 상한 초과: `Err`
+pub fn read_frame<R: Read>(reader: &mut R) -> io::Result<Frame> {
     let mut header = [0u8; 4];
     let filled = read_as_much_as_possible(reader, &mut header)?;
 
     if filled == 0 {
         // 프레임 경계에서 스트림이 닫혔다. 정상 종료다.
-        return Ok(None);
+        return Ok(Frame::Eof);
     }
     if filled < header.len() {
         return Err(io::Error::new(
@@ -52,28 +69,44 @@ pub fn read_message<R: Read>(reader: &mut R) -> io::Result<Option<Value>> {
         ));
     }
 
-    let text = String::from_utf8(body).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
-                "본문 {declared} 바이트가 UTF-8 이 아닙니다 · {} 바이트째에서 어긋납니다",
-                error.utf8_error().valid_up_to()
-            ),
-        )
-    })?;
+    let text = match String::from_utf8(body) {
+        Ok(text) => text,
+        Err(error) => {
+            return Ok(Frame::Undecodable {
+                bytes: declared,
+                detail: format!(
+                    "본문 {declared} 바이트가 UTF-8 이 아닙니다 · {} 바이트째에서 어긋납니다",
+                    error.utf8_error().valid_up_to()
+                ),
+            })
+        }
+    };
 
-    let value = serde_json::from_str::<Value>(&text).map_err(|error| {
-        io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!(
+    match serde_json::from_str::<Value>(&text) {
+        Ok(value) => Ok(Frame::Message(value)),
+        Err(error) => Ok(Frame::Undecodable {
+            bytes: declared,
+            detail: format!(
                 "본문 {declared} 바이트를 JSON 으로 읽지 못했습니다 · {}행 {}열",
                 error.line(),
                 error.column()
             ),
-        )
-    })?;
+        }),
+    }
+}
 
-    Ok(Some(value))
+/// [`read_frame`] 을 감싸서 "메시지 하나 아니면 EOF" 로만 보는 얇은 겉옷.
+///
+/// 본문을 풀지 못한 프레임도 오류로 바꿔 돌려주므로, 이 함수를 쓰는 쪽은 살릴 수 있는
+/// 오류와 없는 오류를 구분하지 못한다. 구분이 필요하면 [`read_frame`] 을 직접 쓴다.
+pub fn read_message<R: Read>(reader: &mut R) -> io::Result<Option<Value>> {
+    match read_frame(reader)? {
+        Frame::Message(value) => Ok(Some(value)),
+        Frame::Eof => Ok(None),
+        Frame::Undecodable { detail, .. } => {
+            Err(io::Error::new(io::ErrorKind::InvalidData, detail))
+        }
+    }
 }
 
 /// 프레임 하나를 쓴다. 쓰고 나서 바로 flush 한다(확장이 기다리고 있으므로).
@@ -218,6 +251,32 @@ mod tests {
             written.is_empty(),
             "거절한 메시지는 한 바이트도 나가면 안 된다"
         );
+    }
+
+    #[test]
+    fn undecodable_body_keeps_the_stream_aligned() {
+        // 깨진 프레임 하나 뒤에 멀쩡한 프레임 하나를 붙인다.
+        let mut bytes = frame(b"not json at all");
+        write_message(&mut bytes, &json!({ "type": "ping" })).expect("쓰기가 되어야 한다");
+
+        let mut cursor = io::Cursor::new(bytes);
+        match read_frame(&mut cursor).expect("본문을 다 읽었으니 오류가 아니다") {
+            Frame::Undecodable { bytes, detail } => {
+                assert_eq!(bytes, 15);
+                assert!(
+                    !detail.contains("not json"),
+                    "원문이 새면 안 된다: {detail}"
+                );
+            }
+            other => panic!("Undecodable 이어야 한다: {other:?}"),
+        }
+
+        // 다음 프레임 경계가 그대로 살아 있어야 재연결 없이 계속 답할 수 있다.
+        assert_eq!(
+            read_frame(&mut cursor).expect("읽기"),
+            Frame::Message(json!({ "type": "ping" }))
+        );
+        assert_eq!(read_frame(&mut cursor).expect("읽기"), Frame::Eof);
     }
 
     #[test]
