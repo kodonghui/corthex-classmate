@@ -1,0 +1,39 @@
+/* @classmate/ui-base 의 스타일 전부입니다.
+ *
+ * 정본은 컴포넌트를 import 할 때 `css()` 로 <style> 을 document.head 에 꽂았습니다.
+ * 여기서는 그 텍스트를 그대로 컴포넌트 옆 .css 파일로 옮기고 이 파일 하나로 모읍니다.
+ * 쓰는 쪽에서 `@classmate/ui-base/styles.css` 를 한 번 실으면 됩니다.
+ * 색·간격·모션 값은 전부 var(--…) 이므로 토큰(@classmate/design-tokens)을 먼저 실어야 합니다.
+ *
+ * 순서는 의존 순서입니다. 뒤 파일이 앞 파일의 클래스를 씁니다.
+ *  - Input.css 가 .cm-field 를 정의하고 Select 가 그것을 씁니다.
+ *  - Badge.css 는 Tabs 가 쓰는 .cm-badge 를 정의합니다.
+ *  - Button.css / IconButton.css 는 Banner · Dialog · PanelHeader 가 씁니다.
+ */
+
+@import "./components/core/Button.css";
+@import "./components/core/IconButton.css";
+
+@import "./components/forms/Input.css";
+@import "./components/forms/Select.css";
+@import "./components/forms/Checkbox.css";
+@import "./components/forms/Radio.css";
+@import "./components/forms/Switch.css";
+@import "./components/forms/Chip.css";
+
+@import "./components/feedback/Badge.css";
+@import "./components/feedback/Tag.css";
+@import "./components/feedback/Evidence.css";
+@import "./components/feedback/StatusDot.css";
+@import "./components/feedback/Banner.css";
+@import "./components/feedback/Toast.css";
+@import "./components/feedback/Tooltip.css";
+
+@import "./components/surfaces/Card.css";
+@import "./components/surfaces/Disclosure.css";
+@import "./components/surfaces/CodeBlock.css";
+
+@import "./components/navigation/PanelHeader.css";
+@import "./components/navigation/Tabs.css";
+
+@import "./components/overlay/Dialog.css";
