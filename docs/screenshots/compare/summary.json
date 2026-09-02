@@ -1,6 +1,6 @@
 {
-  "generatedAt": "2026-09-02T23:18:51.349Z",
-  "commit": "eafba93",
+  "generatedAt": "2026-09-02T23:31:30.250Z",
+  "commit": "71036de",
   "viewport": {
     "width": 380,
     "height": 900
@@ -36,6 +36,7 @@
         "ok": true,
         "kind": "checkpoint",
         "checkpoint": "listening",
+        "then": null,
         "iso": null,
         "size": {
           "width": 380,
@@ -72,6 +73,7 @@
         "ok": true,
         "kind": "checkpoint",
         "checkpoint": "caught",
+        "then": null,
         "iso": null,
         "size": {
           "width": 380,
@@ -108,6 +110,7 @@
         "ok": true,
         "kind": "checkpoint",
         "checkpoint": "answer",
+        "then": null,
         "iso": null,
         "size": {
           "width": 380,
@@ -144,6 +147,7 @@
         "ok": true,
         "kind": "checkpoint",
         "checkpoint": "sentence",
+        "then": null,
         "iso": null,
         "size": {
           "width": 380,
@@ -180,6 +184,7 @@
         "ok": true,
         "kind": "checkpoint",
         "checkpoint": "folded",
+        "then": null,
         "iso": null,
         "size": {
           "width": 380,
@@ -216,6 +221,7 @@
         "ok": true,
         "kind": "checkpoint",
         "checkpoint": "detail",
+        "then": null,
         "iso": null,
         "size": {
           "width": 380,
@@ -237,7 +243,7 @@
       "file": "G-history.png",
       "size": {
         "width": 834,
-        "height": 1086
+        "height": 1104
       },
       "canonical": {
         "ok": true,
@@ -249,13 +255,25 @@
         "message": null
       },
       "implementation": {
-        "ok": false,
-        "kind": "none",
-        "checkpoint": null,
+        "ok": true,
+        "kind": "checkpoint",
+        "checkpoint": "answer",
+        "then": {
+          "click": ".cm-sf__r",
+          "expect": "[data-screen-label=\"기록\"]"
+        },
         "iso": null,
-        "size": null,
-        "facts": null,
-        "message": "구현에 기록 화면이 없어요 (단위 1a 병합 뒤 다시 돌립니다)"
+        "size": {
+          "width": 380,
+          "height": 900
+        },
+        "facts": {
+          "screen": "기록",
+          "note": "minimal",
+          "footerPaused": false,
+          "footerOff": false
+        },
+        "message": null
       }
     },
     {
@@ -280,6 +298,7 @@
         "ok": true,
         "kind": "checkpoint",
         "checkpoint": "waiting",
+        "then": null,
         "iso": null,
         "size": {
           "width": 380,
@@ -301,7 +320,7 @@
       "file": "H1-tiro-paused.png",
       "size": {
         "width": 834,
-        "height": 1104
+        "height": 1122
       },
       "canonical": {
         "ok": true,
@@ -314,9 +333,16 @@
       },
       "implementation": {
         "ok": true,
-        "kind": "clock",
-        "checkpoint": null,
-        "iso": "2026-09-02T10:31:35+09:00",
+        "kind": "checkpoint",
+        "checkpoint": "listening",
+        "then": {
+          "connector": [
+            "tiro-share",
+            "paused"
+          ],
+          "expect": ".cm-sf--paused"
+        },
+        "iso": null,
         "size": {
           "width": 380,
           "height": 900
@@ -324,7 +350,7 @@
         "facts": {
           "screen": "듣는 중",
           "note": "none",
-          "footerPaused": false,
+          "footerPaused": true,
           "footerOff": false
         },
         "message": null

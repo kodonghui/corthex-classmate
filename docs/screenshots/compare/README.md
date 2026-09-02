@@ -33,9 +33,9 @@ pnpm --filter @classmate/browser-extension compare:design
 | D 문장을 붙잡음 | tick 8 → 마지막 문장 클릭 | `goto('sentence')` | `D-sentence.png` | 차이 있음(의도) |
 | E 접힌 메모 | tick 31 → `new` 클릭 → tick 2 → tick 18 | `goto('folded')` | `E-folded.png` | 일치 |
 | F 자세히 | tick 31 → `new` 클릭 → tick 2 → `자세히 보기 ▸` | `goto('detail')` | `F-detail.png` | 차이 있음(의도) |
-| G 기록 | tick 31 → 바닥줄 `기록 N` 클릭 | 없음 | `G-history.png` | 구현 없음 |
+| G 기록 | tick 31 → 바닥줄 `기록 N` 클릭 | `goto('answer')` → 바닥줄 `.cm-sf__r` 클릭 | `G-history.png` | 차이 있음(의도) |
 | H 튜터 멈춤 | props `aiDown=true` → tick 31 → `new` 클릭 | `goto('waiting')` | `H-tutor-paused.png` | 일치 |
-| H-1 전사 멈춤 | tick 31 → props `tiroDown=true` → tick 1 | `advanceTo('2026-09-02T10:31:35+09:00')` | `H1-tiro-paused.png` | 대체 |
+| H-1 전사 멈춤 | tick 31 → props `tiroDown=true` → tick 1 | `goto('listening')` → `classmateConnector('tiro-share','paused')` | `H1-tiro-paused.png` | 일치 |
 
 - **일치** — 화면 구조·문구·상태 표시가 같은 것으로 읽힙니다(아래 공통 차이는 뺍니다).
 - **차이 있음(의도)** — 아래 목록에 적은 이유로 다릅니다. 고칠 것이 아닙니다.
@@ -75,13 +75,12 @@ pnpm --filter @classmate/browser-extension compare:design
     만들 때 **제공자 선택과 개인정보 문구는 정본에 근거가 없습니다**(`docs/design-map.md` §6 마지막 항목).
     정본 인용으로 삼지 말고 새로 쓴 문구임을 밝혀야 합니다.
 
-## 아직 못 맞춘 것
+## G · H-1 을 세우는 방법 (2라운드 병합 뒤)
 
-- **G 기록** — 구현에 기록 화면이 없습니다. 화면이 생기면 `compare-design.mjs` 의 `STATES` 에서 `G` 의
-  `impl` 을 `{ kind: 'none', … }` 에서 `{ kind: 'checkpoint', checkpoint: '<이름>' }` 으로 바꾸면 됩니다.
-- **H-1 전사 멈춤** — fixture `session-events.jsonl` 의 `connector.status` 는 `connected` 세 줄뿐이고,
-  `window.classmateReplay` 손잡이에 커넥터 사건을 넣는 방법이 없습니다. 그래서 fixture 첫 사건 시각
-  (`2026-09-02T10:31:35+09:00`)으로 시계를 세워 대신했습니다. 그 시각에는 전사가 아직 하나도 오지 않아
-  **"아직 들은 문장이 없어요" 가 보이고 바닥줄은 정상**입니다(호박색 "다시 연결" 이 아닙니다).
-  손잡이에 커넥터 사건 주입이나 전용 체크포인트가 생기면 `STATES` 의 `H1.impl` 을 그쪽으로 바꿉니다.
-  스크립트는 실제로 호박색 바닥줄(`.cm-sf--paused`)이 떴는지 확인해 `summary.json` 과 이미지 캡션에 적습니다.
+- **G 기록** — 기록 화면은 스토어 체크포인트가 아니라 `PanelApp` 이 얹는 화면이라, `goto('answer')` 뒤에
+  바닥줄의 카운트(`.cm-sf__r` · 정본 `dc.html:398` 의 `onCount` 와 같은 입구)를 눌러 들어갑니다.
+  정본의 기록은 시연 컬럼이 만든 여러 순간을 보이지만 구현은 fixture 의 붙잡은 순간 1개(3교시 묶음)만 보입니다 — 의도한 차이입니다.
+- **H-1 전사 멈춤** — fixture 의 `connector.status` 는 `connected` 세 줄뿐이라 `?replay=manual` 에서만 붙는 손잡이
+  `window.classmateConnector('tiro-share', 'paused')` 로 계약 `connector.status` 한 줄을 넣습니다(정본도 이 상태를
+  Tweaks 의 `tiroDown` 으로 켭니다). 스크립트는 호박색 바닥줄(`.cm-sf--paused`)이 실제로 떴는지 기다렸다가 찍고,
+  `summary.json` 의 `facts.footerPaused` 와 이미지 캡션에 적습니다.

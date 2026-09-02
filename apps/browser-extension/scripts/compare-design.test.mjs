@@ -22,6 +22,7 @@ import {
   escapeHtml,
   fileNameOf,
   implLabelOf,
+  thenLabelOf,
   pngSize,
   resolveServedPath,
   summaryRow,
@@ -75,20 +76,33 @@ describe('상태 ↔ 체크포인트 표', () => {
       D: 'sentence',
       E: 'folded',
       F: 'detail',
+      G: 'answer',
       H: 'waiting',
+      H1: 'listening',
     });
   });
 
-  it('구현이 아직 없는 상태는 이유를 들고 있다', () => {
+  it('기록은 답 장면에서 바닥줄 카운트를 눌러 들어간다(정본과 같은 입구)', () => {
     const history = STATES.find((state) => state.id === 'G');
-    assert.equal(history.impl.kind, 'none');
-    assert.match(history.impl.reason, /기록 화면/);
+    assert.equal(history.impl.kind, 'checkpoint');
+    assert.equal(history.impl.checkpoint, 'answer');
+    assert.deepEqual(history.impl.then, { click: '.cm-sf__r', expect: '[data-screen-label="기록"]' });
   });
 
-  it('전사 멈춤은 fixture 시작 시각으로 시계를 민다', () => {
+  it('전사 멈춤은 듣는 중 장면에 connector.status 한 줄을 손잡이로 넣어 세운다', () => {
     const tiro = STATES.find((state) => state.id === 'H1');
-    assert.equal(tiro.impl.kind, 'clock');
-    assert.equal(tiro.impl.iso, '2026-09-02T10:31:35+09:00');
+    assert.equal(tiro.impl.kind, 'checkpoint');
+    assert.equal(tiro.impl.checkpoint, 'listening');
+    assert.deepEqual(tiro.impl.then, { connector: ['tiro-share', 'paused'], expect: '.cm-sf--paused' });
+  });
+
+  it('then 은 클릭이나 커넥터 한 손짓만 적고, 없으면 빈 문자열이다', () => {
+    assert.equal(thenLabelOf(undefined), '');
+    assert.equal(thenLabelOf({ click: '.cm-sf__r' }), ' → 클릭 .cm-sf__r');
+    assert.equal(
+      thenLabelOf({ connector: ['tiro-share', 'paused'] }),
+      ' → classmateConnector(tiro-share, paused)',
+    );
   });
 
   it('파일 이름은 <상태>-<이름>.png 이고 서로 겹치지 않는다', () => {
@@ -103,9 +117,17 @@ describe('상태 ↔ 체크포인트 표', () => {
     assert.equal(implLabelOf(STATES[0]), '구현 · 체크포인트 listening');
     assert.equal(
       implLabelOf(STATES.at(-1)),
+      '구현 · 체크포인트 listening → classmateConnector(tiro-share, paused)',
+    );
+    assert.equal(
+      implLabelOf(STATES.find((state) => state.id === 'G')),
+      '구현 · 체크포인트 answer → 클릭 .cm-sf__r',
+    );
+    assert.equal(
+      implLabelOf({ impl: { kind: 'clock', iso: '2026-09-02T10:31:35+09:00' } }),
       '구현 · advanceTo(2026-09-02T10:31:35+09:00)',
     );
-    assert.equal(implLabelOf(STATES.find((state) => state.id === 'G')), '구현 · 없음');
+    assert.equal(implLabelOf({ impl: { kind: 'none', reason: '아직' } }), '구현 · 없음');
   });
 });
 
@@ -266,8 +288,16 @@ describe('콘솔 표', () => {
   });
 
   it('요약 줄은 조작 방법과 실패 이유를 함께 담는다', () => {
+    // 지금 STATES 에는 none 이 없으므로 가짜 상태로 그 갈래를 봅니다.
+    const missing = {
+      id: 'Z',
+      name: 'missing',
+      title: 'Z 없음',
+      design: 'tick 1',
+      impl: { kind: 'none', reason: '아직 없어요' },
+    };
     const row = summaryRow(
-      STATES.find((state) => state.id === 'G'),
+      missing,
       { ok: false, message: '정본을 못 열었어요' },
       { ok: false, kind: 'none', message: '구현에 기록 화면이 없어요' },
       null,

@@ -60,6 +60,9 @@ export const DESIGN_LOAD_TIMEOUT_MS = 30_000;
 /**
  * 구현 쪽을 세우는 방법 세 가지입니다.
  *   checkpoint  `window.classmateReplay.goto(<이름>)`
+ *               + `then` 이 있으면 그 뒤에 한 손짓 — `click`(셀렉터 클릭) 또는
+ *                 `connector`(`window.classmateConnector(<커넥터>, <형편>)` · 계약 connector.status 한 줄) —
+ *                 를 하고 `expect` 셀렉터가 보일 때까지 기다립니다. 기록(G)·전사 멈춤(H-1)이 이렇게 섭니다.
  *   clock       `window.classmateReplay.advanceTo(<ISO>)`
  *   none        구현에 그 화면이 아직 없음 → 자리표시
  */
@@ -111,7 +114,12 @@ export const STATES = [
     name: 'history',
     title: 'G 기록',
     design: 'tick 31 → 바닥줄 "기록 N" 클릭',
-    impl: { kind: 'none', reason: '구현에 기록 화면이 없어요 (단위 1a 병합 뒤 다시 돌립니다)' },
+    // 정본과 같은 입구: 바닥줄의 카운트(`SourceFooter onCount`) 하나뿐입니다(docs/design-map.md §4-2-1).
+    impl: {
+      kind: 'checkpoint',
+      checkpoint: 'answer',
+      then: { click: '.cm-sf__r', expect: '[data-screen-label="기록"]' },
+    },
   },
   {
     id: 'H',
@@ -125,7 +133,13 @@ export const STATES = [
     name: 'tiro-paused',
     title: 'H-1 전사 멈춤',
     design: 'tick 31 → props tiroDown=true → tick 1(전사 얼림)',
-    impl: { kind: 'clock', iso: '2026-09-02T10:31:35+09:00' },
+    // 골든 fixture 의 connector.status 는 전부 connected 라 사건 하나를 손잡이로 더 넣습니다
+    // (정본도 이 상태를 Tweaks 의 tiroDown 으로 켭니다 · docs/screenshots/README.md).
+    impl: {
+      kind: 'checkpoint',
+      checkpoint: 'listening',
+      then: { connector: ['tiro-share', 'paused'], expect: '.cm-sf--paused' },
+    },
   },
 ];
 
@@ -134,9 +148,21 @@ export function fileNameOf(state) {
   return `${state.id}-${state.name}.png`;
 }
 
+/** `then` 한 손짓을 사람이 읽을 한 토막으로 적습니다. 없으면 빈 문자열입니다. */
+export function thenLabelOf(then) {
+  if (then === undefined) return '';
+  if (then.click !== undefined) return ` → 클릭 ${then.click}`;
+  if (then.connector !== undefined) {
+    return ` → classmateConnector(${then.connector[0]}, ${then.connector[1]})`;
+  }
+  return '';
+}
+
 /** 구현 쪽이 어떻게 세워졌는지 한 줄로 적습니다(합성 이미지의 오른쪽 제목). */
 export function implLabelOf(state) {
-  if (state.impl.kind === 'checkpoint') return `구현 · 체크포인트 ${state.impl.checkpoint}`;
+  if (state.impl.kind === 'checkpoint') {
+    return `구현 · 체크포인트 ${state.impl.checkpoint}${thenLabelOf(state.impl.then)}`;
+  }
   if (state.impl.kind === 'clock') return `구현 · advanceTo(${state.impl.iso})`;
   return '구현 · 없음';
 }
@@ -603,6 +629,7 @@ export async function captureImplementation(states) {
           await page.evaluate((checkpoint) => {
             window.classmateReplay.goto(checkpoint);
           }, state.impl.checkpoint);
+          await applyThen(page, state.impl.then);
         } else {
           await page.evaluate((iso) => {
             window.classmateReplay.advanceTo(iso);
@@ -636,6 +663,25 @@ export async function captureImplementation(states) {
     return fail(`확장을 얹지 못했어요: ${String(error?.message ?? error)}`);
   } finally {
     await context?.close();
+  }
+}
+
+/**
+ * 체크포인트 뒤의 한 손짓입니다. 값은 `STATES` 에 박힌 상수뿐이라 페이지에서 온 문자열을
+ * 실행하는 일은 없습니다(§4-7).
+ */
+async function applyThen(page, then) {
+  if (then === undefined) return;
+  if (then.click !== undefined) {
+    await page.locator(then.click).click();
+  }
+  if (then.connector !== undefined) {
+    await page.evaluate(([connector, connectorState]) => {
+      window.classmateConnector(connector, connectorState);
+    }, then.connector);
+  }
+  if (then.expect !== undefined) {
+    await page.locator(then.expect).first().waitFor({ state: 'visible', timeout: 5_000 });
   }
 }
 
@@ -680,7 +726,8 @@ async function composeAll(states, canonical, implementation, meta) {
 
 function implHow(state, impl) {
   if (state.impl.kind === 'checkpoint') {
-    return `window.classmateReplay.goto('${state.impl.checkpoint}') · 화면 ${impl.facts?.screen ?? '?'} · note ${impl.facts?.note ?? '-'}`;
+    const paused = impl.facts?.footerPaused === true ? ' · 바닥줄 호박색' : '';
+    return `window.classmateReplay.goto('${state.impl.checkpoint}')${thenLabelOf(state.impl.then)} · 화면 ${impl.facts?.screen ?? '?'} · note ${impl.facts?.note ?? '-'}${paused}`;
   }
   const footer = impl.facts?.footerPaused === true ? '바닥줄 호박색' : '바닥줄 정상(전사 멈춤 아님)';
   return `window.classmateReplay.advanceTo('${state.impl.iso}') · ${footer}`;
@@ -723,6 +770,7 @@ export function summaryRow(state, canonical, implementation, size) {
       ok: implementation.ok === true,
       kind: implementation.kind ?? state.impl.kind,
       checkpoint: state.impl.kind === 'checkpoint' ? state.impl.checkpoint : null,
+      then: state.impl.kind === 'checkpoint' ? (state.impl.then ?? null) : null,
       iso: state.impl.kind === 'clock' ? state.impl.iso : null,
       size: implementation.size ?? null,
       facts: implementation.facts ?? null,

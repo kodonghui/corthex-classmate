@@ -117,10 +117,8 @@ C:\CorthexClassmate\
 이 ID 는 `installer/windows/extension-key.json` 의 `id` 와 **같아야 합니다.**
 매니페스트의 `key` 가 id 를 고정하기 때문입니다. 폴더를 옮겨도 이 ID 는 바뀌지 않습니다.
 
-> **대기 · 단위 2 병합 전에는 다르게 나옵니다.** 지금 브랜치의 `wxt.config.ts` 는 아직
-> `CLASSMATE_EXTENSION_KEY` 를 매니페스트에 옮기지 않아서, dev zip 에 `key` 가 없고
-> Chrome 이 폴더 경로로 id 를 짓습니다. 그때는 화면에 보이는 ID 를 그대로 §3-3 에 쓰고,
-> 단위 2 가 병합된 뒤 zip 을 다시 묶어 고정 id 로 갈아 끼웁니다.
+`node installer/windows/package-extension.mjs` 가 dev zip 에 대해 `key=있음` 을 찍으면 매니페스트에 키가
+들어간 것입니다(2라운드 병합 뒤 실측: dev `key=있음` · store `key=없음`).
 
 ### 3-3. 로컬 도우미 등록 — **대기 (사람이 확인한 뒤 실행)**
 
