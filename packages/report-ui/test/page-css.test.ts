@@ -10,8 +10,21 @@ import { EVIDENCE_LABELS_KO as CONTRACT_EVIDENCE_LABELS_KO, SESSION_EVENT_TYPES 
 
 import { EVIDENCE_LABELS_KO, SESSION_EVENT_LABELS_KO } from "../src/labels.ts";
 import { PAGE_CSS } from "../src/page-css.ts";
-import { EXCLUDED_TOKEN_FILES, PANEL_HEADER_HEIGHT, readDesignTokenCss, TOKEN_FILE_ORDER } from "../src/tokens.ts";
+import {
+  DEFAULT_TOKENS_DIR,
+  EXCLUDED_TOKEN_FILES,
+  PANEL_HEADER_HEIGHT,
+  readDesignTokenCss,
+  TOKEN_FILE_ORDER,
+} from "../src/tokens.ts";
 import { SCRIPTS_DIR, SRC_DIR } from "./helpers.ts";
+
+/** PAGE_CSS 에서 규칙 하나의 중괄호 안쪽만 떼어 옵니다. 없으면 빈 문자열입니다. */
+function cssRuleBody(selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const matched = new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`).exec(PAGE_CSS);
+  return matched?.[1] ?? "";
+}
 
 function collectFiles(dir: string): string[] {
   const found: string[] = [];
@@ -44,6 +57,27 @@ describe("페이지 CSS", () => {
     expect(PAGE_CSS).not.toContain("url(");
     expect(PAGE_CSS).not.toContain("@import");
   });
+
+  it("그림자를 쓰지 않는다 (정본은 떠 있는 것에만 허락합니다)", () => {
+    // 정본 규칙: 그림자는 Dialog(--shadow-lg) 와 Toast/Tooltip(--shadow-md) 에만 씁니다.
+    // 이 페이지에는 떠 있는 것이 없으므로 카드는 헤어라인 테두리만으로 구분합니다.
+    expect(PAGE_CSS).not.toContain("box-shadow");
+    expect(PAGE_CSS).not.toContain("--shadow-");
+    expect(cssRuleBody(".card")).toContain("var(--border-hairline)");
+  });
+
+  it("수업 화면 그림은 간격 토큰이 아니라 읽을 수 있는 크기로 그린다", () => {
+    const frameImage = cssRuleBody(".frame-image");
+    expect(frameImage).not.toBe("");
+    // --space-10 은 40px 이라 1280px 캡처가 썸네일로 줄어듭니다. 간격 토큰을 크기로 쓰지 않습니다.
+    expect(frameImage).not.toContain("--space-");
+    expect(frameImage).toContain("height: auto");
+    expect(frameImage).toContain("max-width: 100%");
+    expect(frameImage).toContain("max-height: 360px");
+    expect(frameImage).toContain("object-fit: contain");
+    // 그림 칸이 max-content 면 원본 폭이 페이지를 밀어냅니다.
+    expect(cssRuleBody(".frame")).not.toContain("max-content");
+  });
 });
 
 describe("디자인 토큰 인라인", () => {
@@ -56,8 +90,14 @@ describe("디자인 토큰 인라인", () => {
   });
 
   it("CDN 을 부르는 fonts.css 는 넣지 않는다", () => {
-    expect(EXCLUDED_TOKEN_FILES).toContain("fonts.css");
-    expect(TOKEN_FILE_ORDER).not.toContain("fonts.css");
+    for (const excluded of EXCLUDED_TOKEN_FILES) {
+      // 정본에 그 파일이 실제로 있는데도(그래서 넣을 수도 있었는데) 결과에 한 줄도 없어야 합니다.
+      const source = readFileSync(path.join(DEFAULT_TOKENS_DIR, excluded), "utf8").trim();
+      expect(source.length).toBeGreaterThan(0);
+      expect(TOKEN_FILE_ORDER).not.toContain(excluded);
+      expect(tokenCss).not.toContain(`/* tokens: ${excluded} */`);
+      expect(tokenCss).not.toContain(source);
+    }
     expect(tokenCss).not.toContain("@import");
     expect(tokenCss).not.toContain("http://");
     expect(tokenCss).not.toContain("https://");

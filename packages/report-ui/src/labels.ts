@@ -2,7 +2,7 @@
 //
 // 근거 단계 문구는 계약의 `EVIDENCE_LABELS_KO` 와 같은 값입니다. 제품 코드에서는 계약을
 // `import type` 으로만 쓰기 때문에(1라운드 공유 규칙) 값을 여기에 복제해 둡니다.
-// 두 벌이 어긋나지 않는지는 test/labels.test.ts 가 계약 상수와 맞대어 확인합니다.
+// 두 벌이 어긋나지 않는지는 test/page-css.test.ts 의 "화면 문구" 가 계약 상수와 맞대어 확인합니다.
 
 import type { Answer, EvidenceLevel, Question, SessionEvent, TranscriptSegment } from "@classmate/contracts";
 

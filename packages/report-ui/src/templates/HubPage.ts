@@ -112,22 +112,38 @@ export function HubPage(props: {
         ? null
         : h(
             Section,
-            { id: "unplaced", title: "칸을 정하지 못한 교시", lead: "교시 번호가 기록되지 않았어요." },
+            {
+              id: "unplaced",
+              title: "칸을 정하지 못한 교시",
+              lead: "교시 번호가 없거나, 그 번호 칸이 이미 차 있어요.",
+            },
             h(
               "ul",
               { className: "hub-grid" },
-              unplaced.map((bundle) =>
-                h(
+              unplaced.map((bundle) => {
+                // 번호가 겹쳐 밀려난 교시는 링크를 걸지 않습니다. 그 파일 이름은 앞 교시가 이미 썼기 때문에
+                // 링크를 걸면 다른 교시의 내용으로 열립니다.
+                const slotTaken = bundle.index !== undefined && bySlot.has(bundle.index);
+                return h(
                   "li",
                   { className: "hub-cell", key: bundle.periodId },
                   h("p", { className: "hub-index" }, bundle.periodId),
                   h(
                     "p",
                     { className: "hub-subject" },
-                    h("a", { href: periodFileName(bundle) }, bundle.subject ?? bundle.periodId),
+                    slotTaken
+                      ? (bundle.subject ?? bundle.periodId)
+                      : h("a", { href: periodFileName(bundle) }, bundle.subject ?? bundle.periodId),
                   ),
-                ),
-              ),
+                  slotTaken
+                    ? h(
+                        "p",
+                        { className: "hub-counts" },
+                        `${bundle.index}교시 칸이 이미 차 있어 상세 페이지를 만들지 않았어요`,
+                      )
+                    : null,
+                );
+              }),
             ),
           ),
       PENDING_SECTIONS.map((section) =>

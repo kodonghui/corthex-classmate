@@ -6,6 +6,7 @@
 // <style> 안의 CSS 만 React 를 거치지 않습니다. React 는 자식 텍스트의 < > & 를 실체 참조로 바꾸는데,
 // CSS 는 그렇게 바뀌면 규칙이 깨지기 때문입니다. 여기 들어가는 CSS 는 이 저장소가 쓴 파일뿐이고
 // 번들이나 모델에서 온 문자열은 한 글자도 들어가지 않습니다.
+// 그래도 tokenCss 는 바깥에서 넘길 수 있는 값이라, joinInlineCss 가 </style 을 막는 방어선을 둡니다.
 
 import { createElement as h } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -28,6 +29,22 @@ export interface HubRenderOptions extends RenderOptions {
   readonly dayId?: string | undefined;
 }
 
+/**
+ * `<style>` 안에 넣을 CSS 조각들을 잇습니다. 여기가 React 를 거치지 않는 유일한 자리라
+ * 태그를 닫아 버리는 `</style` 가 섞이면 문서가 통째로 깨집니다.
+ *
+ * 이 패키지가 넣는 CSS(PAGE_CSS 상수 · 정본 토큰 파일)에는 그런 글자가 없지만,
+ * README 가 `renderPeriodHtml(bundle, { tokenCss })` 를 공개된 우회로로 안내하므로
+ * 바깥에서 들어온 CSS 도 여기서 한 번 막습니다. 조용히 지우지 않고 던져서 부른 쪽이 알게 합니다.
+ */
+export function joinInlineCss(parts: readonly string[]): string {
+  const css = parts.join("\n");
+  if (/<\/\s*style/i.test(css)) {
+    throw new Error("인라인 CSS 에 </style 이 들어 있어 문서를 만들지 않았어요. tokenCss 로 넘긴 값을 확인해 주세요.");
+  }
+  return css;
+}
+
 function documentHtml(args: { readonly title: string; readonly tokenCss: string; readonly body: string }): string {
   const title = renderToStaticMarkup(h("title", null, args.title));
   return [
@@ -38,9 +55,7 @@ function documentHtml(args: { readonly title: string; readonly tokenCss: string;
     '<meta name="viewport" content="width=device-width, initial-scale=1">',
     title,
     "<style>",
-    args.tokenCss,
-    "",
-    PAGE_CSS,
+    joinInlineCss([args.tokenCss, "", PAGE_CSS]),
     "</style>",
     "</head>",
     "<body>",

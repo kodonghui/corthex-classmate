@@ -36,18 +36,32 @@ export interface GenerateDayResult {
   readonly warnings: readonly string[];
 }
 
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 function copyFrames(bundle: PeriodBundle, outDir: string, warnings: string[]): string[] {
   const copied: string[] = [];
+  // 목적 경로 → 그 자리를 먼저 차지한 장면 아이디입니다. 겹치면 덮어쓰지 않고 warnings 에 남깁니다.
+  const takenHrefs = new Map<string, string>();
   for (const frame of bundle.frames) {
     if (!isSafeBundlePath(frame.path)) {
       warnings.push(`${frame.id} 의 그림 경로가 폴더 밖을 가리켜서 옮기지 않았어요: ${frame.path}`);
       continue;
     }
-    const href = frameHref(bundle, frame.path);
+    const href = frameHref(bundle, frame);
     if (href === undefined) {
       warnings.push(`${frame.id} 의 그림 경로를 쓸 수 없어 옮기지 않았어요: ${frame.path}`);
       continue;
     }
+    const firstOwner = takenHrefs.get(href);
+    if (firstOwner !== undefined) {
+      warnings.push(
+        `${frame.id} 의 그림 자리가 ${firstOwner} 와 겹쳐서 덮어쓰지 않고 옮기지 않았어요: ${href}`,
+      );
+      continue;
+    }
+    takenHrefs.set(href, frame.id);
     const from = path.join(bundle.dir, frame.path);
     const to = path.join(outDir, href);
     try {
@@ -55,8 +69,7 @@ function copyFrames(bundle: PeriodBundle, outDir: string, warnings: string[]): s
       copyFileSync(from, to);
       copied.push(to);
     } catch (error) {
-      const reason = error instanceof Error ? error.message : String(error);
-      warnings.push(`${frame.id} 의 그림을 옮기지 못했어요: ${frame.path} (${reason})`);
+      warnings.push(`${frame.id} 의 그림을 옮기지 못했어요: ${frame.path} (${describeError(error)})`);
     }
   }
   return copied;
@@ -73,16 +86,39 @@ export function generateDay(options: GenerateDayOptions): GenerateDayResult {
 
   mkdirSync(outDir, { recursive: true });
 
+  // 페이지 파일 이름 → 그 이름을 먼저 쓴 교시 아이디입니다. 교시 번호가 겹쳐도 덮어쓰지 않습니다.
+  const takenPages = new Map<string, string>();
+  // 실제로 그린 번들만 허브에 넣습니다. 그래야 허브 링크가 없는 파일을 가리키지 않습니다.
+  const drawn: PeriodBundle[] = [];
+
   for (const bundle of bundles) {
-    const pagePath = path.join(outDir, periodFileName(bundle));
-    writeFileSync(pagePath, renderPeriodHtml(bundle, { tokenCss }), "utf8");
+    const fileName = periodFileName(bundle);
+    const firstOwner = takenPages.get(fileName);
+    if (firstOwner !== undefined) {
+      warnings.push(
+        `${bundle.periodId} 는 ${firstOwner} 와 같은 페이지 이름(${fileName})이라 덮어쓰지 않고 건너뛰었어요`,
+      );
+      continue;
+    }
+    // 칸이 빠진 기록 하나 때문에 하루 전체가 멈추지 않게, 이 교시만 건너뛰고 나머지를 이어 그립니다.
+    let html: string;
+    try {
+      html = renderPeriodHtml(bundle, { tokenCss });
+    } catch (error) {
+      warnings.push(`${bundle.periodId} 교시 페이지를 그리다 멈춰서 이 교시만 건너뛰었어요 (${describeError(error)})`);
+      continue;
+    }
+    takenPages.set(fileName, bundle.periodId);
+    const pagePath = path.join(outDir, fileName);
+    writeFileSync(pagePath, html, "utf8");
     pages.push(pagePath);
+    drawn.push(bundle);
     assets.push(...copyFrames(bundle, outDir, warnings));
   }
 
   const dayId = bundles[0]?.dayId ?? options.dayId ?? "날짜-미상";
   const hubPath = path.join(outDir, HUB_FILE_NAME);
-  writeFileSync(hubPath, renderHubHtml(bundles, { tokenCss, dayId }), "utf8");
+  writeFileSync(hubPath, renderHubHtml(drawn, { tokenCss, dayId }), "utf8");
   pages.push(hubPath);
 
   return { outDir, dayId, pages, assets, warnings };

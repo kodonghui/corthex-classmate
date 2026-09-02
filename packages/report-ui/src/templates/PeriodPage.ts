@@ -113,7 +113,7 @@ function FrameList(props: {
     Fragment,
     null,
     props.frames.map((frame) => {
-      const href = frameHref(props.bundle, frame.path);
+      const href = frameHref(props.bundle, frame);
       return h(
         "div",
         { className: "card", key: frame.id },
