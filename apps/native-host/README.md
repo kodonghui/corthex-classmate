@@ -4,17 +4,22 @@ crate 이름은 `classmate-host` 이고, 실행 파일도 `classmate-host.exe` �
 Chrome 확장(사이드패널)이 **Native Messaging** 으로 이 프로그램을 띄우고 stdin/stdout 으로 이야기합니다.
 
 지금 하는 일은 둘입니다. **신원 확인**(`ping` → `hello`)과 **교시 기록 보관**(SQLite WAL)입니다.
-문맥 조립(context-builder)·HTML 내보내기(html-exporter)는 다음 단계에서 이 자리에 붙습니다.
+문맥 조립(context-builder)은 `tutor.ask` / `tutor.retry` 갈래로 자리를 잡아 두었고 아직 파이프라인이
+붙지 않아 `not-implemented` 로 답합니다(아래 §8). HTML 내보내기(html-exporter)는 다음 단계입니다.
 
 ```
 Chrome 확장                     classmate-host.exe
     │                                  │
-    │  stdout(확장) ─ 4바이트 길이 + JSON ─▶ stdin(호스트)
-    │                                  │  읽고 · 판단하고 · 답을 만든다
-    │  stdin(확장) ◀ 4바이트 길이 + JSON ─  stdout(호스트)   ← 프로토콜 전용
+    │  stdout(확장) ─ 4바이트 길이 + JSON ─▶ stdin(호스트)   ← 읽는 자리는 스레드 하나
+    │                                  │  봉투를 검사하고 · 나눠 주고 · 답을 만든다
+    │  stdin(확장) ◀ 4바이트 길이 + JSON ─  stdout(호스트)   ← 프로토콜 전용 · 내보내는 자리도 하나
     │                                  │
     └─ (사람이 볼 로그는 stderr 로만 나간다)
 ```
+
+읽고 나누는 코드는 전부 `src/router.rs`(라이브러리 안)에 있고, `src/main.rs` 에는 stdin/stdout 을
+빌려 `router::serve` 를 부르는 일만 남습니다. 그래서 통합 시험이 실행 파일과 같은 코드를 봅니다.
+프레이밍(4바이트 길이 + JSON)은 `crates/transport` 의 `classmate_transport::framing` 하나가 정본입니다.
 
 ---
 
@@ -30,23 +35,67 @@ Chrome 확장                     classmate-host.exe
 | `{"type":"event.append","periodId":"…","event":{…}}` | `{"type":"event.ack","periodId":"…","seq":12,"id":"ev-p3-012"}` |
 | `{"type":"session.status","periodId":"…"}` | `{"type":"session.status","periodId":"…","count":27,"lastAt":"2026-09-02T10:33:14+09:00","journalMode":"wal"}` |
 | `{"type":"session.export","periodId":"…","path":"…/x.jsonl"}` | `{"type":"session.exported","path":"…/x.jsonl","count":27}` |
-| 위 셋이 저장에 실패 | `{"type":"error","message":"session store failed","reason":"<짧은 이유>","received":"<보낸 type>"}` · **프로세스는 계속 산다** |
+| `{"type":"frame.store","periodId":"…","frame":{…},"bytesBase64":"…"}` | `{"type":"frame.stored","periodId":"…","id":"sf-p3-001","path":"frames/sf-p3-001.webp","bytes":34,"seq":10}` (아래 §2-5) |
+| `{"type":"tutor.ask","periodId":"…","questionId":"…","kind":"…","question":"…","provider":"claude","snapshot":{…}}` | 지금은 `{"type":"error","message":"튜터 파이프라인은 아직 잇지 않았어요","reason":"not-implemented","received":"tutor.ask"}` · 파이프라인이 붙으면 `{"type":"tutor.accepted","periodId":"…","questionId":"…"}` (아래 §8) |
+| `{"type":"tutor.retry","periodId":"…","questionId":"…"}` | `tutor.ask` 와 같습니다 |
+| 봉투가 계약과 어긋남(위 일곱 이름 안에서) | `{"type":"error","message":"<어긋난 자리 여러 줄>","reason":"envelope-invalid"\|"question-too-long"\|"malformed-snapshot","received":"<보낸 type>"}` · **프로세스는 계속 산다** |
+| 봉투는 맞았는데 저장에 실패 | `{"type":"error","message":"session store failed"\|"frame store failed","reason":"<짧은 이유>","received":"<보낸 type>"}` · **프로세스는 계속 산다** |
 | 그 밖의 모든 `type` | `{"type":"error","message":"unknown message type","reason":"unknown-message-type","received":"<보낸 type>"}` |
 | `type` 이 없거나 문자열이 아님 | `{"type":"error","message":"unknown message type","reason":"unknown-message-type","received":"unknown"}` |
 | 본문이 UTF-8·JSON 이 아님(길이는 맞음) | `{"type":"error","message":"unreadable message","reason":"unreadable-message","bytes":<길이>,"received":"unknown"}` · **프로세스는 계속 산다** |
 | stdin 이 닫힘 | 응답 없음. 종료 코드 **0** |
 | 프레임 자체가 깨짐(길이 헤더가 잘림 · 본문이 잘림 · 상한 초과) | 응답 없음. stderr 에 이유 한 줄, 종료 코드 **1** |
 
+부탁 없이 호스트가 먼저 보내는 프레임은 하나뿐입니다.
+
+| 자발 알림 (호스트 → 확장) | 언제 |
+|---|---|
+| `{"type":"tutor.event","periodId":"…","event":{<SessionEvent>}}` **(예정 · 단위 6)** | 튜터 파이프라인이 답을 만드는 동안 상태가 바뀔 때마다. `tutor.ask` 를 한 번도 받지 않은 세션에서는 **0건** (아래 §1-1) |
+
 - `version` 은 `Cargo.toml` 의 `package.version` 을 컴파일 시점에 박아 넣습니다.
 - `protocol` 은 프레임 모양의 세대 번호입니다. 모양이 바뀔 때만 올립니다.
+- **봉투 검사가 갈래보다 먼저입니다.** `Router::handle` 은 무엇을 하기 전에
+  `classmate_transport::validate_envelope` 로 계약(`packages/contracts`)에 맞는지 봅니다. 여기서
+  걸린 부탁은 저장소를 열지도 파일을 만들지도 않습니다. 이유 낱말은 셋뿐입니다 —
+  `question-too-long`(`/question` 이 어긋남) · `malformed-snapshot`(`/snapshot` 아래가 어긋남) ·
+  `envelope-invalid`(그 밖). 어느 낱말인지는 어긋난 자리로 정해집니다.
+- 봉투 표에 없는 `type` 만 예외로 `unknown-message-type` 입니다. 아는 이름 일곱은
+  `crates/transport/src/lib.rs` 의 `ENVELOPE_RULES` 가 정본이고, 그 표와 `src/router.rs` 의 갈래가
+  어긋나면 `the_table_matches_the_router_in_router_rs` 시험이 먼저 빨갛게 됩니다.
+- 봉투 검사를 지난 뒤에도 저장소가 자기 모양으로 다시 봅니다(겹쳐 지키는 자리). 계약의 `Id` 는
+  "비어 있지 않은 문자열" 이라 `frames/<id>.webp` 자리 이름까지는 못 보므로, 프레임 `id` 는
+  `invalid-frame-id`·`duplicate-frame`·`invalid-base64` 같은 저장소의 고정 낱말로 거절됩니다.
 - `received` 는 64자를 넘으면 잘라서 돌려줍니다. 확장이 보낸 긴 문장이 응답으로 되돌아가지 않게 하려는 것입니다.
 - 파싱이 실패해도 **본문 원문을 되돌려 보내지 않습니다.** stderr 로그에도 길이(바이트 수)만 남습니다.
+  봉투 검사가 내놓는 문구도 어긋난 **자리와 까닭**만 적고 받은 값을 담지 않습니다.
   화면·전사 안의 문장을 프로그램이 그대로 실행하거나 되돌려 보내지 않는다는 불변 원칙(`docs/master-prompt.md` §4-7)을 지키기 위해서입니다.
 - 메시지 안의 문자열을 명령·셸로 넘기는 코드는 이 crate 에 아예 없습니다. 문자열이 경로가 되는
   자리는 둘뿐이고(`periodId` → 파일 이름, `path` → 내보내기 파일) 둘 다 아래 2절의 규칙으로 좁혀 받습니다.
 - 프레임이 깨진 것과 본문을 못 읽은 것을 구분합니다. **본문을 끝까지 읽었으면** 스트림이 다음
   프레임 경계에 그대로 서 있으므로 오류로 답하고 계속 삽니다. 길이 헤더나 본문이 잘렸을 때만
   다음 경계를 알 수 없어 끝냅니다.
+
+### 1-1. 나가는 길은 하나입니다
+
+답은 부탁 하나에 하나씩 나가지만, 튜터 파이프라인이 붙으면 **부탁 없이 나가는 알림**(`tutor.event`)도
+생깁니다. 두 자리에서 각자 stdout 에 쓰면 프레임이 섞여 확장이 길이 헤더를 잘못 읽으므로,
+`router::serve` 는 채널 하나로 모아 **내보내는 스레드 하나**에서만 씁니다.
+
+```
+ stdin ──▶ [읽는 자리 = 주 스레드]                     [내보내는 스레드]
+             │ 프레임 하나                                   │
+             ├─ Router::handle ─── 답 ───┐                   │
+             │                           ├─▶ mpsc 채널 ─────▶├─▶ 프레임 하나 ─▶ stdout
+             └─ Router::push_event ──────┘  (Sender 를 나눔)  │
+                (tutor.event · 단위 6)                        │
+ stdin 이 닫힘 ─▶ Sender 가 모두 떨어짐 ─▶ 채널이 닫힘 ─▶ 스레드가 끝나며 flush ─▶ 종료 코드 0
+```
+
+- stdin 읽기는 **일부러 주 스레드에 둡니다.** Windows 에서는 읽는 중인 stdin 을 밖에서 취소할 수
+  없어, 읽기를 다른 스레드로 옮기면 끝낼 때 그 스레드를 거둘 수 없습니다.
+- `tutor.ask` 를 한 번도 받지 않은 세션에서는 자발 알림이 **0건**입니다. `ping` 하나에 프레임
+  하나만 나가는 것을 `scripts/host-roundtrip.mjs` 와
+  `a_ping_only_session_writes_exactly_one_frame` 시험이 함께 지킵니다.
 
 ---
 
@@ -253,8 +302,11 @@ node apps/native-host/scripts/register-host.mjs --extension-id <32자 ID> --remo
 
 프레이밍과 계약 검증은 `crates/transport`(`classmate-transport`)가 맡습니다. 4바이트 길이 헤더 읽기/쓰기,
 `packages/contracts` 스키마로 값 하나 검사하기, 봉투의 `type` → 검사할 스키마 표가 거기 있습니다.
-자세한 것은 `crates/transport/README.md` 를 보세요. 1라운드에서는 위 §1 의 `src/protocol.rs` 를 그대로 두고
-크레이트에 정리한 복사본을 두었습니다. **루트가 크레이트를 쓰도록 바꾸는 것은 2라운드 몫입니다.**
+자세한 것은 `crates/transport/README.md` 를 보세요.
+
+1라운드에는 루트 크레이트에 `src/protocol.rs` 라는 복사본이 따로 있었습니다. **2라운드에서 그 파일을
+지웠고** 이제 프레이밍은 `classmate_transport::framing` 하나뿐입니다. `src/router.rs` 가 그것을 그대로
+쓰고, 갈래를 나누기 전에 `classmate_transport::validate_envelope` 로 봉투를 검사합니다(위 §1).
 
 등록이 아니라 "정말 주고받아지는가" 를 보려면 왕복 스크립트를 씁니다. 실행 파일을 띄워
 프레임으로 감싼 `{"type":"ping"}` 을 보내고 `hello` 가 돌아오는지 확인하고 0 또는 1 로 끝납니다.
@@ -296,21 +348,67 @@ rustup 이 GNU 툴체인에 자체 링커(`rust-mingw`)를 함께 내려 주므�
 |---|---|
 | `Cargo.toml` | crate 정의. `serde`(derive) · `serde_json` · `rusqlite`(winsqlite3) |
 | `build.rs` | windows-gnu 에서 `winsqlite3.dll` 하나를 링커가 찾을 자리로 복사 |
-| `src/lib.rs` | 실행 파일과 통합 테스트가 함께 쓰는 입구(`protocol` · `store`) |
-| `src/protocol.rs` | 프레이밍 읽기/쓰기(`read_frame` · `read_message` · `write_message`)와 단위 테스트 |
+| `src/lib.rs` | 실행 파일과 통합 테스트가 함께 쓰는 입구(`router` · `store` · `tutor`) |
+| `src/main.rs` | 입구만. stdin/stdout 을 빌려 `router::serve` 를 부르고 종료 코드로 바꿉니다 |
+| `src/router.rs` | 프레임 읽기 루프 · 봉투 검사 · `Router`(교시 저장소 캐시) · 갈래 나누기 · 공유 출력 채널 · 단위 테스트 |
+| `src/tutor/mod.rs` | 질문 봉인 → 제공자 호출 → 기록 파이프라인 자리(**2라운드 단위 6 예정** · 지금은 비어 있음) |
 | `src/store/mod.rs` | 교시별 SQLite(WAL) 저장소 `SessionStore` · `SessionEvent` · 단위 테스트 |
 | `src/store/clock.rs` | `at` 을 적고 읽는 ISO 8601(밀리초) 변환 |
 | `src/store/base64.rs` | std 만으로 쓴 RFC 4648 디코더(`frame.store` 의 `bytesBase64`) |
 | `src/store/frames.rs` | `frames` 표 + `.webp` 파일 저장(`.part` → rename → 한 트랜잭션) · id/path 대조 |
-| `src/main.rs` | stdin 루프 · `Router`(교시 저장소 캐시) · `ping` → `hello` · `frame.store` → `frame.stored` · 모르는 type → `error` |
 | `tests/recovery.rs` | 강제 종료 → 재시작 손실 창 측정(Gate D) |
 | `scripts/register-host.mjs` | 매니페스트 작성과 HKCU 등록/해제 |
 | `scripts/register-host.test.mjs` | 매니페스트 모양·dry-run 무쓰기·제거 계획 시험(`node --test`) |
 | `scripts/host-roundtrip.mjs` | 실행 파일에 프레이밍된 `ping` 을 보내 `hello` 를 받는 왕복 확인(`--exe` 선택) |
-| `crates/transport/` | `classmate-transport`: 프레이밍 복사본 · 계약 손 검증기 · 봉투 표(§4-7) |
+| `crates/transport/` | `classmate-transport`: 프레이밍 정본 · 계약 손 검증기 · 봉투 표 일곱 줄(§4-7) |
 | `crates/providers/` | `classmate-providers`: `TutorProvider` trait · Claude CLI 제공자 · Codex 스텁(1라운드 단위 8) |
 | `manifest/` | 스크립트가 만드는 자리. 커밋하지 않습니다 |
 
 ## 7. 워크스페이스 (Phase 2 1라운드)
 
 `Cargo.toml` 은 루트 패키지(`classmate-host`)이면서 워크스페이스 루트입니다. 멤버는 `crates/providers`(단위 8, `classmate-providers`)와 `crates/transport`(단위 9, `classmate-transport`)이고, 세션 저장소(단위 7)는 루트의 `src/store` 를 정리합니다. 단위마다 `cargo test -p <crate>` 로 검증하고, 전체는 `cargo test --workspace` 입니다. `Cargo.lock` 은 워크스페이스 하나가 공유하므로 병렬 worktree 에서 의존성을 더하면 합칠 때 `Cargo.lock` 충돌이 날 수 있습니다 — 그때는 `cargo update -w` 로 다시 만듭니다.
+
+> 여러 worktree 가 `CARGO_TARGET_DIR` 을 함께 쓰면 `debug/classmate-host.exe` 는 **마지막에 빌드한
+> worktree 의 것**입니다. 왕복 스크립트로 확인하기 전에 반드시 같은 명령 줄에서 먼저 빌드하세요.
+
+---
+
+## 8. 튜터 갈래 (`tutor.ask` · `tutor.retry`)
+
+확장이 질문 하나를 붙잡으면 그 순간의 자료를 **봉인해서**(`snapshot`) 보냅니다. 뒤에 전사·화면이
+바뀌어도 그 질문이 본 것은 그대로 남아야 하기 때문입니다.
+
+```
+확장 ─ tutor.ask {periodId, questionId, kind, word?, question?, provider, snapshot} ─▶ 호스트
+                                                                                       │
+                        ┌──────────────────────────────────────────────────────────────┘
+                        │ ① 봉투 검사 (crates/transport · ExtraCheck::AskSnapshot)
+                        │     periodId·questionId·provider 가 있는가
+                        │     snapshot 이 question.schema.json 의 /properties/snapshot 인가
+                        │     question 이 있다면 UTF-8 4096 바이트 이하인가
+                        │ ② Router::tutor  ← [batch-2 통합 지점] 여기에 파이프라인을 잇습니다
+                        ▼
+   지금:  error {reason: "not-implemented"}
+   예정:  tutor.accepted {periodId, questionId}  +  tutor.event 자발 알림 여러 개
+```
+
+받는 값과 돌려주는 값 (고정 계약 (마)):
+
+| 자리 | 필수 | 검사 |
+|---|---|---|
+| `periodId` | 예 | 계약 `PeriodId`(`YYYY-MM-DD-p<n>`) |
+| `questionId` | 예 | 계약 `Id`(비어 있지 않은 문자열) |
+| `provider` | 예 (`tutor.ask` 만) | `claude` 또는 `codex` |
+| `snapshot` | 예 (`tutor.ask` 만) | `question.schema.json` 의 `/properties/snapshot` — `transcriptSegmentIds[]` · `screenFrameId?` · `editorContextId?` · `ages{transcriptSec, screenSec, editorSec}` |
+| `question` | 아니오 | 문자열이고 **UTF-8 4096 바이트 이하** (글자 수가 아닙니다. 한글만 쓰면 약 1,365자) |
+| `kind` · `word` | 아니오 | 봉투 검사는 보지 않습니다. 무엇을 어떻게 물었는지는 파이프라인이 봉인할 때 다시 봅니다 |
+
+오류 낱말은 `not-implemented`(지금) · `question-too-long` · `malformed-snapshot` ·
+`envelope-invalid` · `provider-unavailable`(파이프라인이 붙은 뒤) 입니다.
+
+**단위 6 을 이을 자리.** `src/router.rs` 의 `Router::tutor` 하나에 두 갈래가 모입니다. 그 함수 안의
+`// [batch-2 통합 지점] TutorPipeline 연결` 주석 자리에서 교시별 손잡이를 찾아
+`ask(AskEnvelope)` / `retry(&question_id)` 를 부르고 `tutor.accepted` 로 답하면 됩니다. 손잡이를 담을
+칸은 `Router` 구조체 안에 같은 표시로 주석만 두었습니다(`stores` 와 같은 모양). 파이프라인이 만드는
+`tutor.event` 는 부탁의 답이 아니라 자발 알림이므로 `Router::push_event` 와 **같은 채널**
+(`Sender<Value>`)로 나갑니다 — `TutorPipeline::start` 에 `self.push.clone()` 을 넘기면 됩니다.

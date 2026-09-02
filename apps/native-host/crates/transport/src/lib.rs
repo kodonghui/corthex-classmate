@@ -19,9 +19,8 @@
 //!   프로세스를 띄우는 코드가 아예 없습니다.
 //! - 네트워크로 내보내는 코드가 없습니다.
 //!
-//! 2라운드 계획: 루트 크레이트 `src/protocol.rs` 를 지우고 `src/main.rs` 가 이 크레이트의
-//! [`framing`] 을 쓰게 바꿉니다. 1라운드에서는 단위끼리 같은 파일을 고치지 않으려고
-//! 복사본으로 둡니다.
+//! 2라운드에서 루트 크레이트의 복사본 `src/protocol.rs` 를 지웠습니다. 프레이밍은 이제
+//! 이 크레이트 하나뿐이고 `apps/native-host/src/router.rs` 가 [`framing`] 을 그대로 씁니다.
 
 pub mod framing;
 pub mod schema;
@@ -33,10 +32,29 @@ use schema::{SchemaKind, Violation, ViolationKind};
 /// 이 크레이트가 맡는 단위 이름입니다. 스켈레톤이 워크스페이스에 붙었는지 확인하는 용도입니다.
 pub const UNIT: &str = "transport";
 
+/// 질문 문장 `question` 의 상한입니다. **글자 수가 아니라 UTF-8 바이트 수**입니다.
+///
+/// 프레임 상한(1 MiB)과 달리 이 값은 모델에 넘길 문맥을 좁혀 두려는 것입니다. 한글 한 글자가
+/// UTF-8 로 3바이트이므로 한글만 쓰면 약 1,365자입니다. 고정 계약 (마) 의 `question?(≤4096 바이트)`.
+pub const QUESTION_MAX_BYTES: usize = 4096;
+
+/// `tutor.ask` 가 받는 제공자 이름입니다. 고정 계약 (마) 그대로 둘뿐입니다.
+pub const ASK_PROVIDERS: [&str; 2] = ["claude", "codex"];
+
+/// 봉투가 계약과 어긋났을 때 확장에 돌려줄 기본 `reason` 낱말입니다.
+pub const REASON_ENVELOPE_INVALID: &str = "envelope-invalid";
+
+/// `tutor.ask` 의 `question` 이 문자열이 아니거나 [`QUESTION_MAX_BYTES`] 를 넘었을 때입니다.
+pub const REASON_QUESTION_TOO_LONG: &str = "question-too-long";
+
+/// `tutor.ask` 의 `snapshot` 이 계약의 `QuestionSnapshot` 이 아닐 때입니다.
+pub const REASON_MALFORMED_SNAPSHOT: &str = "malformed-snapshot";
+
 /// 표 한 줄로는 적을 수 없는 봉투별 추가 검사입니다.
 ///
-/// 스키마 하나로 값 하나를 보는 것으로 끝나지 않는 봉투가 있어서 둡니다. 지금은
-/// `frame.store` 하나뿐입니다(고정 계약 (가) · `apps/native-host/README.md` §2-5).
+/// 스키마 하나로 값 하나를 보는 것으로 끝나지 않는 봉투가 있어서 둡니다.
+/// `frame.store`(고정 계약 (가) · `apps/native-host/README.md` §2-5)와
+/// `tutor.ask`(고정 계약 (마)) 둘입니다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtraCheck {
     /// 추가로 볼 것이 없습니다.
@@ -44,6 +62,10 @@ pub enum ExtraCheck {
     /// `bytesBase64` 가 비어 있지 않은 문자열이어야 하고,
     /// `frame.path` 가 `frames/<frame.id>.webp` 여야 합니다.
     FrameBody,
+    /// `provider` 가 [`ASK_PROVIDERS`] 안의 이름이어야 하고, `snapshot` 이 계약
+    /// `question.schema.json` 의 `/properties/snapshot` 정의에 맞아야 하며,
+    /// `question` 이 있으면 [`QUESTION_MAX_BYTES`] 이하의 문자열이어야 합니다.
+    AskSnapshot,
 }
 
 /// 봉투 하나를 어떻게 검사할지 적어 둔 줄입니다.
@@ -53,6 +75,8 @@ pub struct EnvelopeRule {
     pub message_type: &'static str,
     /// `periodId` 가 있어야 하는지입니다. 있으면 계약의 `PeriodId` 모양으로 검사합니다.
     pub needs_period_id: bool,
+    /// `questionId` 가 있어야 하는지입니다. 있으면 계약의 `Id` 모양으로 검사합니다.
+    pub needs_question_id: bool,
     /// 딸림 값이 있으면 (필드 이름, 그 값을 검사할 계약 스키마) 입니다.
     pub payload: Option<(&'static str, SchemaKind)>,
     /// 스키마 하나로는 볼 수 없는 추가 검사입니다.
@@ -63,14 +87,14 @@ pub struct EnvelopeRule {
 
 /// 로컬 도우미가 받는 봉투 전부입니다.
 ///
-/// `src/main.rs` 가 실제로 나눠 주는 이름과 같습니다. `Router::handle` 이 갈래로 받는 넷과
-/// `respond()` 가 받는 `ping` 을 합쳐 다섯입니다. 한쪽만 늘면
-/// `the_table_matches_the_router_in_main_rs` 시험이 먼저 빨갛게 됩니다.
-/// 여기 없는 `type` 은 호스트가 `error` 로 답하므로 이 표도 모르는 것으로 답합니다.
-pub const ENVELOPE_RULES: [EnvelopeRule; 5] = [
+/// `apps/native-host/src/router.rs` 의 `Router::handle` 이 실제로 나눠 주는 이름과 같습니다.
+/// 한쪽만 늘면 `the_table_matches_the_router_in_router_rs` 시험이 먼저 빨갛게 됩니다.
+/// 여기 없는 `type` 은 호스트가 `unknown-message-type` 으로 답하므로 이 표도 모르는 것으로 답합니다.
+pub const ENVELOPE_RULES: [EnvelopeRule; 7] = [
     EnvelopeRule {
         message_type: "ping",
         needs_period_id: false,
+        needs_question_id: false,
         payload: None,
         extra: ExtraCheck::None,
         summary: "신원 확인. 호스트는 hello 로 답합니다",
@@ -78,6 +102,7 @@ pub const ENVELOPE_RULES: [EnvelopeRule; 5] = [
     EnvelopeRule {
         message_type: "event.append",
         needs_period_id: true,
+        needs_question_id: false,
         payload: Some(("event", SchemaKind::SessionEvent)),
         extra: ExtraCheck::None,
         summary: "교시 기록 한 줄을 저장소에 붙입니다",
@@ -85,6 +110,7 @@ pub const ENVELOPE_RULES: [EnvelopeRule; 5] = [
     EnvelopeRule {
         message_type: "session.status",
         needs_period_id: true,
+        needs_question_id: false,
         payload: None,
         extra: ExtraCheck::None,
         summary: "이 교시에 얼마나 쌓였는지 묻습니다",
@@ -92,6 +118,7 @@ pub const ENVELOPE_RULES: [EnvelopeRule; 5] = [
     EnvelopeRule {
         message_type: "session.export",
         needs_period_id: true,
+        needs_question_id: false,
         payload: None,
         extra: ExtraCheck::None,
         summary: "이 교시를 JSONL 로 내보냅니다",
@@ -99,9 +126,26 @@ pub const ENVELOPE_RULES: [EnvelopeRule; 5] = [
     EnvelopeRule {
         message_type: "frame.store",
         needs_period_id: true,
+        needs_question_id: false,
         payload: Some(("frame", SchemaKind::ScreenFrame)),
         extra: ExtraCheck::FrameBody,
         summary: "화면 프레임 한 장의 정보와 본문(bytesBase64)을 저장소에 넣습니다",
+    },
+    EnvelopeRule {
+        message_type: "tutor.ask",
+        needs_period_id: true,
+        needs_question_id: true,
+        payload: None,
+        extra: ExtraCheck::AskSnapshot,
+        summary: "질문 시점에 봉인한 자료 묶음과 함께 튜터 파이프라인에 질문을 맡깁니다",
+    },
+    EnvelopeRule {
+        message_type: "tutor.retry",
+        needs_period_id: true,
+        needs_question_id: true,
+        payload: None,
+        extra: ExtraCheck::None,
+        summary: "제공자가 실패해 밀린 질문 하나를 다시 맡깁니다",
     },
 ];
 
@@ -168,6 +212,23 @@ pub fn validate_envelope(message: &Value) -> Result<&'static EnvelopeRule, Vec<V
         }
     }
 
+    if rule.needs_question_id {
+        match fields.get("questionId") {
+            Some(question_id) => {
+                if let Err(found) =
+                    schema::validate_definition(SchemaKind::Common, "Id", question_id)
+                {
+                    violations.extend(prefixed("questionId", found));
+                }
+            }
+            None => violations.push(Violation {
+                path: "/questionId".to_string(),
+                message: "꼭 있어야 하는 값이 없습니다".to_string(),
+                kind: ViolationKind::Value,
+            }),
+        }
+    }
+
     if let Some((field, kind)) = rule.payload {
         match fields.get(field) {
             Some(payload) => {
@@ -186,6 +247,7 @@ pub fn validate_envelope(message: &Value) -> Result<&'static EnvelopeRule, Vec<V
     match rule.extra {
         ExtraCheck::None => {}
         ExtraCheck::FrameBody => violations.extend(frame_body_violations(fields)),
+        ExtraCheck::AskSnapshot => violations.extend(ask_violations(fields)),
     }
 
     if violations.is_empty() {
@@ -193,6 +255,98 @@ pub fn validate_envelope(message: &Value) -> Result<&'static EnvelopeRule, Vec<V
     } else {
         Err(violations)
     }
+}
+
+/// 어긋난 자리들을 확장이 분기할 낱말 하나로 줄입니다.
+///
+/// 세 낱말뿐이고 보는 순서가 곧 우선순위입니다.
+///
+/// ```text
+/// /question 이 어긋났나?  ─예─▶ question-too-long
+///        │아니오
+/// /snapshot 아래가 어긋났나? ─예─▶ malformed-snapshot
+///        │아니오
+///        └────────────────────────▶ envelope-invalid
+/// ```
+///
+/// 어긋난 자리가 없으면(빈 목록) 부를 자리가 아니지만, 그래도 기본 낱말을 돌려줍니다.
+pub fn envelope_reason(violations: &[Violation]) -> &'static str {
+    if violations.iter().any(|found| found.path == "/question") {
+        REASON_QUESTION_TOO_LONG
+    } else if violations
+        .iter()
+        .any(|found| found.path.starts_with("/snapshot"))
+    {
+        REASON_MALFORMED_SNAPSHOT
+    } else {
+        REASON_ENVELOPE_INVALID
+    }
+}
+
+/// `tutor.ask` 봉투만 보는 추가 검사입니다. 고정 계약 (마) 의 세 가지를 봅니다.
+///
+/// - `provider` 는 [`ASK_PROVIDERS`] 안의 이름입니다. 이 값으로 어떤 CLI 를 부를지 갈리므로
+///   목록 밖의 값을 그대로 흘려보내지 않습니다.
+/// - `snapshot` 은 계약 `question.schema.json` 의 `/properties/snapshot`(QuestionSnapshot)
+///   정의로 검사합니다. 질문 시점에 봉인한 자료 묶음이라 이 모양이 깨지면 답을 만들 수 없습니다.
+/// - `question` 은 없어도 되지만, 있으면 UTF-8 [`QUESTION_MAX_BYTES`] 이하의 문자열입니다.
+///
+/// `kind` 와 `word` 는 여기서 보지 않습니다. 무엇을 어떻게 물었는지는 파이프라인(단위 6)이
+/// 봉인할 때 다시 보므로 봉투 검사에서 겹쳐 막지 않습니다.
+/// 어긋난 자리만 알리고 받은 값은 문구에 담지 않습니다(§4-7).
+fn ask_violations(fields: &serde_json::Map<String, Value>) -> Vec<Violation> {
+    let mut violations = Vec::new();
+
+    let provider = match fields.get("provider") {
+        Some(Value::String(name)) if ASK_PROVIDERS.contains(&name.as_str()) => None,
+        Some(Value::String(_)) => {
+            Some(format!("받는 제공자는 {} 입니다", ASK_PROVIDERS.join(", ")))
+        }
+        Some(_) => Some("제공자 이름은 문자열이어야 합니다".to_string()),
+        None => Some("꼭 있어야 하는 값이 없습니다".to_string()),
+    };
+    if let Some(message) = provider {
+        violations.push(Violation {
+            path: "/provider".to_string(),
+            message,
+            kind: ViolationKind::Value,
+        });
+    }
+
+    match fields.get("snapshot") {
+        Some(snapshot) => {
+            if let Err(found) =
+                schema::validate_pointer(SchemaKind::Question, "/properties/snapshot", snapshot)
+            {
+                violations.extend(prefixed("snapshot", found));
+            }
+        }
+        None => violations.push(Violation {
+            path: "/snapshot".to_string(),
+            message: "꼭 있어야 하는 값이 없습니다".to_string(),
+            kind: ViolationKind::Value,
+        }),
+    }
+
+    // 글자 수가 아니라 바이트 수로 잽니다. 상한이 모델에 넘길 문맥의 크기를 재는 값이라서입니다.
+    let question = match fields.get("question") {
+        None => None,
+        Some(Value::String(text)) if text.len() <= QUESTION_MAX_BYTES => None,
+        Some(Value::String(text)) => Some(format!(
+            "질문은 UTF-8 {QUESTION_MAX_BYTES} 바이트 이하여야 합니다 · 받은 것은 {} 바이트입니다",
+            text.len()
+        )),
+        Some(_) => Some("질문은 문자열이어야 합니다".to_string()),
+    };
+    if let Some(message) = question {
+        violations.push(Violation {
+            path: "/question".to_string(),
+            message,
+            kind: ViolationKind::Value,
+        });
+    }
+
+    violations
 }
 
 /// `frame.store` 봉투만 보는 추가 검사입니다. 고정 계약 (가) 의 두 가지를 봅니다.
@@ -318,17 +472,19 @@ mod tests {
         message
     }
 
-    /// `apps/native-host/src/main.rs` 원문입니다. 빌드할 때 **읽기만** 합니다.
-    const HOST_MAIN_RS: &str = include_str!("../../../src/main.rs");
-
-    /// `src/main.rs` 에서 봉투 이름으로 갈래를 나누는 자리를 긁어 옵니다.
+    /// `apps/native-host/src/router.rs` 원문입니다. 빌드할 때 **읽기만** 합니다.
     ///
-    /// 보는 모양은 둘입니다. `Router::handle` 의 `"event.append" => …` 와
-    /// `respond()` 의 `Some("ping") => …` 입니다.
-    fn router_types_in_main_rs() -> Vec<String> {
+    /// 2라운드에서 `Router` 가 `src/main.rs` 에서 `src/router.rs` 로 옮겨 왔습니다.
+    const HOST_ROUTER_RS: &str = include_str!("../../../src/router.rs");
+
+    /// `src/router.rs` 에서 봉투 이름으로 갈래를 나누는 자리를 긁어 옵니다.
+    ///
+    /// `Router::handle` 의 `"event.append" => …` 같은 줄을 봅니다. 한 줄에 이름을 둘 이상
+    /// 묶은 갈래(`"a" | "b" =>`)는 뒤엣것만 잡히므로 router.rs 는 갈래를 한 줄에 하나씩 씁니다.
+    fn router_types_in_router_rs() -> Vec<String> {
         let mut found = Vec::new();
 
-        for line in HOST_MAIN_RS.lines() {
+        for line in HOST_ROUTER_RS.lines() {
             let Some(arrow) = line.find("=>") else {
                 continue;
             };
@@ -478,14 +634,16 @@ mod tests {
     }
 
     #[test]
-    fn the_table_holds_the_five_request_types() {
-        // 고정 계약이 말하는 다섯 이름입니다. 순서까지 표와 같아야 합니다.
-        const EXPECTED: [&str; 5] = [
+    fn the_table_holds_the_seven_request_types() {
+        // 고정 계약이 말하는 일곱 이름입니다. 순서까지 표와 같아야 합니다.
+        const EXPECTED: [&str; 7] = [
             "ping",
             "event.append",
             "session.status",
             "session.export",
             "frame.store",
+            "tutor.ask",
+            "tutor.retry",
         ];
 
         let ours: Vec<&str> = ENVELOPE_RULES.iter().map(|r| r.message_type).collect();
@@ -493,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn the_table_matches_the_router_in_main_rs() {
+    fn the_table_matches_the_router_in_router_rs() {
         let mut ours: Vec<String> = ENVELOPE_RULES
             .iter()
             .map(|rule| rule.message_type.to_string())
@@ -501,10 +659,154 @@ mod tests {
         ours.sort_unstable();
 
         assert_eq!(
-            router_types_in_main_rs(),
+            router_types_in_router_rs(),
             ours,
-            "봉투 표와 src/main.rs 의 갈래가 어긋납니다"
+            "봉투 표와 src/router.rs 의 갈래가 어긋납니다"
         );
+    }
+
+    /// 골든 고정자료의 질문 하나입니다. 지어내지 않고 실제 자료를 씁니다.
+    fn golden_question() -> Value {
+        let path = repo_root().join("fixtures/synthetic-class/golden-ioc/question.json");
+        let text =
+            std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path:?} · {error}"));
+        serde_json::from_str(&text).expect("JSON 이어야 합니다")
+    }
+
+    /// 고정 계약 (마) 의 `tutor.ask` 봉투를 골든 질문에서 만듭니다.
+    fn tutor_ask_message() -> Value {
+        let question = golden_question();
+        json!({
+            "type": "tutor.ask",
+            "periodId": question["periodId"],
+            "questionId": question["id"],
+            "kind": question["kind"],
+            "question": question["text"],
+            "provider": "claude",
+            "snapshot": question["snapshot"],
+        })
+    }
+
+    #[test]
+    fn tutor_ask_takes_a_golden_question_with_its_snapshot() {
+        let rule = validate_envelope(&tutor_ask_message()).expect("통과해야 합니다");
+
+        assert_eq!(rule.message_type, "tutor.ask");
+        assert!(rule.needs_question_id);
+        assert_eq!(rule.extra, ExtraCheck::AskSnapshot);
+        // snapshot 은 payload 표가 아니라 추가 검사가 봅니다(계약 파일 전체가 아니라 속성 하나).
+        assert_eq!(rule.payload, None);
+    }
+
+    #[test]
+    fn tutor_ask_needs_a_question_id_and_a_known_provider() {
+        let mut message = tutor_ask_message();
+        message
+            .as_object_mut()
+            .expect("객체다")
+            .remove("questionId");
+        message["provider"] = json!("gpt-9");
+
+        let violations = validate_envelope(&message).expect_err("둘 다 어긋납니다");
+        assert_eq!(paths(&violations), vec!["/questionId", "/provider"]);
+        assert_eq!(envelope_reason(&violations), REASON_ENVELOPE_INVALID);
+        assert!(
+            !describe(&violations).contains("gpt-9"),
+            "원문이 새면 안 됩니다: {}",
+            describe(&violations)
+        );
+    }
+
+    #[test]
+    fn a_broken_snapshot_is_reported_under_snapshot() {
+        // ages 는 세 칸이 모두 있어야 합니다. 하나를 빼면 봉인이 깨진 것입니다.
+        let mut message = tutor_ask_message();
+        message["snapshot"]["ages"]
+            .as_object_mut()
+            .expect("객체다")
+            .remove("screenSec");
+
+        let violations = validate_envelope(&message).expect_err("봉인이 깨졌습니다");
+        assert_eq!(paths(&violations), vec!["/snapshot/ages/screenSec"]);
+        assert_eq!(envelope_reason(&violations), REASON_MALFORMED_SNAPSHOT);
+    }
+
+    #[test]
+    fn a_snapshot_that_is_not_an_object_is_also_malformed() {
+        let mut message = tutor_ask_message();
+        message["snapshot"] = json!("전부 다 주세요");
+
+        let violations = validate_envelope(&message).expect_err("객체가 아닙니다");
+        assert_eq!(envelope_reason(&violations), REASON_MALFORMED_SNAPSHOT);
+        assert!(
+            !describe(&violations).contains("전부 다"),
+            "원문이 새면 안 됩니다: {}",
+            describe(&violations)
+        );
+
+        let mut missing = tutor_ask_message();
+        missing.as_object_mut().expect("객체다").remove("snapshot");
+        let violations = validate_envelope(&missing).expect_err("봉인이 없습니다");
+        assert_eq!(paths(&violations), vec!["/snapshot"]);
+        assert_eq!(envelope_reason(&violations), REASON_MALFORMED_SNAPSHOT);
+    }
+
+    #[test]
+    fn a_question_is_measured_in_utf8_bytes_not_characters() {
+        // 상한과 같은 크기는 통과합니다. 한 바이트만 더 늘면 거절합니다.
+        let mut message = tutor_ask_message();
+        message["question"] = json!("a".repeat(QUESTION_MAX_BYTES));
+        assert!(validate_envelope(&message).is_ok());
+
+        message["question"] = json!("a".repeat(QUESTION_MAX_BYTES + 1));
+        let violations = validate_envelope(&message).expect_err("한 바이트 넘었습니다");
+        assert_eq!(paths(&violations), vec!["/question"]);
+        assert_eq!(envelope_reason(&violations), REASON_QUESTION_TOO_LONG);
+
+        // 한글은 한 글자가 3바이트입니다. 글자 수로 세면 통과할 길이가 바이트로는 넘습니다.
+        let mut hangul = tutor_ask_message();
+        hangul["question"] = json!("가".repeat(QUESTION_MAX_BYTES / 3 + 1));
+        assert_eq!(
+            envelope_reason(&validate_envelope(&hangul).expect_err("바이트로는 넘습니다")),
+            REASON_QUESTION_TOO_LONG
+        );
+
+        // 질문 자체는 없어도 됩니다(낱말만 붙잡은 경우).
+        let mut wordless = tutor_ask_message();
+        wordless.as_object_mut().expect("객체다").remove("question");
+        assert!(validate_envelope(&wordless).is_ok());
+    }
+
+    #[test]
+    fn tutor_retry_needs_only_the_two_ids() {
+        let message = json!({
+            "type": "tutor.retry",
+            "periodId": "2026-09-02-p3",
+            "questionId": "q-p3-001",
+        });
+        let rule = validate_envelope(&message).expect("통과해야 합니다");
+        assert_eq!(rule.message_type, "tutor.retry");
+        assert_eq!(rule.extra, ExtraCheck::None);
+
+        let violations =
+            validate_envelope(&json!({ "type": "tutor.retry" })).expect_err("둘 다 없습니다");
+        assert_eq!(paths(&violations), vec!["/periodId", "/questionId"]);
+        assert_eq!(envelope_reason(&violations), REASON_ENVELOPE_INVALID);
+    }
+
+    #[test]
+    fn validate_pointer_reads_a_property_definition_not_a_definitions_entry() {
+        let snapshot = golden_question()["snapshot"].clone();
+        assert!(
+            schema::validate_pointer(SchemaKind::Question, "/properties/snapshot", &snapshot)
+                .is_ok()
+        );
+
+        // 없는 자리를 가리키면 값 쪽이 아니라 스키마 쪽 문제로 알립니다.
+        let violations =
+            schema::validate_pointer(SchemaKind::Question, "/properties/nope", &snapshot)
+                .expect_err("그런 자리가 없습니다");
+        assert_eq!(violations[0].kind, ViolationKind::UnsupportedSchema);
     }
 
     #[test]
