@@ -20,7 +20,8 @@ use serde::Deserialize;
 use serde_json::{json, Value};
 
 use classmate_host::protocol::{self, Frame};
-use classmate_host::store::{self, SessionEvent, SessionStore, StoreError};
+use classmate_host::store::frames::ScreenFrameMeta;
+use classmate_host::store::{self, base64, SessionEvent, SessionStore, StoreError};
 
 /// 확장이 이해하는 프로토콜 세대. 모양이 바뀌면 올린다.
 const PROTOCOL_VERSION: u64 = 1;
@@ -118,6 +119,9 @@ impl Router {
             "session.export" => self
                 .try_export(message)
                 .unwrap_or_else(|error| store_failure(kind, &error)),
+            "frame.store" => self
+                .try_store_frame(message)
+                .unwrap_or_else(|error| frame_failure(&error)),
             _ => respond(message),
         }
     }
@@ -197,6 +201,39 @@ impl Router {
             "count": count,
         }))
     }
+
+    /// `frame.store` — WebP 한 장을 파일로 놓고 메타와 `screen.frame` 기록을 함께 남긴다.
+    ///
+    /// 봉투에 실린 `frame.path` 는 **대조용**일 뿐이다. 실제로 쓰는 자리는 호스트가 `id` 로
+    /// 다시 계산한다(Gate D 결정 · `docs/master-prompt.md` §4-7). 응답의 `path` 도 절대 경로가
+    /// 아니라 계약의 상대 경로(`frames/<id>.webp`)다.
+    fn try_store_frame(&mut self, message: &Value) -> store::Result<Value> {
+        let period_id = period_id_of(message)?;
+
+        let raw = message
+            .get("frame")
+            .cloned()
+            .ok_or(StoreError::MalformedFrame("frame"))?;
+        let frame: ScreenFrameMeta =
+            serde_json::from_value(raw).map_err(|_| StoreError::MalformedFrame("frame"))?;
+
+        let encoded = message
+            .get("bytesBase64")
+            .and_then(Value::as_str)
+            .ok_or(StoreError::MalformedFrame("bytesBase64"))?;
+        let bytes = base64::decode(encoded)?;
+
+        let stored = self.store(&period_id)?.store_frame(&frame, &bytes)?;
+
+        Ok(json!({
+            "type": "frame.stored",
+            "periodId": period_id,
+            "id": frame.id,
+            "path": stored.path,
+            "bytes": stored.bytes,
+            "seq": stored.seq,
+        }))
+    }
 }
 
 /// 메시지에서 교시 이름을 꺼낸다. 문자열이 아니면 저장소가 볼 것도 없이 거절한다.
@@ -219,6 +256,21 @@ fn store_failure(kind: &str, error: &StoreError) -> Value {
         "message": "session store failed",
         "reason": error.to_string(),
         "received": kind,
+    })
+}
+
+/// 프레임 저장이 실패했을 때의 응답. 프로세스는 죽지 않는다.
+///
+/// `reason` 은 `StoreError::reason_code()` 의 고정 낱말이다. 확장이 이 값으로 분기하고,
+/// 사람이 읽을 자세한 문구는 stderr 로만 나간다. 파일 경로도 본문 원문도 담기지 않는다.
+fn frame_failure(error: &StoreError) -> Value {
+    eprintln!("[classmate-host] frame.store 를 처리하지 못했습니다 · {error}");
+
+    json!({
+        "type": "error",
+        "message": "frame store failed",
+        "reason": error.reason_code(),
+        "received": "frame.store",
     })
 }
 
@@ -513,5 +565,132 @@ mod tests {
 
         // 그 뒤에도 라우터는 멀쩡히 답한다.
         assert_eq!(router.handle(&json!({ "type": "ping" }))["type"], "hello");
+    }
+
+    /// fixtures 의 1x1 자리표시자 WebP 34바이트를 base64 로 적은 값.
+    const FIXTURE_WEBP_BASE64: &str = "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
+
+    /// 고정 계약 그대로의 `frame.store` 봉투 하나.
+    fn frame_store_request(id: &str, encoded: &str) -> Value {
+        json!({
+            "type": "frame.store",
+            "periodId": "2026-09-02-p3",
+            "frame": {
+                "id": id,
+                "periodId": "2026-09-02-p3",
+                "capturedAt": "2026-09-02T10:32:16+09:00",
+                "path": format!("frames/{id}.webp"),
+                "width": 1,
+                "height": 1,
+                "hash": "9c3a7e5510e2c8b4",
+                "changedFromPrev": true,
+                "source": "fixture",
+            },
+            "bytesBase64": encoded,
+        })
+    }
+
+    #[test]
+    fn frame_store_answers_with_frame_stored_and_puts_the_file_where_it_said() {
+        let dir = temp_dir("frame");
+        let mut router = Router::with_data_dir(dir.to_path_buf());
+
+        let reply = router.handle(&frame_store_request("sf-p3-001", FIXTURE_WEBP_BASE64));
+
+        assert_eq!(reply["type"], "frame.stored", "{reply}");
+        assert_eq!(reply["periodId"], "2026-09-02-p3");
+        assert_eq!(reply["id"], "sf-p3-001");
+        assert_eq!(reply["path"], "frames/sf-p3-001.webp");
+        assert_eq!(reply["bytes"], 34);
+        assert_eq!(reply["seq"], 1);
+
+        // 응답에는 계약의 상대 경로만 담긴다. 임시 폴더 이름은 새지 않는다.
+        assert!(
+            !reply.to_string().contains("cmrt-"),
+            "절대 경로가 새면 안 된다: {reply}"
+        );
+
+        let file = dir
+            .join("2026-09-02-p3")
+            .join("frames")
+            .join("sf-p3-001.webp");
+        assert!(file.is_file(), "{file:?}");
+        assert_eq!(fs::read(&file).expect("읽어야 한다").len(), 34);
+
+        // 프레임 한 장이 곧 screen.frame 기록 한 줄이다.
+        let status =
+            router.handle(&json!({ "type": "session.status", "periodId": "2026-09-02-p3" }));
+        assert_eq!(status["count"], 1);
+        assert_eq!(status["lastAt"], "2026-09-02T10:32:16+09:00");
+
+        // 두 번째 장은 seq 가 하나 늘어난다.
+        let second = router.handle(&frame_store_request("sf-p3-002", FIXTURE_WEBP_BASE64));
+        assert_eq!(second["type"], "frame.stored", "{second}");
+        assert_eq!(second["seq"], 2);
+    }
+
+    #[test]
+    fn frame_store_failures_answer_with_an_error_and_the_router_keeps_going() {
+        let dir = temp_dir("frame-guard");
+        let mut router = Router::with_data_dir(dir.to_path_buf());
+
+        // 먼저 한 장을 정상으로 넣어 둔다(중복 거절을 보기 위해서).
+        assert_eq!(
+            router.handle(&frame_store_request("sf-p3-001", FIXTURE_WEBP_BASE64))["type"],
+            "frame.stored"
+        );
+
+        // 계약 모양이 아닌 id.
+        let bad_id = router.handle(&frame_store_request("sf-p3/../evil", FIXTURE_WEBP_BASE64));
+        assert_eq!(bad_id["type"], "error");
+        assert_eq!(bad_id["message"], "frame store failed");
+        assert_eq!(bad_id["reason"], "invalid-frame-id");
+        assert_eq!(bad_id["received"], "frame.store");
+
+        // 확장이 준 path 를 호스트가 다시 계산한 값과 대조해 거절한다.
+        let mut tampered = frame_store_request("sf-p3-009", FIXTURE_WEBP_BASE64);
+        tampered["frame"]["path"] = json!("../../../Windows/System32/evil.webp");
+        let mismatch = router.handle(&tampered);
+        assert_eq!(mismatch["reason"], "frame-path-mismatch");
+        assert!(
+            !mismatch.to_string().contains("System32"),
+            "확장이 보낸 경로가 되돌아가면 안 된다: {mismatch}"
+        );
+
+        // 읽을 수 없는 base64.
+        let bad_bytes = router.handle(&frame_store_request("sf-p3-010", "not base64!!"));
+        assert_eq!(bad_bytes["reason"], "invalid-base64");
+
+        // 빠진 칸.
+        let mut no_bytes = frame_store_request("sf-p3-011", FIXTURE_WEBP_BASE64);
+        no_bytes
+            .as_object_mut()
+            .expect("객체다")
+            .remove("bytesBase64");
+        assert_eq!(router.handle(&no_bytes)["reason"], "malformed-frame");
+
+        // 같은 id 두 번.
+        let duplicate = router.handle(&frame_store_request("sf-p3-001", FIXTURE_WEBP_BASE64));
+        assert_eq!(duplicate["reason"], "duplicate-frame");
+
+        // 거절된 것들은 파일도 남기지 않았다.
+        let frames_dir = dir.join("2026-09-02-p3").join("frames");
+        let left: Vec<String> = fs::read_dir(&frames_dir)
+            .expect("폴더가 있어야 한다")
+            .map(|entry| {
+                entry
+                    .expect("항목")
+                    .file_name()
+                    .to_string_lossy()
+                    .to_string()
+            })
+            .collect();
+        assert_eq!(left, vec!["sf-p3-001.webp".to_string()]);
+
+        // 오류 뒤에도 라우터는 멀쩡하다. 다음 요청이 그대로 처리된다.
+        assert_eq!(router.handle(&json!({ "type": "ping" }))["type"], "hello");
+        let next = router.handle(&frame_store_request("sf-p3-002", FIXTURE_WEBP_BASE64));
+        assert_eq!(next["type"], "frame.stored", "{next}");
+        assert_eq!(next["seq"], 2);
     }
 }
