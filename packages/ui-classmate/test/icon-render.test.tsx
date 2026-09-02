@@ -9,6 +9,7 @@ import { cleanupAll, render } from "./render";
 afterEach(() => {
   cleanupAll();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("Icon", () => {
@@ -34,6 +35,13 @@ describe("Icon", () => {
     expect(titled.get("svg title").textContent).toBe("Tiro 전사");
   });
 
+  it('title="" 은 정본처럼 장식으로 지나간다 — 이름 없는 role="img" 를 만들지 않는다', () => {
+    const r = render(<Icon name="mic" title="" />);
+    expect(r.get("svg").getAttribute("aria-hidden")).toBe("true");
+    expect(r.get("svg").getAttribute("role")).toBeNull();
+    expect(r.find("svg title")).toBeNull();
+  });
+
   it("맵에 없는 이름은 빈 svg 대신 같은 크기의 빈 자리를 남기고 개발 모드에서 알린다", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const r = render(<Icon name="sparkles" size={16} />);
@@ -42,5 +50,26 @@ describe("Icon", () => {
     expect(span.getAttribute("aria-hidden")).toBe("true");
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toContain("sparkles");
+  });
+
+  // 아래 두 가지가 이 패키지의 실제 실행 환경입니다. MV3 확장 번들에는 process 가 없고,
+  // 배포 빌드에서만 NODE_ENV 가 production 입니다. 경고 판정이 그 둘을 제대로 가르는지 봅니다.
+  it("process 가 없는 MV3 번들에서도 오류 없이 경고가 나온다", () => {
+    vi.stubGlobal("process", undefined);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = render(<Icon name="mv3-빠진-아이콘" size={16} />);
+    expect(r.find("svg")).toBeNull();
+    expect(r.get("span.cm-icon").getAttribute("aria-hidden")).toBe("true");
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0])).toContain("mv3-빠진-아이콘");
+  });
+
+  it("배포 빌드(NODE_ENV=production)에서는 조용히 빈 자리만 남긴다", () => {
+    vi.stubGlobal("process", { env: { NODE_ENV: "production" } });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const r = render(<Icon name="배포-빠진-아이콘" size={16} />);
+    expect(r.find("svg")).toBeNull();
+    expect(r.get("span.cm-icon")).toBeTruthy();
+    expect(warn).not.toHaveBeenCalled();
   });
 });

@@ -9,14 +9,14 @@ export interface CompareRow {
   code: string;
   tone?: "teacher" | "mine";
 }
-/** Single lines side by side — the teacher's line vs mine. The differing line is the question. */
+/** 선생님 줄과 내 줄을 한 줄씩 나란히 놓습니다. 다른 줄이 곧 질문입니다. */
 export interface CodeCompareProps {
   rows: CompareRow[];
   className?: string;
   style?: React.CSSProperties;
 }
 
-// Two (or more) single lines side by side: what the teacher typed vs what I typed. The differing line is the question.
+// 선생님이 친 줄과 내가 친 줄을 둘 이상 나란히 놓습니다. 다른 줄이 곧 질문입니다.
 export function CodeCompare({ rows = [], className, style }: CodeCompareProps): React.JSX.Element {
   return (
     <div className={cx("cm-cmp", className)} style={style}>

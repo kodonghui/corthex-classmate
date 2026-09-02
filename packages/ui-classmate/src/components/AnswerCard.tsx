@@ -11,7 +11,7 @@ export interface AnswerSection {
   meta?: React.ReactNode;
   /** compare 와 rows 는 정본 구현에는 있고 .d.ts 에만 빠져 있던 것입니다(docs/design-map.md §3-1·§7). */
   type?: "text" | "code" | "quote" | "compare";
-  /** text: string or string[] paragraphs; quote: the quoted sentence; compare: 표 아래 덧붙이는 한 문단 */
+  /** text 는 한 문단 또는 여러 문단, quote 는 인용한 문장, compare 는 표 아래 덧붙이는 한 문단입니다. */
   content?: string | string[];
   code?: string;
   /** compare: 선생님 줄과 내 줄 */
@@ -20,7 +20,7 @@ export interface AnswerSection {
   source?: React.ReactNode;
   highlightLines?: number[];
   lineNumbers?: boolean;
-  /** quote: speaker (default 선생님) and Tiro time */
+  /** quote 절에서 말한 사람(기본값 선생님)과 Tiro 시각입니다. */
   speaker?: string;
   time?: string;
   defaultOpen?: boolean;
@@ -32,10 +32,10 @@ export interface FollowUp {
   selected?: boolean;
 }
 /**
- * Conclusion-first answer: one sentence, evidence tags, collapsed detail sections, quick follow-up chips.
+ * 결론을 먼저 내놓는 답변 카드입니다. 한 문장 결론 · 근거 태그 · 접힌 상세 절 · 후속 질문 칩 순서로 그립니다.
  */
 export interface AnswerCardProps {
-  /** One sentence, ≤ 40 Korean characters */
+  /** 한 문장 결론입니다. 한글 40자 안쪽으로 씁니다. */
   conclusion: React.ReactNode;
   topic?: string;
   time?: string;
@@ -45,10 +45,10 @@ export interface AnswerCardProps {
   followUps?: FollowUp[];
   onFollowUp?: (id: string) => void;
   followUpLabel?: React.ReactNode;
-  /** Skeleton with sweep and loadingText */
+  /** 뼈대와 쓸어내림만 그리고 loadingText 를 보여 줍니다. */
   loading?: boolean;
   loadingText?: string;
-  /** Controlled: id of the single open section */
+  /** 여닫음을 밖에서 쥘 때, 열어 둘 절 하나의 id 입니다. */
   openSection?: string | number | null;
   onSectionToggle?: (id: string | number, open: boolean) => void;
   className?: string;
@@ -146,7 +146,10 @@ export function AnswerCard({
       {sections.length ? (
         <div className="cm-ans__secs">
           {sections.map((s, i) => {
-            const key = s.id ?? i;
+            // 정본 classmate/AnswerCard.jsx 와 같이 `||` 로 고릅니다. `??` 로 두면 id 가 빈 문자열인 절이
+            // 인덱스가 아니라 "" 를 키로 써서, 그런 절이 둘이면 React key 가 겹치고 openSection 비교와
+            // onSectionToggle 이 돌려주는 값도 어긋납니다.
+            const key = s.id || i;
             // exactOptionalPropertyTypes 때문에 undefined 를 그대로 넘기지 않고 펼쳐서 넘깁니다.
             const controlled = openSection === undefined ? {} : { open: openSection === key };
             const icon = s.icon === undefined ? {} : { icon: s.icon };

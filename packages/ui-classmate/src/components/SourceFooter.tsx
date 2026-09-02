@@ -17,8 +17,8 @@ export interface FooterWarn {
   onAction?: () => void;
 }
 /**
- * The quiet bottom line of every screen: three freshness dots + "전사 4초 전 · Meet 2초 전 · IntelliJ 1초 전" + 기록 count.
- * Pass `warn` to replace it with what stopped and what continues (amber), or red when nothing works.
+ * 모든 화면 맨 아래에 조용히 놓이는 한 줄입니다. 신선도 점 3개 + "전사 4초 전 · Meet 2초 전 · IntelliJ 1초 전" + 기록 개수.
+ * `warn` 을 넘기면 그 자리가 "무엇이 멈췄고 무엇이 계속되는지"로 바뀝니다(호박색, 아무것도 안 되면 빨간색).
  *
  * `count` 는 넘긴 그대로 그립니다. "붙잡은 순간 중 term 이 있는 것만 센다"는 규칙(docs/DECISIONS.md)은
  * 세는 쪽(화면)의 몫입니다. count 를 넘기지 않으면 기록 칸 자체가 나오지 않습니다.
@@ -27,7 +27,7 @@ export interface SourceFooterProps {
   sources?: FooterSource[];
   count?: number;
   countLabel?: string;
-  /** Makes the count a button (opens 기록) */
+  /** 기록 개수를 버튼으로 만듭니다. 누르면 기록이 열립니다. */
   onCount?: () => void;
   warn?: FooterWarn;
   className?: string;
@@ -36,7 +36,7 @@ export interface SourceFooterProps {
 
 const LABEL: Record<string, string> = { tiro: "전사", meet: "Meet", intellij: "IntelliJ" };
 
-// One quiet line at the bottom: how fresh each source is, and how many moments are kept. warn replaces it with what stopped + what continues.
+// 맨 아래 조용한 한 줄입니다. 자료마다 얼마나 새것인지와 순간을 몇 개 담아 두었는지 보여 줍니다. warn 이 오면 멈춘 것 + 계속되는 것으로 바뀝니다.
 export function SourceFooter({
   sources = [],
   count,

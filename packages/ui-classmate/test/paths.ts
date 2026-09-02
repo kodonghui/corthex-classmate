@@ -14,5 +14,9 @@ export const pkgRoot = join(here, "..");
 export const srcRoot = join(pkgRoot, "src");
 /** 저장소 뿌리 */
 export const repoRoot = join(pkgRoot, "..", "..");
+/** 디자인 내보내기 뿌리 (읽기만 합니다) */
+export const designRoot = join(repoRoot, "design/claude-design-export");
 /** 정본 컴포넌트 폴더 (읽기만 합니다) */
-export const canonRoot = join(repoRoot, "design/claude-design-export/design-system/components");
+export const canonRoot = join(designRoot, "design-system/components");
+/** 문구 결정이 갈린 자리. dc.html 은 오타와 합니다체가 남아 있는 쪽입니다 (docs/design-map.md §7 함정 7·8). */
+export const sidePanelDcHtml = join(designRoot, "project-classmate-side-panel/Classmate Side Panel.dc.html");

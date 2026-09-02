@@ -4,20 +4,20 @@ import { cx } from "../../cx";
 import { Icon } from "./Icon";
 
 /**
- * Action button. Only one `primary` per screen; default is `secondary`.
+ * 동작 버튼입니다. 화면마다 `primary` 는 하나뿐이고 기본값은 `secondary` 입니다.
  */
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  /** primary = the one accent block on screen; secondary = outlined; ghost = text-only; danger = red text, rare */
+  /** primary 는 화면에 하나뿐인 강조 덩어리, secondary 는 테두리, ghost 는 글자만, danger 는 빨간 글자(드물게)입니다. */
   variant?: "primary" | "secondary" | "ghost" | "danger";
   /** 28 / 36 / 44 px */
   size?: "sm" | "md" | "lg";
-  /** Leading Lucide icon name */
+  /** 글자 앞에 놓을 Lucide 아이콘 이름입니다. */
   icon?: string;
-  /** Trailing Lucide icon name */
+  /** 글자 뒤에 놓을 Lucide 아이콘 이름입니다. */
   iconRight?: string;
-  /** Stretch to container width */
+  /** 담긴 자리의 너비만큼 늘립니다. */
   full?: boolean;
-  /** Shows a slow spinner and disables the button */
+  /** 느리게 도는 표시를 보여 주고 버튼을 누를 수 없게 합니다. */
   loading?: boolean;
   children?: React.ReactNode;
 }

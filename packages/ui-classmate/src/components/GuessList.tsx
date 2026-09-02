@@ -7,7 +7,7 @@ export interface GuessOption {
   id: string;
   label: React.ReactNode;
 }
-/** "혹시 이게 막혔나요?" — the tutor's 2–3 guesses when a whole sentence (not a word) was caught. Pick one to get the one-sentence answer. */
+/** "혹시 이게 막혔나요?" — 낱말이 아니라 문장을 통째로 붙잡았을 때 튜터가 내놓는 짐작 2~3개입니다. 하나를 고르면 한 문장 답이 옵니다. */
 export interface GuessListProps {
   title?: React.ReactNode;
   options: GuessOption[];
@@ -17,7 +17,7 @@ export interface GuessListProps {
   style?: React.CSSProperties;
 }
 
-// "혹시 이게 막혔나요?" — the tutor's three guesses when the learner caught a whole sentence.
+// "혹시 이게 막혔나요?" — 학습자가 문장을 통째로 붙잡았을 때 튜터가 내놓는 짐작 목록입니다.
 export function GuessList({
   title = "혹시 이게 막혔나요?",
   options = [],

@@ -2,13 +2,13 @@ import type * as React from "react";
 
 import { cx } from "../cx";
 
-/** A caught moment in 기록: time · the word · its one-line answer. Whole row is the button. */
+/** 기록에 쌓인 붙잡은 순간 한 줄입니다. 시각 · 낱말 · 한 줄 답 순서이고 줄 전체가 버튼입니다. */
 export interface MomentRowProps {
   /** "10:32:18" */
   time: string;
-  /** The caught word or "문장" */
+  /** 붙잡은 낱말입니다. 문장을 통째로 붙잡았으면 "문장" 이 들어옵니다. */
   term?: React.ReactNode;
-  /** The one-sentence conclusion; clamps to 2 lines */
+  /** 한 문장 결론입니다. 두 줄까지만 보이고 넘치면 잘립니다. */
   title?: React.ReactNode;
   period?: string;
   topic?: string;
@@ -19,7 +19,7 @@ export interface MomentRowProps {
   style?: React.CSSProperties;
 }
 
-// One caught moment in 기록: when · which word · the one-line answer. Whole row is the button; no chevrons, no icon clutter.
+// 기록의 붙잡은 순간 하나입니다. 언제 · 어느 낱말 · 한 줄 답. 줄 전체가 버튼이고 화살표나 아이콘을 덧붙이지 않습니다.
 export function MomentRow({
   time,
   term,

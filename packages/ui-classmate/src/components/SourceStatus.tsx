@@ -4,24 +4,24 @@ import { cx } from "../cx";
 import { Button, Icon, StatusDot } from "../internal/base";
 
 export interface SourceItem {
-  /** tiro / meet / intellij get default labels and icons */
+  /** tiro / meet / intellij 는 기본 이름과 아이콘을 자동으로 받습니다. */
   key: "tiro" | "meet" | "intellij" | string;
   state: "live" | "paused" | "off" | "idle";
   label?: string;
   icon?: string;
-  /** Overrides 기록 중 / 멈춤 / 연결 안 됨 */
+  /** 기록 중 / 멈춤 / 연결 안 됨 대신 쓸 글자입니다. */
   stateLabel?: string;
-  /** Caption, e.g. "마지막 전사 14:02" */
+  /** 아래에 덧붙이는 작은 글자입니다. 예: "마지막 전사 14:02" */
   detail?: string;
-  /** Small secondary button label, e.g. "다시 연결" */
+  /** 오른쪽 작은 버튼의 글자입니다. 예: "다시 연결" */
   action?: string;
 }
 /**
- * Live status of the three inputs (Tiro 전사, Meet 화면, IntelliJ 코드) as a list or a compact row.
+ * 세 자료(Tiro 전사 · Meet 화면 · IntelliJ 코드)의 지금 상태를 목록으로, 또는 compact 한 줄로 보여 줍니다.
  */
 export interface SourceStatusProps {
   sources?: SourceItem[];
-  /** One row of dot + icon + short name. detail·action·stateLabel 은 이때 그리지 않습니다. */
+  /** 점 + 아이콘 + 짧은 이름만 한 줄로 그립니다. detail·action·stateLabel 은 이때 그리지 않습니다. */
   compact?: boolean;
   onAction?: (key: string) => void;
   className?: string;

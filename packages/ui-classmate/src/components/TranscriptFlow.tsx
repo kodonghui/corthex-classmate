@@ -5,7 +5,7 @@ import { cx } from "../cx";
 
 export interface TranscriptSegment {
   text: string;
-  /** true = tappable term (dotted underline) */
+  /** true 면 누를 수 있는 낱말입니다(점선 밑줄). */
   term?: boolean;
 }
 export interface TranscriptLine {
@@ -15,24 +15,24 @@ export interface TranscriptLine {
   segments: TranscriptSegment[];
 }
 /**
- * The teacher's recent sentences, large (19/31), newest at the bottom. Tapping a dotted term — or the whole sentence — IS the question.
- * The last two lines read at full ink; older lines fade.
+ * 선생님의 최근 문장들을 크게(19/31) 보여 주고 새 문장이 맨 아래에 옵니다. 점선 낱말이나 문장 전체를 누르는 것이 곧 질문입니다.
+ * 마지막 두 줄은 가장 진하게 읽히고 앞선 줄은 점점 옅어집니다.
  */
 export interface TranscriptFlowProps {
   lines: TranscriptLine[];
-  /** "<lineId>:<segmentIndex>" of the term currently caught */
+  /** 지금 붙잡은 낱말을 "<lineId>:<segmentIndex>" 로 가리킵니다. */
   active?: string;
-  /** Terms already caught earlier (solid underline) */
+  /** 앞서 이미 붙잡은 낱말들입니다(실선 밑줄). */
   marked?: string[];
   onTerm?: (lineId: string, segmentIndex: number, segment: TranscriptSegment) => void;
-  /** Tap on a sentence's plain text */
+  /** 문장의 보통 글자를 눌렀을 때 부릅니다. */
   onSentence?: (lineId: string) => void;
-  /** Render content directly under a line (a MarginNote) */
+  /** 그 줄 바로 아래에 그릴 내용을 돌려줍니다. 보통 MarginNote 가 옵니다. */
   renderAfter?: (lineId: string) => React.ReactNode;
-  /** Hairline caption at the bottom, e.g. "걸리는 말을 누르세요" */
+  /** 맨 아래 가는 안내 글자입니다. 예: "걸리는 말을 누르세요" */
   tip?: React.ReactNode;
   showTimes?: boolean;
-  /** lg 19/31 (default) · md 16/25 for 기록 detail */
+  /** lg 는 19/31(기본값), md 는 16/25 로 기록 상세에서 씁니다. */
   size?: "lg" | "md";
   className?: string;
   style?: React.CSSProperties;
@@ -43,7 +43,7 @@ function isActivate(e: React.KeyboardEvent): boolean {
   return e.key === "Enter" || e.key === " ";
 }
 
-// lines: [{ id, time, segments: [{ text, term? }] }]. Newest last; the last two read at full ink, older lines fade.
+// lines 는 [{ id, time, segments: [{ text, term? }] }] 모양입니다. 새 문장이 맨 뒤에 오고 마지막 두 줄만 진하게, 앞선 줄은 옅어집니다.
 export function TranscriptFlow({
   lines = [],
   active,
