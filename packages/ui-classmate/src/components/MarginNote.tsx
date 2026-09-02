@@ -9,11 +9,11 @@ export interface NoteChip {
   selected?: boolean;
 }
 /**
- * The answer as a margin note under the sentence it belongs to: term · time, one-sentence conclusion, evidence, 2–3 chips, "자세히 보기".
- * States: preparing (sweep) → ready → collapsed (one dashed line the learner can reopen).
+ * 답을 그 문장 바로 밑에 여백 메모로 붙입니다. 낱말 · 시각, 한 문장 결론, 근거, 칩 2~3개, "자세히 보기" 순서입니다.
+ * 상태는 preparing(쓸어내림) → ready → collapsed(학습자가 다시 펼 수 있는 점선 한 줄) 로 흐릅니다.
  */
 export interface MarginNoteProps {
-  /** The caught word or "문장" */
+  /** 붙잡은 낱말입니다. 문장을 통째로 붙잡았으면 "문장" 이 들어옵니다. */
   term: React.ReactNode;
   time?: string;
   state?: "preparing" | "choosing" | "ready" | "collapsed";
@@ -21,19 +21,19 @@ export interface MarginNoteProps {
   evidence?: EvidenceProps[];
   chips?: NoteChip[];
   onChip?: (id: string) => void;
-  /** Shows "자세히 보기 ▸" in the footer */
+  /** 바닥글에 "자세히 보기 ▸" 를 보여 줍니다. */
   onDetail?: () => void;
   detailLabel?: string;
-  /** Right footer text, e.g. "18초 뒤 접혀요 · 기록에 남아요" */
+  /** 바닥글 오른쪽 글자입니다. 예: "18초 뒤 접혀요 · 기록에 남아요" */
   collapseText?: React.ReactNode;
-  /** Text while preparing (default "한 줄로 정리하고 있어요") */
+  /** preparing 동안 보여 줄 글자입니다(기본값 "한 줄로 정리하고 있어요"). */
   waitingText?: React.ReactNode;
-  /** Amber tint when the tutor is waiting on a connection */
+  /** 튜터가 연결을 기다리는 동안 호박색으로 물들입니다. */
   warn?: boolean;
-  /** Collapsed → expand */
+  /** collapsed 를 눌러 다시 펼 때 부릅니다. */
   onExpand?: () => void;
   /**
-   * Extra content between header and conclusion. 상태와 상관없이 헤더 바로 아래에 그립니다:
+   * 헤더와 결론 사이에 덧붙이는 내용입니다. 상태와 상관없이 헤더 바로 아래에 그립니다:
    * choosing 이면 GuessList, preparing 이면 `<SourceStatus compact />`(붙잡는 순간 봉인한 세 자료),
    * ready 이면 CodeCompare 같은 덧붙임이 들어옵니다.
    */
@@ -42,7 +42,7 @@ export interface MarginNoteProps {
   style?: React.CSSProperties;
 }
 
-// The inline answer that appears under the sentence it belongs to. state: preparing | choosing | ready | collapsed
+// 그 문장 바로 밑에 나타나는 답입니다. state 는 preparing | choosing | ready | collapsed 입니다.
 export function MarginNote({
   term,
   time,

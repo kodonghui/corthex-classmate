@@ -3,18 +3,18 @@ import type * as React from "react";
 import { cx } from "../../cx";
 import { Icon } from "./Icon";
 
-/** How the tutor knows a claim: 확인됨 (read in a source) · 일부 확인 · 추론 (guessed) · 자료 지연 (source not seen yet). Every claim carries one. */
+/** 튜터가 그 말을 어떻게 아는지 붙입니다. 확인됨(자료에서 직접 읽음) · 일부 확인 · 추론(짐작) · 자료 지연(아직 자료를 못 봄) 넷 중 하나가 모든 주장에 하나씩 붙습니다. */
 export interface EvidenceProps {
   type?: "verified" | "partial" | "inferred" | "delayed";
-  /** tiro → 전사, meet → Meet 화면, intellij → IntelliJ */
+  /** tiro → 전사, meet → Meet 화면, intellij → IntelliJ 로 이름을 바꿔 보여 줍니다. */
   source?: "tiro" | "meet" | "intellij" | string;
   /** "10:32" */
   time?: string;
-  /** For inferred: short reason */
+  /** type 이 inferred 일 때 보여 줄 짧은 이유입니다. */
   reason?: string;
-  /** Multi-line block instead of a one-line chip */
+  /** 한 줄 칩 대신 여러 줄 덩어리로 그립니다. */
   block?: boolean;
-  /** Custom detail text (overrides source/time/reason) */
+  /** 상세 글자를 직접 넣습니다. source · time · reason 보다 우선합니다. */
   children?: React.ReactNode;
   title?: string;
   className?: string;
@@ -29,7 +29,7 @@ const META = {
   delayed: { head: "자료 지연", icon: "clock", title: "이 자료가 늦게 와서 아직 못 봤어요" },
 } as const;
 
-// Labels every claim with how the tutor knows it: 확인됨 · 일부 확인 · 추론 · 자료 지연
+// 모든 주장에 "튜터가 어떻게 아는지"를 붙입니다. 확인됨 · 일부 확인 · 추론 · 자료 지연
 export function Evidence({
   type = "verified",
   source,

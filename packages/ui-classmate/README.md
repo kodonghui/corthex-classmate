@@ -49,7 +49,8 @@ import "@classmate/ui-classmate/styles.css"; // 앱에서 한 번만
 
 - 파일명 · export 이름 · props 인터페이스 이름(`IconProps` `EvidenceProps` `TagProps` `DisclosureProps`
   `CodeBlockProps` `ChipProps` `ChipGroupProps` `ButtonProps` `StatusDotProps`)을 정본 `.d.ts` 와 글자
-  그대로 맞췄습니다. 고친 것은 `JSX.Element` → `React.JSX.Element` 뿐입니다.
+  그대로 맞췄습니다. 타입에서 고친 것은 `JSX.Element` → `React.JSX.Element` 뿐이고, 설명 주석만 한국어로
+  옮겼습니다. `test/structure.test.ts` (1) 이 prop 이름 집합과 `extends` 절을 정본과 견줍니다.
 - `src/components/*.tsx` 10개는 배럴 `"../internal/base"` 만 import 합니다. 안쪽 파일을 직접 가리키는
   곳은 없습니다(시험이 강제).
 
@@ -77,13 +78,30 @@ import "@classmate/ui-classmate/styles.css"; // 앱에서 한 번만
 | `AnswerCard` 계약 | `.d.ts` 에 `type:'compare'` 와 `rows` 누락(구현은 지원) | 두 가지를 타입에 넣음 | `docs/design-map.md` §3-1·§7 의 계약 수정 2건 |
 | `MarginNote` 계약 | `.d.ts` 의 `children` 설명이 `choosing` 만 언급 | preparing 에 `<SourceStatus compact />` 가 들어오는 것까지 주석에 적음 | 같은 곳의 계약 수정. 동작은 정본 그대로(children 은 상태와 무관하게 헤더 아래) |
 | `cm.js` | `css` + `cx` | `src/cx.ts` 의 `cx` 만 | `css` 는 런타임 주입이라 없앴습니다 |
+| 주석·JSDoc | 정본 `.jsx`·`.d.ts` 의 영어 원문 | 같은 뜻의 한국어 존댓말 | 저장소 주석 규칙. 설명 글자만 옮겼고 prop 이름·기본값·문구는 그대로입니다. `test/structure.test.ts` (1) 이 정본 `.d.ts` 와 prop 이름 집합·`extends` 절을 견줍니다 |
 
-계약(props 이름·기본값·문구·클래스)은 위 표에 적은 것 말고는 정본 그대로입니다.
+계약(props 이름·기본값·문구·클래스)은 위 표에 적은 것 말고는 정본 그대로입니다. 판정(참·거짓)까지 정본과 같게
+맞춰 두었습니다 — `Icon` 의 `title`, `StatusDot` 의 `label`, `AnswerCard` 의 절 키(`s.id || i`) 세 자리는 정본
+`.jsx` 와 글자 그대로 같은 판정을 쓰고 각각 시험이 있습니다.
+
+## 알려진 한계
+
+- **`styles.css` 의 하드코딩 색 3줄.** `.cm-stuck__kbd` · `.cm-stuck__bar` · `.cm-stuck__bar::after` 에
+  `rgba(255,255,255,…)` 값이 네 개 있습니다. "색은 `var(--이름)` 만 쓴다"는 규칙과 어긋나지만, 정본
+  `classmate/StuckButton.jsx` 의 `css()` 블록 원문과 글자 그대로 같고 `test/css-parity.test.ts` 가 그 동일성을
+  지킵니다. 이 패키지에서 혼자 토큰으로 바꾸면 그 시험이 깨집니다. 토큰(`--stuck-kbd-bg` 같은 이름)을 만들
+  거면 `@classmate/design-tokens` 와 정본을 함께 바꾸는 결정으로 올려야 합니다.
+- **아이콘 경고는 배포 빌드에서만 조용합니다.** `NODE_ENV === "production"` 일 때만 입을 다물고, `process`
+  자체가 없는 MV3 확장 번들에서는 경고가 나옵니다. 겨냥한 환경에서 빠진 아이콘이 조용히 사라지는 쪽보다
+  낫다고 보아 이렇게 두었습니다(`test/icon-render.test.tsx` 가 두 경우를 다 봅니다).
 
 ## 반영한 디자인 결정 (`docs/DECISIONS.md` "디자인 정본 적용 기본값")
 
-- 함정 7 — 멈춤 안내는 `멈췄어요`. dc.html 의 오타는 이 패키지 어디에도 없습니다(시험).
-- 함정 8 — `new` 결론 문장은 kit 판 **해요체**를 씁니다(dc.html 의 합니다체가 아닙니다).
+- 함정 7 — 멈춤 안내는 `멈췄어요`. dc.html 의 오타는 이 패키지 어디에도 없습니다. 시험은 기대 문구를 정본
+  `classmate/classmate.card.html` 에서 뽑아 dc.html 쪽 글자와 갈린다는 것까지 확인하고, 그 문구를 실제로
+  `SourceFooter` 에 그려 화면에 나오는 글자로 견줍니다.
+- 함정 8 — `new` 결론 문장은 kit 판 **해요체**를 씁니다(dc.html 의 합니다체가 아닙니다). 이것도 정본 카드에서
+  뽑아 `MarginNote`·`MomentRow` 에 그린 결과로 확인합니다.
 - 함정 9 — 접힘 타이머는 칩 클릭 시 리셋. 컴포넌트는 `onChip`·`collapseText` 만 내놓고 시간은 화면이 셉니다.
 - 함정 10 — Alt+S 판정은 `e.code === "KeyS"`. `StuckButton` 의 `shortcut` 은 정본과 같이 `<kbd>` 안내일
   뿐 키를 잡지 않습니다(시험이 확인). 실제 청취는 2라운드 사이드패널 화면의 몫입니다.
@@ -101,12 +119,16 @@ pnpm --filter @classmate/ui-classmate typecheck  # tsc --noEmit
 
 - `test/components.test.tsx` — 10개를 실제로 그려 상태·문구·aria·콜백을 봅니다. 화면 앱이 없는 1라운드에서
   이 시험이 e2e 를 대신합니다.
-- `test/icon-render.test.tsx` · `test/icons.test.ts` — 아이콘 계약과 맵 커버리지(정본 jsx + readme 어휘).
+- `test/icon-render.test.tsx` · `test/icons.test.ts` — 아이콘 계약(개발 경고 판정 포함)과 맵 커버리지
+  (정본 jsx + readme 어휘).
+- `test/base-parity.test.tsx` — 기본 요소가 정본 jsx 와 같은 참·거짓 판정을 쓰는지(`StatusDot` 의 `label`).
 - `test/css-parity.test.ts` — 정본 css 블록이 `styles.css`/`base.css` 에 글자 그대로 있는지, `cm-*` 클래스
   집합이 빠짐없이 옮겨졌는지.
 - `test/structure.test.ts` — 2라운드 교체를 위한 구조 규칙 4개와 불변 원칙(런타임 주입·외부 URL·
-  `dangerouslySetInnerHTML` 0건).
-- `test/copy.test.ts` — 문구 결정 반영.
+  `dangerouslySetInnerHTML` 0건). 구조 규칙은 (1) 파일명·export·props 이름이 정본 `.d.ts` 와 같음
+  (2) 정본 jsx 의 `cm-*` 클래스 집합이 포팅한 tsx 에 그대로 있음 (3) `components` 가 `internal/base` 안쪽
+  파일을 직접 import 하지 않음 (4) `@classmate/ui-base`·`@classmate/design-tokens` import 0 입니다.
+- `test/copy.test.tsx` — 문구 결정 반영. 기대값은 정본 파일에서 뽑고 확인은 그린 결과에 대고 합니다.
 
 ## 아직 안 한 것
 

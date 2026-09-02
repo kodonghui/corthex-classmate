@@ -2,18 +2,18 @@ import type * as React from "react";
 
 import { cx } from "../../cx";
 
-/** Java code on --code-bg with muted syntax colors; also renders inline code. */
+/** Java 코드를 --code-bg 위에 차분한 색으로 그립니다. 문장 안에 들어가는 코드도 그립니다. */
 export interface CodeBlockProps {
   code: string;
   language?: "java" | "text" | string;
-  /** Left caption above the code, e.g. "IntelliJ · Main.java" */
+  /** 코드 위 왼쪽 설명입니다. 예: "IntelliJ · Main.java" */
   caption?: React.ReactNode;
-  /** Right caption, e.g. "14:02" */
+  /** 코드 위 오른쪽 설명입니다. 예: "14:02" */
   source?: React.ReactNode;
-  /** 1-based lines to tint with --code-highlight */
+  /** --code-highlight 로 물들일 줄 번호입니다. 1부터 셉니다. */
   highlightLines?: number[];
   lineNumbers?: boolean;
-  /** Render as an inline <code> chip */
+  /** 문장 안에 들어가는 <code> 조각으로 그립니다. */
   inline?: boolean;
   className?: string;
   style?: React.CSSProperties;
@@ -23,7 +23,7 @@ const KW =
   /^(public|private|protected|static|final|class|interface|enum|extends|implements|return|new|if|else|for|while|do|switch|case|break|continue|void|this|super|import|package|try|catch|finally|throw|throws|null|true|false|var|record|abstract|default|instanceof)$/;
 const TYPES = /^(int|long|double|float|boolean|char|byte|short|String|List|Map|Set|Optional|Integer|Long|Object)$/;
 
-// Tiny Java tokenizer — enough to color keywords, types, strings, numbers, comments and annotations.
+// 아주 작은 Java 토큰 나누개입니다. 예약어 · 타입 · 문자열 · 숫자 · 주석 · 애너테이션에 색을 입힐 만큼만 합니다.
 export function tokenizeJava(line: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let i = 0;

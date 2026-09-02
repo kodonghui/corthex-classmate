@@ -377,6 +377,20 @@ describe("AnswerCard", () => {
     click(r.all("button.cm-disc__btn")[0]!);
     expect(onSectionToggle).toHaveBeenCalledWith("a", true);
   });
+
+  it("id 가 빈 문자열인 절은 정본처럼 인덱스를 키로 쓴다 (정본 AnswerCard.jsx 의 s.id || i)", () => {
+    const onSectionToggle = vi.fn();
+    const sections = [
+      { id: "", label: "가", content: "가 본문" },
+      { id: "", label: "나", content: "나 본문" },
+    ];
+    const r = render(<AnswerCard conclusion="결론" sections={sections} openSection={1} onSectionToggle={onSectionToggle} />);
+    // 키가 "" 로 뭉개지면 두 절 다 openSection 과 어긋나 아무것도 열리지 않습니다.
+    expect(r.text()).toContain("나 본문");
+    expect(r.text()).not.toContain("가 본문");
+    click(r.all("button.cm-disc__btn")[0]!);
+    expect(onSectionToggle).toHaveBeenCalledWith(0, true);
+  });
 });
 
 describe("SourceStatus", () => {

@@ -4,10 +4,10 @@ import { cx } from "../../cx";
 import { Icon } from "./Icon";
 
 /**
- * Small actionable chip for quick follow-ups ("더 쉽게", "예시 더") and filters. Toggle with `selected`.
+ * 후속 질문("더 쉽게", "예시 더")과 거르개에 쓰는 작은 칩입니다. `selected` 로 켜고 끕니다.
  */
 export interface ChipProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  /** Leading Lucide icon name (14px) */
+  /** 글자 앞에 놓을 Lucide 아이콘 이름입니다(14px). */
   icon?: string;
   selected?: boolean;
   children?: React.ReactNode;
@@ -37,7 +37,7 @@ export function Chip({
   );
 }
 
-/** Wrapping flex row with 6px gaps for chips. */
+/** 칩을 6px 간격으로 늘어놓고 넘치면 줄을 바꾸는 가로줄입니다. */
 export interface ChipGroupProps {
   children?: React.ReactNode;
   className?: string;

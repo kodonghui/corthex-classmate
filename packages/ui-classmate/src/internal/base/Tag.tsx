@@ -3,14 +3,14 @@ import type * as React from "react";
 import { cx } from "../../cx";
 import { Icon } from "./Icon";
 
-/** Static metadata label (22px): 교시, topic, source. Not clickable — use Chip for actions. */
+/** 눌리지 않는 22px 이름표입니다. 교시 · 주제 · 자료 같은 곁정보를 답니다. 누르는 것은 Chip 을 씁니다. */
 export interface TagProps extends React.HTMLAttributes<HTMLSpanElement> {
   tone?: "outline" | "sunken" | "accent";
-  /** Leading Lucide icon (12px) */
+  /** 글자 앞에 놓을 Lucide 아이콘입니다(12px). */
   icon?: string;
-  /** Mono font for identifiers */
+  /** 식별자를 보여 줄 때 고정폭 글꼴로 그립니다. */
   mono?: boolean;
-  /** Shows an × button */
+  /** × 버튼을 보여 줍니다. */
   onRemove?: () => void;
   removeLabel?: string;
   children?: React.ReactNode;

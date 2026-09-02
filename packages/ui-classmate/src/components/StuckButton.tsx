@@ -4,21 +4,21 @@ import { cx } from "../cx";
 import { Icon } from "../internal/base";
 
 /**
- * The one hero action (56px): "지금 막혔어요". Saves the recent transcript, Meet frame and IntelliJ code in one press.
+ * 화면에 하나뿐인 큰 동작(56px)입니다: "지금 막혔어요". 한 번 누르면 최근 전사 · Meet 화면 · IntelliJ 코드를 함께 저장합니다.
  *
  * `shortcut` 은 오른쪽에 보여 주는 안내(<kbd>)일 뿐이고 키를 잡지는 않습니다. 정본도 그렇고,
  * Alt+S 를 실제로 듣는 자리는 사이드패널 화면입니다(docs/DECISIONS.md: `e.code === "KeyS"` 로 판정).
  */
 export interface StuckButtonProps {
-  /** idle → saving (sweep bar, disabled) → saved (check) */
+  /** idle → saving(쓸어내림 막대, 누를 수 없음) → saved(체크) 순서로 바뀝니다. */
   state?: "idle" | "saving" | "saved";
-  /** Override the state label */
+  /** 상태 글자 대신 쓸 글자입니다. */
   label?: React.ReactNode;
-  /** Caption under the button; pass '' to hide */
+  /** 버튼 아래 작은 글자입니다. '' 를 넘기면 감춥니다. */
   sublabel?: React.ReactNode;
-  /** Keyboard hint shown at the right, e.g. "Alt+S" */
+  /** 오른쪽에 보여 주는 단축키 안내입니다. 예: "Alt+S" */
   shortcut?: string;
-  /** Outlined, low-emphasis version for screens where it is not the primary action */
+  /** 테두리만 있는 낮은 강조 모양입니다. 이 버튼이 으뜸 동작이 아닌 화면에서 씁니다. */
   quiet?: boolean;
   disabled?: boolean;
   onClick?: () => void;
