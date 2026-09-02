@@ -37,6 +37,13 @@ export const MAX_MESSAGE_BYTES = 1_048_576;
 /** 프레임 식별자 규칙입니다. 계약 (가)에 적힌 그대로입니다. */
 export const SCREEN_FRAME_ID_PATTERN = /^sf-[A-Za-z0-9_-]{1,60}$/;
 
+/**
+ * 교시 식별자 규칙입니다. 호스트의 `is_contract_period_id`
+ * (`apps/native-host/src/store/frames.rs`)와 **같은 규칙** 이어야 합니다.
+ * 호스트는 이 이름으로 교시 폴더를 만들기 때문에 모양이 어긋나면 프레임이 통째로 거절됩니다.
+ */
+export const PERIOD_ID_PATTERN = /^[0-9]{4}-[0-9]{2}-[0-9]{2}-p[1-9][0-9]*$/;
+
 /** 교시 폴더 안에서 프레임이 들어가는 하위 폴더 이름입니다. */
 export const FRAME_DIRECTORY = 'frames';
 
@@ -57,7 +64,14 @@ export interface FrameStoredMessage {
   id: string;
   path: string;
   bytes: number;
-  /** 이 교시에서 몇 번째로 저장된 장인지입니다. */
+  /**
+   * 이 교시 **기록(events)** 에서 이 프레임이 붙은 순번입니다.
+   *
+   * "몇 번째 프레임인지" 가 **아닙니다.** 호스트는 프레임뿐 아니라 전사 같은 다른 기록도
+   * 같은 표에 이어 붙이고(`apps/native-host/src/store/mod.rs` 의 `events` 표는
+   * `seq INTEGER PRIMARY KEY AUTOINCREMENT`), 그 표의 번호를 그대로 돌려줍니다. 그래서
+   * 첫 프레임의 `seq` 가 10 일 수 있습니다. 장 수를 알고 싶으면 확장이 따로 세야 합니다.
+   */
   seq: number;
 }
 
@@ -187,6 +201,17 @@ export function assertScreenFrameId(id: string): void {
 }
 
 /**
+ * 교시 식별자가 계약 모양(`2026-09-02-p3`)인지 봅니다. 아니면 RangeError 로 막습니다.
+ * 호스트가 거절할 값을 확장 안에서 먼저 막아, 프레임을 한 시간 모아 두었다가 통째로
+ * 버리는 일이 없게 합니다.
+ */
+export function assertPeriodId(periodId: string): void {
+  if (!PERIOD_ID_PATTERN.test(periodId)) {
+    throw new RangeError('교시 식별자는 2026-09-02-p3 모양이어야 해요');
+  }
+}
+
+/**
  * 프레임 파일의 상대 경로를 **식별자에서 계산합니다.**
  * 확장이 보낸 `path` 문자열을 그대로 쓰지 않는 것이 Gate D 결정의 핵심입니다.
  */
@@ -201,27 +226,71 @@ export function utf8ByteLength(text: string): number {
 }
 
 /**
+ * 바이트 `n` 개를 base64 로 적으면 몇 글자가 되는지입니다.
+ *
+ * 규칙이 "3바이트 → 4글자, 모자라면 `=` 로 채움" 이라 실제로 만들어 보지 않아도 셀 수
+ * 있습니다. base64 글자는 전부 ASCII 라 **글자 수 = UTF-8 바이트 수** 이기도 합니다.
+ * 봉투 크기를 재려고 606 KiB 짜리 문자열을 한 번 더 만드는 일을 이 산술이 없앱니다.
+ */
+export function base64Length(byteCount: number): number {
+  return 4 * Math.ceil(byteCount / 3);
+}
+
+/**
+ * 계약 `ScreenFrame` 아홉 칸만 골라 담습니다.
+ *
+ * 왜 펼치지(`...frame`) 않는가: 통 안의 모양(`CapturedFrame`)에는 `bytes · mime` 두 칸이
+ * 더 있고, 앞으로 칸이 더 붙을 수도 있습니다. 펼쳐 담으면 그 여분이 봉투에 실려 호스트의
+ * `additionalProperties: false` 검증에 걸립니다. 그래서 아홉 칸을 손으로 골라 담습니다.
+ */
+function pickScreenFrame(frame: ScreenFrame, path: string): ScreenFrame {
+  return {
+    id: frame.id,
+    periodId: frame.periodId,
+    capturedAt: frame.capturedAt,
+    path,
+    width: frame.width,
+    height: frame.height,
+    hash: frame.hash,
+    changedFromPrev: frame.changedFromPrev,
+    source: frame.source,
+  };
+}
+
+/**
  * `frame.store` 봉투 하나를 만듭니다.
  *
+ * - `frame` 칸에는 계약 아홉 칸만 담습니다. 여분 칸은 여기서 떨어집니다.
  * - `path` 는 `frame.path` 를 믿지 않고 `frame.id` 에서 다시 계산합니다.
  * - 직렬화한 봉투가 `MAX_MESSAGE_BYTES` 를 **넘으면** 만들지 않고 건너뜁니다.
  *   상한과 정확히 같은 크기는 보냅니다(호스트도 `>` 로 판정합니다).
+ *
+ * 크기는 **base64 를 만들기 전에** 잽니다. 고정 부분(base64 를 뺀 봉투)만 직렬화하고
+ * 거기에 `base64Length(bytes.length)` 를 더하면 값이 정확히 같습니다. 그래서 상한을 넘는
+ * 장은 큰 문자열을 한 번도 만들지 않고 건너뜁니다.
  */
 export function buildFrameStore(frame: ScreenFrame, bytes: Uint8Array): BuildFrameStoreResult {
   const path = framePathFor(frame.id);
 
-  const message: FrameStoreMessage = {
+  // `bytesBase64` 를 빈 문자열로 둔 봉투입니다. 뒤에서 채워도 칸 순서가 그대로라
+  // 직렬화 결과는 "이 문자열 + base64 글자들" 과 정확히 같습니다.
+  const skeleton: FrameStoreMessage = {
     type: FRAME_STORE,
     periodId: frame.periodId,
-    frame: { ...frame, path },
-    bytesBase64: toBase64(bytes),
+    frame: pickScreenFrame(frame, path),
+    bytesBase64: '',
   };
 
-  const envelopeBytes = utf8ByteLength(JSON.stringify(message));
+  const envelopeBytes = utf8ByteLength(JSON.stringify(skeleton)) + base64Length(bytes.length);
   if (envelopeBytes > MAX_MESSAGE_BYTES) {
     return { skipped: true, reason: 'too-large', envelopeBytes };
   }
-  return { skipped: false, message, envelopeBytes };
+
+  return {
+    skipped: false,
+    message: { ...skeleton, bytesBase64: toBase64(bytes) },
+    envelopeBytes,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

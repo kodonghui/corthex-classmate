@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { createValidator } from '@classmate/contracts';
 import type { ScreenFrame } from '@classmate/contracts';
 import {
+  assertPeriodId,
+  base64Length,
   buildFrameStore,
   framePathFor,
   fromBase64,
@@ -153,9 +155,77 @@ describe('buildFrameStore', () => {
   });
 
   it('envelopeBytes 는 직렬화한 봉투의 UTF-8 바이트 수와 같습니다', () => {
-    const built = buildFrameStore(makeFrame(), new Uint8Array([1, 2, 3, 4, 5]));
+    // 크기는 base64 를 만들기 전에 산술로 냅니다(고정 부분 + base64 길이). 그래도 실제로
+    // 직렬화한 값과 정확히 같아야 합니다. 길이가 4로 나누어떨어지는 경우와 아닌 경우를
+    // 모두 봅니다(채움 글자 `=` 자리).
+    for (const length of [0, 1, 2, 3, 5, 300]) {
+      const built = buildFrameStore(makeFrame(), new Uint8Array(length));
+      if (built.skipped) throw new Error('건너뛰면 안 되는 크기입니다');
+      expect(built.envelopeBytes, `${length}바이트`).toBe(
+        utf8ByteLength(JSON.stringify(built.message)),
+      );
+    }
+  });
+
+  it('교시 이름에 한글이 섞여도 UTF-8 바이트 수로 셉니다', () => {
+    // 산술은 base64 부분에만 씁니다. 고정 부분은 여전히 진짜 UTF-8 길이를 재야 합니다.
+    const built = buildFrameStore(makeFrame({ source: 'meet-tab' }), new Uint8Array([7, 7]));
     if (built.skipped) throw new Error('건너뛰면 안 되는 크기입니다');
     expect(built.envelopeBytes).toBe(utf8ByteLength(JSON.stringify(built.message)));
+  });
+
+  it('frame 칸에는 계약 아홉 칸만 담고 여분 칸은 떨어뜨립니다', () => {
+    // 통 안의 모양(CapturedFrame)에는 bytes·mime 두 칸이 더 있습니다. 펼쳐 담으면 그 여분이
+    // 봉투에 실려 호스트의 additionalProperties:false 검증에 걸립니다.
+    const withExtras = {
+      ...makeFrame(),
+      bytes: 12_345,
+      mime: 'image/webp',
+      secretNote: '실려 나가면 안 되는 값',
+    } as unknown as ScreenFrame;
+
+    const built = buildFrameStore(withExtras, new Uint8Array([1]));
+    if (built.skipped) throw new Error('건너뛰면 안 되는 크기입니다');
+
+    expect(Object.keys(built.message.frame).sort()).toEqual([
+      'capturedAt',
+      'changedFromPrev',
+      'hash',
+      'height',
+      'id',
+      'path',
+      'periodId',
+      'source',
+      'width',
+    ]);
+    expect(built.message.frame).not.toHaveProperty('bytes');
+    expect(built.message.frame).not.toHaveProperty('secretNote');
+
+    const validate = createValidator<ScreenFrame>('screen-frame');
+    expect(validate(built.message.frame)).toBe(true);
+  });
+});
+
+describe('base64Length', () => {
+  it('실제로 만들어 본 base64 문자열 길이와 같습니다', () => {
+    for (let length = 0; length <= 40; length += 1) {
+      const bytes = Uint8Array.from({ length }, (_unused, index) => index);
+      expect(base64Length(length), `${length}바이트`).toBe(toBase64(bytes).length);
+    }
+  });
+});
+
+describe('assertPeriodId', () => {
+  it('계약 모양이면 통과합니다', () => {
+    expect(() => assertPeriodId('2026-09-02-p3')).not.toThrow();
+    expect(() => assertPeriodId('2026-09-02-p12')).not.toThrow();
+  });
+
+  it('호스트가 거절할 이름을 여기서 먼저 막습니다', () => {
+    // apps/native-host/src/store/frames.rs 의 is_contract_period_id 와 같은 규칙입니다.
+    for (const bad of ['', 'p3', '2026-09-02', '2026-9-2-p3', '2026-09-02-p0', '../etc/passwd']) {
+      expect(() => assertPeriodId(bad), bad).toThrow(RangeError);
+    }
   });
 });
 

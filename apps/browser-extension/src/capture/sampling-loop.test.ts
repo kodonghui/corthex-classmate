@@ -250,7 +250,17 @@ describe('SamplingLoop 오류', () => {
     expect(loop.inFlight).toBe(false); // 던져도 깃발이 풀립니다.
   });
 
-  it('간격이 음수면 만들지 못합니다', () => {
+  it('간격이 0 이하이거나 수가 아니면 만들지 못합니다', () => {
     expect(() => new SamplingLoop({ task: () => {}, intervalMs: -1 })).toThrow(RangeError);
+    // 0 도 막습니다. `resolveCaptureSettings`(messages.ts)가 이미 "0 보다 큰 수" 만
+    // 통과시키므로 두 곳의 규칙이 같아야 합니다. 간격 0 은 회차가 끝나자마자 다음 회차를
+    // 잡아 CPU 를 통째로 먹습니다.
+    expect(() => new SamplingLoop({ task: () => {}, intervalMs: 0 })).toThrow(RangeError);
+    expect(() => new SamplingLoop({ task: () => {}, intervalMs: Number.NaN })).toThrow(RangeError);
+    expect(() => new SamplingLoop({ task: () => {}, intervalMs: Number.POSITIVE_INFINITY })).toThrow(
+      RangeError,
+    );
+    // 1ms 는 통과합니다. 막는 것은 0 까지입니다.
+    expect(() => new SamplingLoop({ task: () => {}, intervalMs: 1 })).not.toThrow();
   });
 });
