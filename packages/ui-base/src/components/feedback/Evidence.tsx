@@ -31,7 +31,7 @@ const META: Record<"verified" | "partial" | "inferred" | "delayed", { head: stri
   delayed: { head: "자료 지연", icon: "clock", title: "이 자료가 늦게 와서 아직 못 봤어요" },
 };
 
-// Labels every claim with how the tutor knows it: 확인됨 · 일부 확인 · 추론 · 자료 지연
+// 주장마다 튜터가 그것을 어떻게 아는지 함께 붙입니다: 확인됨 · 일부 확인 · 추론 · 자료 지연
 export function Evidence({
   type = "verified",
   source,

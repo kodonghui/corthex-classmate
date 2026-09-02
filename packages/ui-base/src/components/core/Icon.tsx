@@ -22,9 +22,17 @@ export interface IconProps {
 
 const warned = new Set<string>();
 
-/** 맵에 없는 이름은 개발 모드에서 한 번만 알립니다. 배포 빌드에서는 조용합니다. */
+/**
+ * 맵에 없는 이름은 개발 모드에서 한 번만 알립니다. 배포 빌드와 브라우저 번들에서는 조용합니다.
+ *
+ * MV3 확장·브라우저 번들에는 `process` 전역이 아예 없습니다. 예전 조건
+ * (`typeof process !== "undefined" && process.env["NODE_ENV"] === "production"`)은 그때 거짓이 되어
+ * 배포 빌드에서도 경고가 나갔고, 번들러의 치환도 보통 점 표기 `process.env.NODE_ENV` 만 바꿔
+ * 대괄호 표기는 그대로 남았습니다. 그래서 `process` 가 없으면 조용히 지나가고,
+ * 있을 때만 점 표기로 NODE_ENV 를 봅니다(`env` 가 없는 얇은 흉내 객체도 견딥니다).
+ */
 function warnUnknownIcon(name: string): void {
-  if (typeof process !== "undefined" && process.env["NODE_ENV"] === "production") return;
+  if (typeof process === "undefined" || process.env?.NODE_ENV === "production") return;
   if (warned.has(name)) return;
   warned.add(name);
   // eslint-disable-next-line no-console -- 개발 중에만 나오는 안내입니다.

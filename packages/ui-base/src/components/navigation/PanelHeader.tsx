@@ -24,7 +24,8 @@ export interface PanelHeaderProps {
   style?: React.CSSProperties;
 }
 
-// 44px sticky header: status dot · what the class is on right now · clock. Titles are quiet; the transcript below is the loud part.
+// 44px 로 위에 붙어 있는 머리말입니다: 상태 점 · 지금 수업이 어디를 지나는지 · 시계.
+// 제목은 조용하게 두고, 아래 전사가 눈에 띄는 자리입니다.
 export function PanelHeader({
   title,
   subtitle,

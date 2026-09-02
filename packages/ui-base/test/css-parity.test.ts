@@ -5,7 +5,7 @@
 // 정본이 바뀌면 이 시험이 먼저 깨져서 알려 줍니다.
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
@@ -47,10 +47,15 @@ function normalize(text: string): string {
   return text.replace(/\s+/g, " ").trim();
 }
 
-function canonCss(dir: string, name: string): string | null {
+/** 정본 jsx 한 파일의 css() 블록을 전부 모읍니다. 두 번 부르면 길이가 2 가 되어 시험이 깨집니다. */
+function canonCssBlocks(dir: string, name: string): string[] {
   const source = readFileSync(join(canonDir, dir, `${name}.jsx`), "utf8");
-  const match = source.match(/css\('([^']+)',\s*`([\s\S]*?)`\);/);
-  return match === null ? null : (match[2] ?? null);
+  return [...source.matchAll(/css\('([^']+)',\s*`([\s\S]*?)`\);/g)].map((m) => m[2] ?? "");
+}
+
+/** 정본 jsx 한 파일이 css() 를 몇 번 부르는지 셉니다. */
+function cssCallCount(file: string): number {
+  return (readFileSync(file, "utf8").match(/css\('/g) ?? []).length;
 }
 
 describe("CSS 동일성", () => {
@@ -61,16 +66,21 @@ describe("CSS 동일성", () => {
         .map((n) => join(canonDir, dir, n)),
     );
     expect(jsxFiles.length).toBe(22);
-    const withCss = jsxFiles.filter((f) => /css\('/.test(readFileSync(f, "utf8")));
-    expect(withCss.length).toBe(21);
+    // "한 번"을 이름으로만 두지 않고 실제 호출 횟수를 셉니다.
+    // 한 파일이 css() 를 두 번 부르면 아래 canonCssBlocks 가 블록을 두 개 보게 되고,
+    // 예전처럼 첫 블록만 옮긴 채 시험이 통과하는 일이 없어집니다.
+    const counted = jsxFiles.map((f) => ({ file: basename(f), calls: cssCallCount(f) }));
+    expect(counted.filter((c) => c.calls > 1)).toEqual([]);
+    expect(counted.filter((c) => c.calls === 1).length).toBe(21);
+    expect(counted.filter((c) => c.calls === 0)).toEqual([{ file: "Icon.jsx", calls: 0 }]);
     expect(PAIRS.length).toBe(21);
   });
 
   it.each(PAIRS)("%s/%s.css 는 정본 css() 블록과 같다", (dir, name) => {
-    const canon = canonCss(dir, name);
-    expect(canon, `정본 ${dir}/${name}.jsx 에서 css() 블록을 못 찾았습니다`).not.toBeNull();
+    const blocks = canonCssBlocks(dir, name);
+    expect(blocks.length, `정본 ${dir}/${name}.jsx 의 css() 블록은 한 개여야 합니다`).toBe(1);
     const ported = readFileSync(join(srcComponentsDir, dir, `${name}.css`), "utf8");
-    expect(normalize(ported)).toBe(normalize(canon ?? ""));
+    expect(normalize(ported)).toBe(normalize(blocks[0] ?? ""));
   });
 
   it("styles.css 가 src/components 아래 .css 를 하나도 빠짐없이 모은다", () => {
