@@ -8,6 +8,12 @@ license = "MIT"
 publish = false
 
 [dependencies]
+# 계약(question.snapshot) 칸 이름을 그대로 오갈 수 있게 파생 매크로만 쓴다.
+serde = { version = "^1", features = ["derive"] }
+# stream-json 줄 해석에 쓴다. 자식 프로세스 stdout 한 줄이 JSON 객체 하나다.
+serde_json = "^1"
+# 자식 프로세스·스레드·타임아웃은 표준 라이브러리(std::process · std::thread · std::sync::mpsc)만 쓴다.
+# 비동기 런타임을 끌어오지 않는 이유는 lib.rs 의 TutorProvider 주석에 적었다.
 
 [lib]
 name = "classmate_providers"
