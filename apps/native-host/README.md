@@ -162,8 +162,9 @@ Chrome 확장 ID 는 **a~p 소문자 32자**입니다.
 node apps/native-host/scripts/register-host.mjs --extension-id <32자 ID>
 ```
 
-매니페스트 파일은 이때도 만들어지고, **레지스트리는 건드리지 않습니다.**
-실행될 `reg add` 명령만 그대로 보여 줍니다.
+dry-run 은 **아무것도 바꾸지 않습니다.** 매니페스트 파일도 만들지 않고 레지스트리도 건드리지 않습니다.
+쓸 매니페스트 내용과 실행될 `reg add` 명령만 그대로 보여 줍니다.
+(Phase 1 에는 dry-run 인데도 매니페스트 파일을 썼습니다. 2026-09-02 에 고쳤습니다.)
 
 ### 4-3. 실제로 등록
 
@@ -186,7 +187,8 @@ node apps/native-host/scripts/register-host.mjs --extension-id <32자 ID> --remo
 |---|---|---|
 | `--extension-id <id>` | 예 | Chrome 확장 ID 32자(a~p). 형식이 다르면 아무것도 하지 않고 종료 코드 1 |
 | `--exe <경로>` | 아니오 | 실행 파일 경로를 직접 지정. 절대 경로로 바꿔서 매니페스트에 넣습니다 |
-| `--apply` | 아니오 | 이것이 있을 때만 `reg` 명령을 실제로 실행 |
+| `--manifest-dir <경로>` | 아니오 | 매니페스트를 놓을 폴더. 생략하면 `apps/native-host/manifest` (시험이 임시 폴더를 쓸 때 씁니다) |
+| `--apply` | 아니오 | 이것이 있을 때만 매니페스트 파일을 쓰고 `reg` 명령을 실제로 실행 |
 | `--remove` | 아니오 | 등록 해제(`reg delete`). `--apply` 와 함께 써야 실제로 지웁니다 |
 | `--help` | 아니오 | 사용법 |
 
@@ -204,6 +206,28 @@ node apps/native-host/scripts/register-host.mjs --extension-id <32자 ID> --remo
 - **HKCU 만 씁니다.** HKLM 은 관리자 권한이 필요하고 이 PC 의 다른 사용자에게까지 영향을 주므로 쓰지 않습니다.
 - 만들어진 매니페스트는 PC 마다 절대 경로와 확장 ID 가 달라 **커밋하지 않습니다**(`apps/native-host/.gitignore` 의 `manifest/*.json`).
 - 스크립트는 매니페스트나 레지스트리에서 읽은 경로를 실행하지 않습니다. 실행 파일 경로는 인자로만 정합니다.
+- 두 스크립트 모두 `import` 만으로는 아무 일도 하지 않습니다(진입점 가드). 시험이 함수만 불러 쓸 수 있습니다.
+
+### 4-7. 전송층 크레이트와 왕복 확인
+
+프레이밍과 계약 검증은 `crates/transport`(`classmate-transport`)가 맡습니다. 4바이트 길이 헤더 읽기/쓰기,
+`packages/contracts` 스키마로 값 하나 검사하기, 봉투의 `type` → 검사할 스키마 표가 거기 있습니다.
+자세한 것은 `crates/transport/README.md` 를 보세요. 1라운드에서는 위 §1 의 `src/protocol.rs` 를 그대로 두고
+크레이트에 정리한 복사본을 두었습니다. **루트가 크레이트를 쓰도록 바꾸는 것은 2라운드 몫입니다.**
+
+등록이 아니라 "정말 주고받아지는가" 를 보려면 왕복 스크립트를 씁니다. 실행 파일을 띄워
+프레임으로 감싼 `{"type":"ping"}` 을 보내고 `hello` 가 돌아오는지 확인하고 0 또는 1 로 끝납니다.
+
+```bash
+# 개발 빌드가 없으면 cargo build 로 먼저 만듭니다
+node apps/native-host/scripts/host-roundtrip.mjs
+
+# 이미 만들어 둔 실행 파일로 확인
+node apps/native-host/scripts/host-roundtrip.mjs --exe apps/native-host/target/debug/classmate-host.exe
+
+# 두 스크립트의 단위 시험(레지스트리도 실행 파일도 건드리지 않습니다)
+node --test apps/native-host/scripts/*.test.mjs
+```
 
 ---
 
