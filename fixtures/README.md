@@ -73,3 +73,22 @@ E2E 는 실제 Tiro·Meet·IntelliJ 에 붙지 않고 이 폴더를 원본으로
 - `session-events.jsonl` 에서 `screen.frame`(10:32:16)이 `editor.context`(10:32:17)보다
   먼저 옵니다. 질문 시점 10:32:18 기준으로 화면은 2초 전, 에디터는 1초 전이라는
   골든 시나리오 숫자를 맞추려면 이 순서여야 합니다.
+
+## 교시 세션 번들 (Phase 2 · report-ui · tutor-core 가 읽는 단위)
+
+`fixtures/synthetic-class/golden-ioc/` 폴더 하나가 **교시 세션 1개**(periodId `2026-09-02-p3`) 입니다.
+따로 묶음 JSON 을 만들지 않고 폴더를 그대로 번들로 봅니다. 계약(`packages/contracts`)에는 번들 스키마가
+없고 이번 라운드에는 만들지 않습니다(계약 고정 · `packages/contracts/frozen.sha256`).
+
+| 파일 | 계약 | 번들에서의 역할 |
+|---|---|---|
+| `session-events.jsonl` | `session-event` (한 줄에 하나) | 시간 순서의 뼈대. `period.started` ~ `period.ended` 사이가 교시 |
+| `transcript.json` | `transcript-segment[]` | 전사 문단 9개 |
+| `screen-frames.json` + `frames/*.webp` | `screen-frame[]` | 바뀐 장면 메타 2개 + 자리표시자 이미지 |
+| `editor-context.json` + `OrderService.java` | `editor-context` | 질문 시점의 IntelliJ 읽기 전용 문맥과 그 원본 발췌 |
+| `question.json` · `question-2.json` | `question` | 질문 2개 |
+| `answer.json` · `answer-queued.json` · `answer-2.json` | `answer` | 답(answered) · 대기(queued) · 되살아남(recovered) 갈래 |
+
+- 하루 허브는 교시 목록을 받습니다. fixture 는 교시가 하나이므로 나머지 7칸은 "기록 없음" 으로 그립니다.
+- 번들을 읽는 코드는 파일이 빠져 있어도(예: 답이 아직 없는 교시) 깨지지 않아야 합니다.
+- 번들 안 문자열(전사·답)은 화면·HTML 에 **텍스트로만** 넣습니다. 모델 HTML 직접 삽입 금지(§4-7).
