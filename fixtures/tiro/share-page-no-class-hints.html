@@ -1,0 +1,17 @@
+<!--
+  Tiro 공유 페이지 DOM 스냅샷 (합성 · 클래스 힌트 없음)
+
+  실제 공유 페이지가 아닙니다. `whitespace-pre-wrap` 은 남아 있는데 확정/진행을 가르던
+  `font-medium` · `font-semibold` 가 사라진 경우를 재현합니다. 문장은
+  fixtures/synthetic-class/golden-ioc 의 합성 문장입니다.
+
+  재현하는 상태: 구조 기반 폴백이 걸려야 합니다 — 마지막 문단만 진행 중, 나머지는 확정.
+  파서의 stateSource 가 'structure' 로 나와야 합니다.
+-->
+<main class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
+  <div class="flex flex-col gap-3">
+    <div class="whitespace-pre-wrap leading-7">자 그러면 지금까지 만든 주문 서비스를 다시 볼게요.</div>
+    <div class="whitespace-pre-wrap leading-7">여기 보시면 OrderService 안에서 OrderRepository 를 직접 만들고 있죠.</div>
+    <div class="whitespace-pre-wrap leading-7">객체를 직접 new로 만들면 클래스끼리 강하게 묶입니다.</div>
+  </div>
+</main>

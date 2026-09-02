@@ -1,0 +1,22 @@
+<!--
+  Tiro 공유 페이지 DOM 스냅샷 (합성 · 진행 중 표시만 이름이 바뀜)
+
+  실제 공유 페이지가 아닙니다. "확정 표시(font-medium · text-tds-fg-subtle)는 그대로인데
+  쓰이는 중인 문단의 표시(font-semibold)만 다음 배포에서 이름이 바뀌면 어떻게 되나"를
+  재현한 합성 스냅샷입니다. 문장은 fixtures/synthetic-class/golden-ioc 의 합성 문장입니다.
+
+  재현하는 상태: 확정 문단 3개는 예전 클래스를 그대로 달고 있고, 마지막(자라는 중인)
+  문단은 파서가 모르는 `tds-line-active` 만 달고 있습니다.
+
+  기대: 마지막 문단은 **확정 표시가 없으므로 확정으로 내보내면 안 됩니다**(in_progress).
+  확정 세그먼트는 한 번 나가면 취소가 안 되기 때문입니다. 힌트가 한 쪽만 보였으므로
+  파서의 stateSource 는 'class-partial' 이어야 합니다.
+-->
+<main class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
+  <div class="flex flex-col gap-3">
+    <div class="whitespace-pre-wrap font-medium text-tds-fg-subtle leading-7">자 그러면 지금까지 만든 주문 서비스를 다시 볼게요.</div>
+    <div class="whitespace-pre-wrap font-medium text-tds-fg-subtle leading-7">여기 보시면 OrderService 안에서 OrderRepository 를 직접 만들고 있죠.</div>
+    <div class="whitespace-pre-wrap font-medium text-tds-fg-subtle leading-7">객체를 직접 new로 만들면 클래스끼리 강하게 묶입니다.</div>
+    <div class="whitespace-pre-wrap tds-line-active leading-7">이제 생성 책임을 컨테이너에</div>
+  </div>
+</main>

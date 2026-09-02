@@ -1,0 +1,16 @@
+<!--
+  Tiro 공유 페이지 DOM 스냅샷 (합성 · 선택자 깨짐)
+
+  실제 공유 페이지가 아닙니다. "Tailwind 클래스가 다음 배포에서 바뀌면 어떻게 되나"를
+  일부러 재현한 합성 스냅샷입니다. 문장은 fixtures/synthetic-class/golden-ioc 의 합성 문장입니다.
+
+  재현하는 상태: 문단은 화면에 그대로 있는데 `whitespace-pre-wrap` 이 사라졌습니다.
+  파서의 선택자 네 개가 모두 빗나가야 하고, 관찰기는 selector_broken 을 한 번 내야 합니다.
+-->
+<main class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
+  <div class="flex flex-col gap-3">
+    <div class="tds-transcript-line tds-tone-subtle leading-7">자 그러면 지금까지 만든 주문 서비스를 다시 볼게요.</div>
+    <div class="tds-transcript-line tds-tone-subtle leading-7">여기 보시면 OrderService 안에서 OrderRepository 를 직접 만들고 있죠.</div>
+    <div class="tds-transcript-line tds-tone-strong leading-7">객체를 직접 new로 만들면 클래스끼리 강하게 묶입니다.</div>
+  </div>
+</main>

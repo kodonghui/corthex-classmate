@@ -1,7 +1,8 @@
 # fixtures/tiro — Tiro 발췌 자리
 
-**지금은 실제 데이터가 없습니다.** 이 폴더에는 아직 아무 발췌도 들어 있지 않고,
-커넥터 개발과 E2E 는 `fixtures/synthetic-class/golden-ioc/` 의 합성 세트로 합니다.
+**실제 데이터는 하나도 없습니다.** 지금 들어 있는 것은 공유 페이지의 **구조만** 흉내 낸
+합성 DOM 스냅샷 네 개이고, 문장은 `fixtures/synthetic-class/golden-ioc/transcript.json`
+의 합성 문장을 다시 쓴 것입니다. 실제 공유 페이지에서 긁어 온 HTML 이 아닙니다.
 
 ## 무엇을 넣는 곳인가
 
@@ -30,6 +31,23 @@ Tiro 실시간 전사 커넥터(공유 페이지 · API 두 갈래)가 실제로
 7. 커밋 전에 `git diff` 로 URL·비밀번호·실명이 남아 있지 않은지 눈으로 확인합니다.
 
 ## 케이스 목록
+
+### DOM 스냅샷 (`*.html` · 합성)
+
+`<main>` 아래만 담은 부분 스냅샷입니다. 단위 테스트가 `?raw` 로 읽어 `document.body` 에
+그대로 넣습니다(`apps/browser-extension/src/tiro/*.test.ts`). 저장소가 들고 있는 파일이라
+모델이 만든 HTML 이 아니고, 불변 원칙 §7 의 "모델이 만든 HTML 직접 실행 금지"에 걸리지 않습니다.
+
+| 파일 | 무엇을 확인하나 |
+|---|---|
+| `share-page-recording.html` | 녹음 중 · 확정 문단 4개(`font-medium text-tds-fg-subtle`) + 진행 중 문단 1개(`font-semibold`). 파서가 둘을 가르는지, 관찰기가 확정 문단만 세그먼트로 내는지 |
+| `share-page-selector-broken.html` | Tailwind 클래스가 바뀌어 `whitespace-pre-wrap` 이 사라진 경우. 파서가 문단 0개를 돌려주고 관찰기가 `selector_broken` 을 내는지 |
+| `share-page-no-class-hints.html` | `whitespace-pre-wrap` 은 남았는데 `font-*` 힌트가 사라진 경우. 구조 기반 폴백(마지막 문단 = 진행 중)이 걸리는지 |
+| `share-page-marker-drift.html` | 확정 표시는 그대로인데 진행 중 문단의 표시만 이름이 바뀐 경우. 표시가 없는 마지막 문단을 확정으로 내보내지 않고 진행 중으로 두는지, `stateSource` 가 `class-partial` 로 나오는지 |
+
+문단 텍스트를 고치면 `share-parser.test.ts` 의 기대값도 함께 고쳐야 합니다.
+
+### 전사 발췌 (`*.json` · 비식별)
 
 | 파일 | 무엇을 확인하나 |
 |---|---|
