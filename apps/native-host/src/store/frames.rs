@@ -25,6 +25,16 @@
 //!    보이는 순간이 없습니다.
 //! 3. `frames` 행과 `screen.frame` 기록은 **한 트랜잭션**에 들어갑니다. 둘 중 하나만 남지 않습니다.
 //! 4. 트랜잭션이 실패하면 방금 옮긴 파일을 지웁니다. 짝 없는 파일을 남기지 않습니다.
+//! 5. 쓰다가·옮기다가 실패해도 `.part` 임시 파일을 지웁니다. 반쯤 쓰인 조각을 남기지 않습니다.
+//!
+//! `screen.frame` 기록의 id 를 왜 프레임 id 로 짓지 않는가
+//! -----------------------------------------------------
+//! 예전에는 `ev-<프레임 id>` 로 지었습니다. `events` 표에 붙이는 자리(`append`)는 같은 id 가
+//! 이미 있으면 **조용히 넘어가고** 먼저 들어가 있던 줄의 `seq` 를 돌려주므로, 확장이 그 이름을
+//! 먼저 써 버리면 `frames` 행만 새로 남고 이 프레임의 기록은 없어졌습니다. 그러면 복구 시험이
+//! 지키는 "표 한 줄 = 기록 한 줄" 이 깨집니다. 그래서 기록 id 는 **이 저장소가 스스로 세는
+//! 순번**을 섞은 `ev-<periodId>-<여덟 자리 순번>` 으로 짓고, 그래도 그 이름이 이미 쓰이고
+//! 있으면(= 새로 넣지 못하면) 트랜잭션째 되감아 아무것도 남기지 않습니다.
 
 use std::fs::{self, File};
 use std::io::Write;
@@ -117,7 +127,7 @@ impl SessionStore {
     /// 교시는 이 저장소가 이미 맡고 있는 교시여야 합니다(`frame.period_id` 로 대조합니다).
     /// 실패하면 파일도 표도 이 호출 전과 같습니다.
     pub fn store_frame(&self, frame: &ScreenFrameMeta, bytes: &[u8]) -> Result<StoredFrame> {
-        // (1) 검사. 여기서 걸리면 파일도 표도 건드리지 않는다.
+        // (1) 검사입니다. 여기서 걸리면 파일도 표도 건드리지 않습니다.
         if !is_contract_period_id(self.period_id()) || !is_contract_period_id(&frame.period_id) {
             return Err(StoreError::PeriodIdShape);
         }
@@ -128,7 +138,7 @@ impl SessionStore {
             return Err(StoreError::InvalidFrameId);
         }
 
-        // (2) 경로는 확장이 준 문자열을 쓰지 않고 id 로 다시 만들어 대조만 한다.
+        // (2) 경로는 확장이 준 문자열을 쓰지 않고 id 로 다시 만들어 대조만 합니다.
         let relative_path = frame_path_for(&frame.id);
         if frame.path != relative_path {
             return Err(StoreError::FramePathMismatch);
@@ -153,7 +163,7 @@ impl SessionStore {
             return Err(StoreError::DuplicateFrame);
         }
 
-        // (3) 호스트가 스스로 만든 자리에만 쓴다. 다 쓴 뒤 rename 으로 옮긴다.
+        // (3) 호스트가 스스로 만든 자리에만 씁니다. 다 쓴 뒤 rename 으로 옮깁니다.
         let directory = self.frames_dir();
         fs::create_dir_all(&directory)
             .map_err(|error| StoreError::Io("프레임 폴더 만들기", error.kind()))?;
@@ -161,7 +171,7 @@ impl SessionStore {
         let part_path = directory.join(format!("{}.{FRAME_EXTENSION}.part", frame.id));
         write_then_rename(&part_path, &final_path, bytes)?;
 
-        // (4) 표 한 줄과 기록 한 줄은 같은 트랜잭션. 실패하면 파일도 되돌린다.
+        // (4) 표 한 줄과 기록 한 줄은 같은 트랜잭션입니다. 실패하면 파일도 되돌립니다.
         let written = bytes.len() as u64;
         match self.insert_frame_row(frame, &relative_path, written) {
             Ok(seq) => Ok(StoredFrame {
@@ -223,7 +233,23 @@ impl SessionStore {
         Ok(found)
     }
 
-    /// 같은 `id` 의 프레임이 이미 있는지.
+    /// 이 프레임이 남길 `screen.frame` 기록의 id 를 짓습니다.
+    ///
+    /// 확장이 준 프레임 `id` 를 섞지 않고 **저장소가 스스로 세는 순번**만 씁니다. 그래야 확장이
+    /// 어떤 이름을 먼저 쓰더라도 이 자리에서 만든 이름과 겹치기 어렵습니다. `period_id` 는
+    /// 계약 모양(`YYYY-MM-DD-p<n>`)임을 이미 확인한 값이라 숫자와 `-`·`p` 뿐입니다.
+    ///
+    /// 그래도 겹칠 수 있으므로 [`SessionStore::insert_frame_row`] 가 실제로 들어갔는지 확인합니다.
+    fn next_frame_event_id(&self, period_id: &str) -> Result<String> {
+        let next: i64 =
+            self.connection
+                .query_row("SELECT IFNULL(MAX(seq), 0) + 1 FROM events", [], |row| {
+                    row.get(0)
+                })?;
+        Ok(format!("ev-{period_id}-{next:08}"))
+    }
+
+    /// 같은 `id` 의 프레임이 이미 있는지 봅니다.
     fn frame_exists(&self, id: &str) -> Result<bool> {
         let found: Option<i64> = self
             .connection
@@ -241,12 +267,12 @@ impl SessionStore {
         relative_path: &str,
         bytes: u64,
     ) -> Result<u64> {
-        // `unchecked_transaction` 은 `&self` 로 트랜잭션을 연다. 같은 연결로 실행하는
-        // 아래 두 문장이 이 트랜잭션 안에 들어가고, 커밋 전에 오류가 나면 함께 되감긴다.
+        // `unchecked_transaction` 은 `&self` 로 트랜잭션을 엽니다. 같은 연결로 실행하는
+        // 아래 문장들이 이 트랜잭션 안에 들어가고, 커밋 전에 오류가 나면 함께 되감깁니다.
         let transaction = self.connection.unchecked_transaction()?;
 
         let event = SessionEvent {
-            id: format!("ev-{}", frame.id),
+            id: self.next_frame_event_id(&frame.period_id)?,
             period_id: frame.period_id.clone(),
             at: frame.captured_at.clone(),
             kind: "screen.frame".to_string(),
@@ -255,7 +281,14 @@ impl SessionStore {
                 "changedFromPrev": frame.changed_from_prev,
             }),
         };
-        let seq = self.append(&event)?;
+        let appended = self.append_reporting(&event)?;
+        if !appended.inserted {
+            // 그 이름의 기록이 이미 있어 **한 줄도 넣지 못했습니다.** 그대로 두면 `frames` 행만
+            // 남고 이 프레임의 기록이 없어지므로, 트랜잭션째 되감아 아무것도 남기지 않습니다
+            // (커밋하지 않고 오류를 돌려주면 `transaction` 이 떨어지면서 되감깁니다).
+            return Err(StoreError::DuplicateFrame);
+        }
+        let seq = appended.seq;
 
         self.connection.execute(
             "INSERT INTO frames (id, period_id, captured_at, path, width, height, hash,
@@ -346,20 +379,34 @@ fn is_contract_hash(hash: &str) -> bool {
 /// 이유입니다 — 프로세스가 강제로 죽어도 쓴 내용은 OS 파일 캐시에 있고 OS 는 살아 있습니다.
 /// 10 ms 마다 한 장씩 쓰는 작업에 장마다 디스크 강제 쓰기를 넣으면 값에 비해 비용이 큽니다.
 /// 대신 **전원이 갑자기 끊기면** 마지막 몇 장은 사라질 수 있습니다(`README.md` 2-2 와 같은 한계).
+///
+/// 파일을 만든 뒤로는 **어느 자리에서 실패하든 `.part` 를 지웁니다.** 예전에는 `rename` 실패만
+/// 치웠고 쓰기·flush 실패(디스크가 가득 찬 경우 등)에서는 반쯤 쓰인 조각이 그대로 남았습니다.
+/// 만들기 자체가 실패했을 때는 우리가 만든 파일이 아니므로 손대지 않습니다.
 fn write_then_rename(part_path: &Path, final_path: &Path, bytes: &[u8]) -> Result<()> {
-    {
+    let written = {
         let mut file = File::create(part_path)
             .map_err(|error| StoreError::Io("프레임 임시 파일 만들기", error.kind()))?;
-        file.write_all(bytes)
-            .map_err(|error| StoreError::Io("프레임 쓰기", error.kind()))?;
-        file.flush()
-            .map_err(|error| StoreError::Io("프레임 flush", error.kind()))?;
-    }
 
-    fs::rename(part_path, final_path).map_err(|error| {
-        let _ = fs::remove_file(part_path);
-        StoreError::Io("프레임 자리 옮기기", error.kind())
-    })
+        file.write_all(bytes)
+            .map_err(|error| StoreError::Io("프레임 쓰기", error.kind()))
+            .and_then(|()| {
+                file.flush()
+                    .map_err(|error| StoreError::Io("프레임 flush", error.kind()))
+            })
+        // 여기서 `file` 이 떨어집니다. 아래에서 지우려면 먼저 닫혀 있어야 합니다(Windows).
+    };
+
+    // 옮기기까지 성공해야 제자리에 남습니다. 그 밖의 모든 갈래는 `.part` 를 치웁니다.
+    written
+        .and_then(|()| {
+            fs::rename(part_path, final_path)
+                .map_err(|error| StoreError::Io("프레임 자리 옮기기", error.kind()))
+        })
+        .map_err(|error| {
+            let _ = fs::remove_file(part_path);
+            error
+        })
 }
 
 #[cfg(test)]
@@ -670,6 +717,108 @@ mod tests {
         assert_eq!(store.frame_count().expect("셈"), 0);
         assert_eq!(store.count().expect("셈"), 0);
         assert!(!dir.join(FIXTURE_PERIOD).exists(), "폴더도 생기지 않는다");
+    }
+
+    #[test]
+    fn the_old_colliding_event_id_no_longer_hides_the_frame_record() {
+        // 예전에는 기록 id 를 `ev-<프레임 id>` 로 지었다. 확장이 그 이름을 먼저 쓰면
+        // frames 행만 남고 screen.frame 기록이 사라졌다. 지금은 이름이 겹치지 않는다.
+        let dir = temp_dir("event-id");
+        let store = SessionStore::open(&dir, FIXTURE_PERIOD).expect("열려야 한다");
+        let bytes = fixture_bytes();
+
+        let squatter = SessionEvent {
+            id: "ev-sf-p3-001".to_string(),
+            period_id: FIXTURE_PERIOD.to_string(),
+            at: "2026-09-02T10:32:15+09:00".to_string(),
+            kind: "panel.opened".to_string(),
+            payload: json!({}),
+        };
+        store.append(&squatter).expect("붙여야 한다");
+
+        let stored = store
+            .store_frame(&frame("sf-p3-001"), &bytes)
+            .expect("저장되어야 한다");
+
+        assert_eq!(store.frame_count().expect("셈"), 1);
+        assert_eq!(store.count().expect("셈"), 2, "두 줄이 다 남아야 한다");
+
+        let events = store.list_since(0, 10).expect("읽어야 한다");
+        let frame_event = events
+            .iter()
+            .find(|stored_event| stored_event.seq == stored.seq)
+            .expect("프레임 기록이 있어야 한다");
+        assert_eq!(frame_event.event.kind, "screen.frame");
+        assert_eq!(
+            frame_event.event.id, "ev-2026-09-02-p3-00000002",
+            "기록 id 는 저장소가 세는 순번으로 짓는다"
+        );
+        assert_eq!(frame_event.event.payload["screenFrameId"], "sf-p3-001");
+    }
+
+    #[test]
+    fn a_frame_that_cannot_add_its_record_leaves_neither_the_row_nor_the_file() {
+        // 그래도 이름이 겹칠 수는 있다. 그때는 `frames` 행만 남기지 않고 통째로 되감는다.
+        let dir = temp_dir("event-id-clash");
+        let store = SessionStore::open(&dir, FIXTURE_PERIOD).expect("열려야 한다");
+        let bytes = fixture_bytes();
+
+        // 이 줄이 seq 1 을 차지하면 다음 프레임이 지을 기록 id 가 바로 이 이름이 된다.
+        let squatter = SessionEvent {
+            id: format!("ev-{FIXTURE_PERIOD}-00000002"),
+            period_id: FIXTURE_PERIOD.to_string(),
+            at: "2026-09-02T10:32:15+09:00".to_string(),
+            kind: "panel.opened".to_string(),
+            payload: json!({}),
+        };
+        store.append(&squatter).expect("붙여야 한다");
+
+        let meta = frame("sf-p3-001");
+        assert!(matches!(
+            store.store_frame(&meta, &bytes),
+            Err(StoreError::DuplicateFrame)
+        ));
+
+        // 표도 기록도 파일도 이 호출 전과 같다. 둘 다 있거나 둘 다 없다.
+        assert_eq!(store.frame_count().expect("셈"), 0);
+        assert_eq!(store.count().expect("셈"), 1, "먼저 쓴 줄 하나뿐이다");
+        let file = dir
+            .join(FIXTURE_PERIOD)
+            .join("frames")
+            .join("sf-p3-001.webp");
+        assert!(!file.exists(), "짝 없는 파일을 남기면 안 된다: {file:?}");
+        assert!(!file.with_extension("webp.part").exists());
+    }
+
+    #[test]
+    fn a_failed_write_or_rename_leaves_no_part_file() {
+        let dir = temp_dir("part");
+
+        // 옮길 자리의 폴더가 없으면 rename 이 실패한다. 그때도 `.part` 는 남지 않는다.
+        let part = dir.join("sf-p3-001.webp.part");
+        let missing = dir.join("아직-없는-폴더").join("sf-p3-001.webp");
+        assert!(matches!(
+            write_then_rename(&part, &missing, b"webp"),
+            Err(StoreError::Io("프레임 자리 옮기기", _))
+        ));
+        assert!(!part.exists(), "임시 파일이 남으면 안 된다: {part:?}");
+
+        // 임시 이름 자리가 이미 폴더면 만들기부터 실패한다. 우리가 만들지 않은 자리는 지우지 않는다.
+        let taken = dir.join("taken.webp.part");
+        fs::create_dir_all(&taken).expect("폴더를 만들 수 있어야 한다");
+        assert!(matches!(
+            write_then_rename(&taken, &dir.join("taken.webp"), b"webp"),
+            Err(StoreError::Io("프레임 임시 파일 만들기", _))
+        ));
+        assert!(taken.is_dir(), "남의 자리를 건드리면 안 된다");
+
+        // 정상 갈래에서는 옮겨진 파일만 남는다.
+        let good_part = dir.join("good.webp.part");
+        let good = dir.join("good.webp");
+        write_then_rename(&good_part, &good, b"webp").expect("옮겨져야 한다");
+        assert!(good.is_file(), "{good:?}");
+        assert!(!good_part.exists());
+        assert_eq!(fs::read(&good).expect("읽어야 한다"), b"webp");
     }
 
     #[test]
