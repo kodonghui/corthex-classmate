@@ -1,0 +1,32 @@
+/* Type tokens. One sans family for Korean UI, one mono for code. Sized for a 320–520px side panel read for hours. */
+:root{
+  --font-sans: "Pretendard Variable", "Pretendard", "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", "JetBrains Mono", "D2Coding", ui-monospace, Menlo, monospace;
+
+  --weight-regular: 400; /* @kind font */
+  --weight-medium: 500; /* @kind font */
+  --weight-bold: 700; /* @kind font */
+
+  /* Scale (size / line-height) */
+  --text-display-size: 22px;  --text-display-lh: 30px;  --text-display-ls: -0.02em;
+  --text-title-size: 17px;    --text-title-lh: 24px;    --text-title-ls: -0.015em;
+  --text-conclusion-size: 16px; --text-conclusion-lh: 25px; --text-conclusion-ls: -0.01em;
+  --text-body-size: 14px;     --text-body-lh: 22px;     --text-body-ls: -0.005em;
+  --text-label-size: 13px;    --text-label-lh: 18px;    --text-label-ls: 0;
+  --text-caption-size: 12px;  --text-caption-lh: 16px;  --text-caption-ls: 0;
+  --text-code-size: 12.5px;   --text-code-lh: 20px;
+  --text-transcript-size: 19px; --text-transcript-lh: 31px; --text-transcript-ls: -0.012em; /* the teacher's words, read from 60cm */
+  --text-time-size: 11.5px;   --text-time-lh: 16px;
+
+  /* Composite shorthands */
+  --type-display: var(--weight-bold) var(--text-display-size)/var(--text-display-lh) var(--font-sans);
+  --type-title: var(--weight-bold) var(--text-title-size)/var(--text-title-lh) var(--font-sans);
+  --type-conclusion: var(--weight-medium) var(--text-conclusion-size)/var(--text-conclusion-lh) var(--font-sans);
+  --type-body: var(--weight-regular) var(--text-body-size)/var(--text-body-lh) var(--font-sans);
+  --type-body-strong: var(--weight-bold) var(--text-body-size)/var(--text-body-lh) var(--font-sans);
+  --type-label: var(--weight-medium) var(--text-label-size)/var(--text-label-lh) var(--font-sans);
+  --type-caption: var(--weight-regular) var(--text-caption-size)/var(--text-caption-lh) var(--font-sans);
+  --type-code: var(--weight-regular) var(--text-code-size)/var(--text-code-lh) var(--font-mono);
+  --type-transcript: var(--weight-regular) var(--text-transcript-size)/var(--text-transcript-lh) var(--font-sans);
+  --type-time: var(--weight-regular) var(--text-time-size)/var(--text-time-lh) var(--font-mono);
+}
