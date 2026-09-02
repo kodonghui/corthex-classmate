@@ -2,8 +2,18 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { defaultMakeId, startShareObserver } from './share-observer';
-import { createApiConnector, createShareConnector } from './index';
-import type { SelectorBrokenSignal, TiroPartial, TranscriptSegment } from './types';
+import {
+  createApiConnector,
+  createMcpConnector,
+  createShareConnector,
+  NOT_IMPLEMENTED_CODE,
+} from './index';
+import type {
+  HintDegradedSignal,
+  SelectorBrokenSignal,
+  TiroPartial,
+  TranscriptSegment,
+} from './types';
 
 // 계약 정본은 packages/contracts 입니다. 여기서는 **값**(Ajv 검증기)을 불러 씁니다.
 // 시험은 번들에 들어가지 않으므로 괜찮습니다. 제품 코드(src/** · entrypoints/**)에서는
@@ -13,6 +23,7 @@ import { createValidator, formatErrors } from '@classmate/contracts';
 import recordingHtml from '../../../../fixtures/tiro/share-page-recording.html?raw';
 import brokenHtml from '../../../../fixtures/tiro/share-page-selector-broken.html?raw';
 import markerDriftHtml from '../../../../fixtures/tiro/share-page-marker-drift.html?raw';
+import noHintsHtml from '../../../../fixtures/tiro/share-page-no-class-hints.html?raw';
 
 const PERIOD_ID = '2026-09-02-p3';
 const FINAL_CLASS_ATTR = 'whitespace-pre-wrap font-medium text-tds-fg-subtle leading-7';
@@ -43,6 +54,16 @@ function finalizeLastAndAppend(nextText: string): void {
   next.setAttribute('class', IN_PROGRESS_CLASS_ATTR);
   next.textContent = nextText;
   last?.parentElement?.appendChild(next);
+}
+
+/** 마지막 문단 옆에 문단 하나를 그대로 이어 붙입니다. 클래스도 글자도 부르는 쪽이 정합니다. */
+function appendParagraph(classAttr: string, text: string): void {
+  const all = paragraphs();
+  const container = all[all.length - 1]?.parentElement ?? document.body.querySelector('main');
+  const next = document.createElement('div');
+  next.setAttribute('class', classAttr);
+  next.textContent = text;
+  container?.appendChild(next);
 }
 
 /** MutationObserver 콜백은 마이크로태스크로 옵니다. 한 틱 기다립니다. */
@@ -456,5 +477,514 @@ describe('커넥터 인터페이스', () => {
     expect(connector.implemented).toBe(false);
     expect(() => connector.start()).toThrow(/구현되지 않았어요/);
     expect(() => connector.stop()).not.toThrow();
+  });
+
+  it('MCP·REST 스텁 둘 다 not-implemented 표시를 달고 멈춥니다', () => {
+    for (const connector of [createMcpConnector(), createApiConnector()]) {
+      expect(connector.implemented).toBe(false);
+      expect(() => connector.start()).toThrow(new RegExp(NOT_IMPLEMENTED_CODE));
+      // 교시 종료 정리가 스텁 때문에 끊기면 안 되므로 flush·stop 은 조용히 넘어갑니다.
+      expect(connector.flush()).toEqual([]);
+      expect(() => connector.stop()).not.toThrow();
+      // 구독은 붙여도 되고 떼도 됩니다. 부를 일이 없을 뿐입니다.
+      expect(() => connector.onSegment(() => {})()).not.toThrow();
+      expect(() => connector.onPartial(() => {})()).not.toThrow();
+      expect(() => connector.onHintDegraded(() => {})()).not.toThrow();
+      expect(() => connector.onSelectorBroken(() => {})()).not.toThrow();
+    }
+  });
+
+  it('스텁이 던지는 오류에는 자격증명이 들어갈 자리가 없습니다', () => {
+    // 인자를 받지 않는 것이 곧 "토큰이 스택 추적에 남지 않는다"입니다(불변 원칙 §4).
+    expect(createMcpConnector.length).toBe(0);
+    expect(createApiConnector.length).toBe(0);
+  });
+
+  it('커넥터에 교시 번호를 넣으면 세그먼트의 periodId 가 그 번호로 나옵니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const segments: TranscriptSegment[] = [];
+
+    const connector = createShareConnector({
+      root: document.body,
+      periodNumber: 4,
+      // 오프셋 없는 ISO 는 로컬 시각으로 읽힙니다. periodId 의 날짜가 시간대에 흔들리지 않게 합니다.
+      now: fakeClock('2026-09-02T10:32:00').now,
+    });
+    connector.onSegment((segment) => segments.push(segment));
+    connector.start();
+
+    expect(segments).toHaveLength(4);
+    expect(segments.every((s) => s.periodId === '2026-09-02-p4')).toBe(true);
+
+    connector.stop();
+  });
+
+  it('교시 번호가 범위 밖이면 1교시로 보정해 세그먼트에 싣습니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const segments: TranscriptSegment[] = [];
+
+    const connector = createShareConnector({
+      root: document.body,
+      periodNumber: 99,
+      now: fakeClock('2026-09-02T10:32:00').now,
+    });
+    connector.onSegment((segment) => segments.push(segment));
+    connector.start();
+
+    expect(segments[0]?.periodId).toBe('2026-09-02-p1');
+
+    connector.stop();
+  });
+
+  it('커넥터의 flush() 도 진행 중 문단을 partial 로 내보냅니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const segments: TranscriptSegment[] = [];
+
+    const connector = createShareConnector({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: fakeClock('2026-09-02T10:32:00+09:00').now,
+    });
+    connector.onSegment((segment) => segments.push(segment));
+
+    // start 전에 부르면 아직 볼 것이 없습니다.
+    expect(connector.flush()).toEqual([]);
+
+    connector.start();
+    const flushed = connector.flush();
+
+    expect(flushed).toHaveLength(1);
+    expect(flushed[0]?.state).toBe('partial');
+    expect(segments).toHaveLength(5);
+
+    connector.stop();
+  });
+});
+
+describe('startShareObserver — flush()', () => {
+  it('진행 중 문단을 partial 세그먼트 한 건으로 내보냅니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const clock = fakeClock('2026-09-02T10:32:00+09:00');
+    const segments: TranscriptSegment[] = [];
+
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: clock.now,
+      onSegment: (segment) => segments.push(segment),
+    });
+    expect(segments).toHaveLength(4);
+
+    clock.advance(1_000);
+    const flushed = handle.flush();
+
+    expect(flushed).toHaveLength(1);
+    const partial = flushed[0];
+    expect(partial?.state).toBe('partial');
+    expect(partial?.seq).toBe(5);
+    expect(partial?.id).toBe('ts-005');
+    expect(partial?.text).toBe('컨테이너가 대신 만들어 주면 우리는 언어테이션');
+    expect(partial?.source).toBe('tiro-share');
+    // 도착 시각은 flush 를 부른 시각입니다.
+    expect(partial?.arrivedAt).toBe(new Date('2026-09-02T10:32:01+09:00').toISOString());
+    // 공유 페이지에는 녹음 중 문단 시각이 없으므로 spokenAt 은 아예 붙이지 않습니다.
+    expect(partial && 'spokenAt' in partial).toBe(false);
+    // 확정 세그먼트와 같은 자리(onSegment)로도 나갑니다.
+    expect(segments).toHaveLength(5);
+    expect(segments[4]).toEqual(partial);
+    // 확정으로 센 것은 아직 4개입니다.
+    expect(handle.emittedCount).toBe(4);
+
+    handle.stop();
+  });
+
+  it('같은 문단이 나중에 확정되면 같은 id·순번으로 final 이 나옵니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const clock = fakeClock('2026-09-02T10:32:00+09:00');
+    const segments: TranscriptSegment[] = [];
+
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: clock.now,
+      onSegment: (segment) => segments.push(segment),
+    });
+    clock.advance(1_000);
+    handle.flush();
+    expect(segments).toHaveLength(5);
+
+    clock.advance(2_000);
+    finalizeLastAndAppend('그래서 생성자 주입 방식으로');
+    handle.scanNow();
+
+    expect(segments).toHaveLength(6);
+    expect(segments[5]?.state).toBe('final');
+    expect(segments[5]?.id).toBe('ts-005');
+    expect(segments[5]?.seq).toBe(5);
+    expect(segments[5]?.text).toBe('컨테이너가 대신 만들어 주면 우리는 언어테이션');
+
+    // 다음 문단은 새 순번을 받습니다. flush 가 번호를 태우지 않습니다.
+    clock.advance(2_000);
+    finalizeLastAndAppend('컨테이너가 관리하는 객체를 빈이라고 부릅니다.');
+    handle.scanNow();
+    expect(segments[6]?.id).toBe('ts-006');
+    expect(segments[6]?.seq).toBe(6);
+
+    handle.stop();
+  });
+
+  it('글자가 그대로면 다시 내지 않고, 자랐으면 같은 id 로 다시 냅니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const clock = fakeClock('2026-09-02T10:32:00+09:00');
+    const segments: TranscriptSegment[] = [];
+
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: clock.now,
+      onSegment: (segment) => segments.push(segment),
+    });
+    handle.flush();
+    expect(segments).toHaveLength(5);
+
+    // 글자가 그대로입니다.
+    clock.advance(500);
+    expect(handle.flush()).toEqual([]);
+    expect(segments).toHaveLength(5);
+
+    // 글자가 자랐습니다.
+    clock.advance(500);
+    const all = paragraphs();
+    const growing = all[all.length - 1];
+    if (growing) growing.textContent = '컨테이너가 대신 만들어 주면 우리는 언어테이션 하나만';
+    const again = handle.flush();
+
+    expect(again).toHaveLength(1);
+    expect(again[0]?.id).toBe('ts-005');
+    expect(again[0]?.seq).toBe(5);
+    expect(again[0]?.text).toBe('컨테이너가 대신 만들어 주면 우리는 언어테이션 하나만');
+
+    handle.stop();
+  });
+
+  it('flush 하기 직전에 확정된 문단은 final 로 먼저 나갑니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const clock = fakeClock('2026-09-02T10:32:00+09:00');
+    const segments: TranscriptSegment[] = [];
+
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: clock.now,
+      onSegment: (segment) => segments.push(segment),
+    });
+    expect(segments).toHaveLength(4);
+
+    // DOM 만 바꾸고 scanNow 를 부르지 않은 채 곧바로 flush 합니다.
+    clock.advance(1_000);
+    finalizeLastAndAppend('그래서 생성자 주입 방식으로');
+    const flushed = handle.flush();
+
+    expect(segments.map((s) => s.state)).toEqual([
+      'final',
+      'final',
+      'final',
+      'final',
+      'final',
+      'partial',
+    ]);
+    expect(flushed).toHaveLength(1);
+    expect(flushed[0]?.text).toBe('그래서 생성자 주입 방식으로');
+
+    handle.stop();
+  });
+
+  it('이미 확정된 문단만 있으면 flush 가 아무것도 내지 않습니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const clock = fakeClock('2026-09-02T10:32:00+09:00');
+    const segments: TranscriptSegment[] = [];
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: clock.now,
+      onSegment: (segment) => segments.push(segment),
+    });
+
+    // 마지막 문단까지 확정 표시를 답니다(녹음이 끝난 모양).
+    const all = paragraphs();
+    all[all.length - 1]?.setAttribute(
+      'class',
+      'whitespace-pre-wrap font-medium text-tds-fg-subtle leading-7',
+    );
+    handle.scanNow();
+    expect(segments).toHaveLength(5);
+
+    expect(handle.flush()).toEqual([]);
+    expect(segments).toHaveLength(5);
+
+    handle.stop();
+  });
+
+  it('문단을 하나도 못 잡으면 flush 도 빈 배열입니다', () => {
+    document.body.innerHTML = brokenHtml;
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      onSegment: () => {},
+    });
+
+    expect(handle.flush()).toEqual([]);
+
+    handle.stop();
+  });
+
+  it('stop() 뒤에 flush() 를 불러도 아무것도 나가지 않습니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const segments: TranscriptSegment[] = [];
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      onSegment: (segment) => segments.push(segment),
+    });
+    expect(segments).toHaveLength(4);
+
+    handle.stop();
+    expect(handle.flush()).toEqual([]);
+    expect(segments).toHaveLength(4);
+  });
+
+  it('flush 로 낸 partial 세그먼트도 contracts 스키마를 통과합니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: fakeClock('2026-09-02T10:32:00+09:00').now,
+      onSegment: () => {},
+    });
+    const flushed = handle.flush();
+    handle.stop();
+
+    expect(flushed).toHaveLength(1);
+    const validate = createValidator<TranscriptSegment>('transcript-segment');
+    for (const segment of flushed) {
+      const ok = validate(segment);
+      expect(formatErrors(validate.errors)).toEqual([]);
+      expect(ok).toBe(true);
+    }
+  });
+});
+
+describe('startShareObserver — 판별 근거 등급 전이', () => {
+  it('정상(class)으로 시작하면 아무 경보도 내지 않습니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const signals: HintDegradedSignal[] = [];
+
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: fakeClock('2026-09-02T10:32:00+09:00').now,
+      onSegment: () => {},
+      onHintDegraded: (signal) => signals.push(signal),
+    });
+
+    expect(signals).toHaveLength(0);
+
+    handle.stop();
+  });
+
+  it('클래스 힌트가 사라지면 전이 한 번만 알리고, 이어지는 문단에는 다시 알리지 않습니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const clock = fakeClock('2026-09-02T10:32:00+09:00');
+    const signals: HintDegradedSignal[] = [];
+
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: clock.now,
+      onSegment: () => {},
+      onHintDegraded: (signal) => signals.push(signal),
+    });
+    expect(signals).toHaveLength(0);
+
+    // 다음 배포에서 font-* 힌트가 통째로 사라진 모양으로 갈아 끼웁니다.
+    clock.advance(1_000);
+    document.body.innerHTML = noHintsHtml;
+    handle.scanNow();
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.stateSource).toBe('structure');
+    expect(signals[0]?.previousStateSource).toBe('class');
+    expect(signals[0]?.degraded).toBe(true);
+    expect(signals[0]?.at).toBe(new Date('2026-09-02T10:32:01+09:00').toISOString());
+
+    // 같은 등급으로 문단이 계속 쌓여도 추가 경보는 없습니다.
+    clock.advance(1_000);
+    appendParagraph('whitespace-pre-wrap leading-7', '힌트 없는 문단이 하나 더 붙습니다.');
+    handle.scanNow();
+    appendParagraph('whitespace-pre-wrap leading-7', '또 하나 더 붙습니다.');
+    handle.scanNow();
+    expect(signals).toHaveLength(1);
+
+    handle.stop();
+  });
+
+  it('힌트가 돌아오면 복귀도 한 번 알립니다', () => {
+    document.body.innerHTML = noHintsHtml;
+    const clock = fakeClock('2026-09-02T10:32:00+09:00');
+    const signals: HintDegradedSignal[] = [];
+
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: clock.now,
+      onSegment: () => {},
+      onHintDegraded: (signal) => signals.push(signal),
+    });
+
+    // 처음부터 낮은 등급이면 첫 훑기에서 한 번 알립니다.
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.stateSource).toBe('structure');
+    expect(signals[0]?.previousStateSource).toBeNull();
+
+    clock.advance(1_000);
+    document.body.innerHTML = recordingHtml;
+    handle.scanNow();
+
+    expect(signals).toHaveLength(2);
+    expect(signals[1]?.stateSource).toBe('class');
+    expect(signals[1]?.previousStateSource).toBe('structure');
+    expect(signals[1]?.degraded).toBe(false);
+
+    handle.stop();
+  });
+
+  it('한 쪽 힌트만 남은 약한 경보(class-partial)도 전이로 알립니다', () => {
+    document.body.innerHTML = recordingHtml;
+    const clock = fakeClock('2026-09-02T10:32:00+09:00');
+    const signals: HintDegradedSignal[] = [];
+
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: clock.now,
+      onSegment: () => {},
+      onHintDegraded: (signal) => signals.push(signal),
+    });
+    expect(signals).toHaveLength(0);
+
+    clock.advance(1_000);
+    document.body.innerHTML = markerDriftHtml;
+    handle.scanNow();
+
+    expect(signals).toHaveLength(1);
+    expect(signals[0]?.stateSource).toBe('class-partial');
+    expect(signals[0]?.degraded).toBe(true);
+
+    handle.stop();
+  });
+
+  it('문단을 하나도 못 잡은 구간은 등급 전이로 세지 않습니다', () => {
+    document.body.innerHTML = noHintsHtml;
+    const clock = fakeClock('2026-09-02T10:32:00+09:00');
+    const signals: HintDegradedSignal[] = [];
+
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: clock.now,
+      selectorBrokenGraceMs: 0,
+      onSegment: () => {},
+      onHintDegraded: (signal) => signals.push(signal),
+    });
+    expect(signals).toHaveLength(1);
+
+    // 선택자가 깨졌다가 같은 등급으로 돌아옵니다. 없던 전이를 지어내면 안 됩니다.
+    clock.advance(1_000);
+    document.body.innerHTML = brokenHtml;
+    handle.scanNow();
+    expect(signals).toHaveLength(1);
+
+    clock.advance(1_000);
+    document.body.innerHTML = noHintsHtml;
+    handle.scanNow();
+    expect(signals).toHaveLength(1);
+
+    handle.stop();
+  });
+});
+
+describe('스냅샷 재생 시나리오 (e2e 대신)', () => {
+  it('확정 → 진행 → 약한 경보 → flush → 선택자 깨짐이 순서대로 나옵니다', async () => {
+    // 실제 Tiro 사이트에는 접속하지 않습니다. 저장소가 들고 있는 합성 스냅샷을 happy-dom 에
+    // 넣고 MutationObserver 로 자라게 만드는 것이 이 단위의 e2e 입니다.
+    document.body.innerHTML = recordingHtml;
+    // 오프셋 없는 ISO 는 로컬 시각으로 읽힙니다. periodId 의 날짜가 시간대에 흔들리지 않게 합니다.
+    const clock = fakeClock('2026-09-02T10:32:00');
+    const segments: TranscriptSegment[] = [];
+    const partials: TiroPartial[] = [];
+    const degraded: HintDegradedSignal[] = [];
+    const broken: SelectorBrokenSignal[] = [];
+
+    const connector = createShareConnector({
+      root: document.body,
+      periodNumber: 3,
+      now: clock.now,
+      selectorBrokenGraceMs: 0,
+    });
+    connector.onSegment((segment) => segments.push(segment));
+    connector.onPartial((partial) => partials.push(partial));
+    connector.onHintDegraded((signal) => degraded.push(signal));
+    connector.onSelectorBroken((signal) => broken.push(signal));
+
+    // 1) 붙자마자 이미 쌓여 있던 확정 문단 4개 + 진행 중 1개.
+    connector.start();
+    expect(segments.map((s) => s.state)).toEqual(['final', 'final', 'final', 'final']);
+    expect(partials).toHaveLength(1);
+    expect(degraded).toHaveLength(0);
+    expect(broken).toHaveLength(0);
+
+    // 2) DOM 이 바뀌면 scanNow 를 손으로 부르지 않아도 관찰기가 따라옵니다.
+    clock.advance(2_000);
+    finalizeLastAndAppend('그래서 생성자 주입 방식으로');
+    await flush();
+    expect(segments).toHaveLength(5);
+    expect(segments[4]?.seq).toBe(5);
+
+    // 3) 클래스 힌트가 사라진 배포로 갈아탑니다 → 약한 경보 한 번.
+    clock.advance(2_000);
+    const all = paragraphs();
+    for (const element of all) element.setAttribute('class', 'whitespace-pre-wrap leading-7');
+    await flush();
+    expect(degraded).toHaveLength(1);
+    expect(degraded[0]?.stateSource).toBe('structure');
+
+    // 4) 교시가 끝났습니다. 아직 확정 안 된 마지막 문단을 partial 로 건집니다.
+    clock.advance(2_000);
+    const flushed = connector.flush();
+    expect(flushed).toHaveLength(1);
+    expect(flushed[0]?.state).toBe('partial');
+    expect(flushed[0]?.periodId).toBe('2026-09-02-p3');
+    expect(flushed[0]?.text).toBe('그래서 생성자 주입 방식으로');
+
+    // 5) 그 뒤 페이지 구조가 통째로 바뀌면 깨짐 신호가 한 번 납니다.
+    clock.advance(2_000);
+    document.body.innerHTML = brokenHtml;
+    await flush();
+    expect(broken).toHaveLength(1);
+    expect(broken[0]?.lastMatchedSelector).toBe('main div.whitespace-pre-wrap');
+
+    // 6) 나온 세그먼트는 모두 계약을 통과합니다(final 5건 + partial 1건).
+    const validate = createValidator<TranscriptSegment>('transcript-segment');
+    expect(segments).toHaveLength(6);
+    for (const segment of segments) {
+      const ok = validate(segment);
+      expect(formatErrors(validate.errors)).toEqual([]);
+      expect(ok).toBe(true);
+    }
+    // 순번은 1부터 빠짐없이 늘어나고 id 는 문단마다 하나씩입니다.
+    expect(segments.map((s) => s.seq)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(new Set(segments.map((s) => s.id)).size).toBe(6);
+
+    connector.stop();
   });
 });

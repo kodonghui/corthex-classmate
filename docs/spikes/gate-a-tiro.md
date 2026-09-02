@@ -266,3 +266,51 @@ Claude 는 결제 화면을 열지도 진행하지도 않는다.
 | 교시 번호가 임시값 1 로 고정 | 8교시가 모두 `…-p1` 로 섞임 | `PLACEHOLDER_PERIOD_NUMBER` 상수로 드러내 둠 | Phase 2 세션 관리가 실제 번호를 넘겨야 한다 |
 | MCP 경로가 실시간이 아닐 수 있음 | 1순위가 영영 못 오름 | 2순위가 이미 합격이라 제품은 돌아감 | (a) 측정 전까지는 모름 |
 | Tiro 무료 한도(노트당 50분 열람) | 60분 교시 뒷부분을 못 봄 | 없음 | 결제는 사람 결정 |
+
+## 부록 — 1라운드 완성 (2026-09-02)
+
+위 판정과 측정값 문단은 그대로 둡니다. 이 절은 Phase 1 이 일부러 비워 둔 자리를 1라운드에서
+무엇으로 채웠는지만 덧붙입니다. 실측 (a)(b)(c) 는 여전히 BLOCKED 이고 사람이 할 일도 그대로입니다.
+
+### 채운 것
+
+| Phase 1 이 비워 둔 자리 | 1라운드에서 채운 것 |
+|---|---|
+| `stateSource` 약한 경보가 내부 값으로만 있고 밖으로 안 나감 | 등급이 **바뀐 순간**에만 커넥터 이벤트 `tiro.hint_degraded { at, stateSource, previousStateSource, degraded }` 를 전이당 한 번 냅니다. 정상(`class`)으로 시작하면 조용하고, 문단 0개 구간(`none`)은 전이로 세지 않습니다 |
+| content script 의 `PLACEHOLDER_PERIOD_NUMBER = 1` 하드코딩 | 상수를 지웠습니다. `chrome.storage.local` 의 `classmate.periodNumber`(정수 1~8, 없거나 범위 밖이면 1)를 `readPeriodNumber()` 로 읽어 커넥터에 **주입**합니다. `createShareConnector` 는 `periodId` 또는 `periodNumber` 를 받습니다 |
+| 교시 종료·탭 닫힘 때 마지막 진행 중 문단이 버려짐 | `flush()` 를 관찰기·커넥터에 더했습니다. 진행 중 문단을 `state: 'partial'` 세그먼트로 내보내고, 그 문단이 나중에 확정되면 **같은 id·순번**으로 `final` 이 나옵니다. `pagehide` · `visibilitychange(hidden)` · `tiro.stop` 요청에서 부릅니다(`src/tiro/lifecycle.ts`) |
+| MCP/API 스텁이 하나뿐 | `createMcpConnector`(MCP 도구 호출) 와 `createApiConnector`(REST) 로 자리를 나눴습니다. 둘 다 같은 인터페이스의 스텁이고 `start()` 에서 `not-implemented` 이 든 오류를 던지며 **자격증명 인자를 받지 않습니다**. 세그먼트 `source` 는 계약상 둘 다 `tiro-api` 입니다 |
+| 클래스만 바뀌어 확정되는 순간을 관찰기가 놓침 | `MutationObserver` 에 `attributes: true, attributeFilter: ['class']` 를 더했습니다. 자식도 글자도 안 바뀌고 `font-semibold` → `font-medium` 만 바뀌는 확정을 이제 봅니다 |
+
+선택자 깨짐 감지(구조 기반 선택자 4단계 + 폴백 + 유예 뒤 신호 1회)는 Phase 1 것이 이미 명세를
+만족해 그대로 두었습니다. 새 fixtures 는 만들지 않았고 기존 합성 스냅샷 4종으로 모두 시험했습니다.
+
+`tiro.hint_degraded` 는 **계약 밖 커넥터 내부 이벤트**입니다. `session-event.schema.json` 의
+`type` 열거 14개가 고정이고 이번 라운드에서 계약을 고치지 않기로 했기 때문입니다. background 가
+받아 `connector.status` 의 payload 로 옮겨 싣는 것은 2라운드 몫이고 `src/tiro/README.md` 에 적었습니다.
+
+### 이번 부록의 측정값 (2026-09-02 · Windows 로컬 · Git Bash)
+
+| 항목 | 값 | 명령 |
+|---|---|---|
+| Tiro 단위 시험 (`src/tiro/**`) | 4파일 **71개** 통과 · 실패 0 · exit 0 (Phase 1 은 2파일 36개) | `pnpm --filter @classmate/browser-extension exec vitest run src/tiro` |
+| 확장 전체 단위 시험 | 9파일 122개 통과 · 실패 0 · exit 0 (Phase 1 은 7파일 87개) | `pnpm --filter @classmate/browser-extension test -- --maxWorkers=2` |
+| 확장 타입 검사 | 오류 0 · exit 0 | `pnpm --filter @classmate/browser-extension typecheck` |
+| 확장 빌드 | exit 0 · content script 18.05 kB | `pnpm --filter @classmate/browser-extension build` |
+| 매니페스트 content_scripts | `[{"matches":["https://tiro.ooo/*"],"run_at":"document_idle","js":["content-scripts/tiro-share.js"]}]` — 호스트 패턴만이고 공유 링크가 아닙니다 | `node -e "..."` (아래) |
+| content script 번들에 Ajv 유출 | 0건 (`ajv` · `new Function` 검색 결과 없음) | `grep -ciE 'ajv|new Function' .output/chrome-mv3/content-scripts/tiro-share.js` |
+
+새로 늘어난 35개 시험이 확인하는 것: `flush()` 의 partial 세그먼트와 id 재사용(9개) ·
+등급 전이 이벤트(5개) · 교시 번호 읽기와 보정(14개) · 생명주기 배선(4개) · 스텁 정합(2개) ·
+스냅샷 재생 시나리오(1개).
+
+### 재현 명령 — 매니페스트 확인
+
+```bash
+pnpm --filter @classmate/browser-extension build
+node -e "const m=require('./apps/browser-extension/.output/chrome-mv3/manifest.json');console.log(JSON.stringify(m.content_scripts))"
+```
+
+Tiro 사이트에는 접속하지 않았습니다. 이 단위의 e2e 는 `fixtures/tiro/**` 의 합성 스냅샷을
+happy-dom 에 넣고 `MutationObserver` 로 자라게 만드는 시나리오 시험입니다
+(`share-observer.test.ts` 의 「스냅샷 재생 시나리오」).
