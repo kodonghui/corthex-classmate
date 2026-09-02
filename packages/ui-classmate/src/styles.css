@@ -1,0 +1,165 @@
+@import "./internal/base/base.css";
+
+/* @classmate/ui-classmate — Classmate 10개의 CSS 입니다.
+   정본 components/classmate 의 각 jsx 가 주입하던 css('<id>', `…`) 블록 원문 그대로입니다.
+   쓰는 쪽에서 한 번만 불러옵니다: import "@classmate/ui-classmate/styles.css";
+   색·간격·모션 값은 @classmate/design-tokens 가 정의하는 CSS 변수 이름으로만 참조합니다. */
+
+/* cm-transcript — 정본 components/classmate/TranscriptFlow.jsx 의 TranscriptFlow */
+.cm-tf{display:flex;flex-direction:column;gap:20px;min-width:0;justify-content:flex-end}
+.cm-tf__ln{margin:0;font:var(--type-transcript);letter-spacing:var(--text-transcript-ls);word-break:keep-all;transition:color var(--duration-slow) var(--ease-out);animation:cm-fade-in var(--duration-slow) var(--ease-enter) both}
+.cm-tf__ln--1{color:var(--transcript-1)}.cm-tf__ln--2{color:var(--transcript-2)}.cm-tf__ln--3{color:var(--transcript-3)}
+.cm-tf__ln--tap{cursor:pointer}
+.cm-tf__ln--tap:hover{color:var(--text-1)}
+.cm-tf__tm{display:block;font:var(--type-time);color:var(--text-4);margin-bottom:2px}
+.cm-tf__term{text-decoration:none;border-bottom:1.5px dotted var(--term-underline);padding-bottom:1px;color:inherit;cursor:pointer;border-radius:3px 3px 0 0;transition:var(--transition-color)}
+.cm-tf__ln--2 .cm-tf__term,.cm-tf__ln--3 .cm-tf__term{border-color:var(--term-underline-faded)}
+.cm-tf__term:hover{background:var(--term-hover-bg);color:var(--term-active-text);border-color:var(--term-underline)}
+.cm-tf__term--mk{border-bottom:1.5px solid var(--term-underline);color:var(--term-marked)}
+.cm-tf__term--on,.cm-tf__term--on:hover{background:var(--term-active-bg);border-bottom:1.5px solid var(--ink-600);padding:0 4px;color:var(--term-active-text)}
+.cm-tf__after{animation:cm-fade-in var(--duration-base) var(--ease-enter) both}
+.cm-tf__tip{font:var(--type-caption);color:var(--text-tertiary);padding-top:10px;border-top:1px solid var(--border-hairline)}
+.cm-tf--md .cm-tf__ln{font:var(--type-conclusion);font-weight:400;letter-spacing:var(--text-conclusion-ls)}
+.cm-tf--md{gap:14px}
+
+/* cm-note — 정본 components/classmate/MarginNote.jsx 의 MarginNote */
+.cm-note{padding:12px 14px;border:1px solid var(--border-hairline);background:var(--surface-card);border-radius:var(--radius-lg);display:flex;flex-direction:column;gap:10px;min-width:0;box-sizing:border-box;width:100%}
+.cm-note__h{display:flex;align-items:center;gap:6px;font:var(--type-caption);font-weight:500;color:var(--ink-700);min-width:0}
+.cm-note__h .cm-icon{color:var(--ink-600)}
+.cm-note__tm{font-weight:400;color:var(--text-tertiary)}
+.cm-note__hr{margin-left:auto;font-weight:400;color:var(--text-tertiary);white-space:nowrap}
+.cm-note__c{margin:0;font:var(--type-conclusion);letter-spacing:var(--text-conclusion-ls);color:var(--text-body);word-break:keep-all}
+.cm-note__c code{font:var(--type-code);font-size:14px;background:var(--code-bg);padding:1px 5px;border-radius:var(--radius-xs)}
+.cm-note__ev{display:flex;flex-wrap:wrap;gap:6px}
+.cm-note__f{display:flex;align-items:center;justify-content:space-between;gap:8px;font:var(--type-caption);color:var(--text-tertiary);padding-top:8px;border-top:1px solid var(--border-hairline)}
+.cm-note__more{border:0;background:transparent;padding:0;margin:0;font:inherit;font-weight:500;color:var(--ink-700);cursor:pointer;display:inline-flex;align-items:center;gap:4px}
+.cm-note__more:hover{text-decoration:underline}
+.cm-note__more:focus-visible{outline:none;box-shadow:var(--focus-ring);border-radius:3px}
+.cm-note__wait{font:var(--type-body);color:var(--text-secondary);display:flex;flex-direction:column;gap:10px}
+.cm-note__sweep{height:2px;background:var(--paper-4);border-radius:1px;overflow:hidden;position:relative}
+.cm-note__sweep::after{content:"";position:absolute;inset:0;width:40%;background:var(--ink-400);animation:cm-sweep 1400ms var(--ease-in-out) infinite}
+.cm-note--warn{border-color:var(--amber-100);background:var(--amber-50)}
+.cm-note--warn .cm-note__wait{color:var(--amber-700)}
+.cm-note--collapsed{padding:7px 12px;flex-direction:row;align-items:center;gap:8px;cursor:pointer;border-style:dashed;text-align:left;font:inherit;transition:var(--transition-color)}
+.cm-note--collapsed:hover{background:var(--surface-hover)}
+.cm-note--collapsed:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.cm-note__ct{font:var(--type-caption);color:var(--text-secondary);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.cm-note__ct b{font-weight:500;color:var(--ink-700)}
+
+/* cm-guess — 정본 components/classmate/GuessList.jsx 의 GuessList */
+.cm-gl{display:flex;flex-direction:column;gap:6px;min-width:0}
+.cm-gl__t{margin:0;font:var(--type-caption);color:var(--text-tertiary)}
+.cm-gl__o{display:flex;align-items:center;gap:8px;min-height:36px;padding:6px 12px;border:1px solid var(--border-hairline);border-radius:var(--radius-md);background:var(--surface-card);font:var(--type-label);color:var(--text-secondary);cursor:pointer;text-align:left;width:100%;transition:var(--transition-color);margin:0;word-break:keep-all}
+.cm-gl__o:hover{background:var(--surface-hover);color:var(--text-body)}
+.cm-gl__o:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.cm-gl__o .cm-icon{margin-left:auto;color:var(--text-4);flex:none}
+.cm-gl__o--on{background:var(--ink-50);border-color:var(--ink-200);color:var(--ink-800)}
+.cm-gl__o--on .cm-icon{color:var(--ink-600)}
+
+/* cm-nowline — 정본 components/classmate/NowLine.jsx 의 NowLine */
+.cm-now{display:flex;align-items:center;gap:8px;font:var(--type-caption);font-weight:500;color:var(--status-live-text);min-width:0}
+.cm-now--rule::before,.cm-now--rule::after{content:"";flex:1;height:1px;background:var(--border-hairline)}
+.cm-now__t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cm-now--plain{font-weight:400;color:var(--text-tertiary)}
+.cm-now__d{width:6px;height:6px;border-radius:var(--radius-full);background:var(--status-live);flex:none}
+.cm-now--plain .cm-now__d{animation:cm-breathe var(--duration-breathe) var(--ease-in-out) infinite}
+
+/* cm-footer — 정본 components/classmate/SourceFooter.jsx 의 SourceFooter */
+.cm-sf{flex:none;min-height:40px;padding:10px var(--panel-inset);border-top:1px solid var(--border-hairline);font:var(--type-caption);color:var(--text-tertiary);display:flex;align-items:center;gap:8px;min-width:0;background:var(--surface-canvas);box-sizing:border-box}
+.cm-sf__dots{display:inline-flex;gap:4px;align-items:center;flex:none}
+.cm-sf__d{width:6px;height:6px;border-radius:var(--radius-full);background:var(--status-live)}
+.cm-sf__d--paused{background:var(--status-paused)}.cm-sf__d--off{background:var(--status-off)}.cm-sf__d--idle{background:var(--paper-5)}
+.cm-sf__t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cm-sf__r{margin-left:auto;flex:none;border:0;background:transparent;padding:0;font:inherit;color:var(--text-secondary);font-weight:500;border-radius:3px;white-space:nowrap}
+button.cm-sf__r{cursor:pointer}
+button.cm-sf__r:hover{color:var(--ink-700);text-decoration:underline}
+.cm-sf__r:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.cm-sf--paused{background:var(--amber-50);border-top-color:var(--amber-100);color:var(--amber-700)}
+.cm-sf--off{background:var(--red-50);border-top-color:var(--red-100);color:var(--red-700)}
+.cm-sf__w{flex:1;min-width:0;line-height:16px}
+.cm-sf__w b{font-weight:700}
+.cm-sf__a{border:0;background:transparent;padding:0;margin-left:6px;font:inherit;font-weight:500;color:inherit;text-decoration:underline;cursor:pointer;white-space:nowrap}
+.cm-sf--paused .cm-sf__r,.cm-sf--off .cm-sf__r{color:inherit;opacity:.85}
+
+/* cm-compare — 정본 components/classmate/CodeCompare.jsx 의 CodeCompare */
+.cm-cmp{display:flex;flex-direction:column;gap:6px;min-width:0}
+.cm-cmp__r{display:grid;grid-template-columns:52px 1fr;gap:8px;align-items:center;font:var(--type-code);font-size:11.5px;padding:6px 10px;border-radius:var(--radius-md);white-space:nowrap;overflow:hidden;background:var(--surface-sunken);color:var(--code-text)}
+.cm-cmp__w{font:var(--type-caption);color:var(--text-tertiary)}
+.cm-cmp__r--teacher{background:var(--ink-50)}
+.cm-cmp__r--mine{background:var(--amber-50)}
+.cm-cmp__c{overflow:hidden;text-overflow:ellipsis;min-width:0}
+
+/* cm-moment — 정본 components/classmate/MomentRow.jsx 의 MomentRow */
+.cm-mo{display:grid;grid-template-columns:60px 1fr auto;column-gap:10px;align-items:start;width:100%;padding:10px var(--panel-inset);border:0;margin:0;background:transparent;text-align:left;cursor:pointer;color:var(--text-body);font:inherit;transition:var(--transition-color);min-width:0;border-radius:0;box-sizing:border-box}
+.cm-mo:hover{background:var(--surface-hover)}
+.cm-mo:active{background:var(--surface-pressed)}
+.cm-mo:focus-visible{outline:none;box-shadow:inset var(--focus-ring)}
+.cm-mo--selected{background:var(--surface-accent-soft)}
+.cm-mo__time{font:var(--type-time);color:var(--text-tertiary);padding-top:3px;font-variant-numeric:tabular-nums}
+.cm-mo__main{min-width:0;display:flex;flex-direction:column;gap:2px}
+.cm-mo__term{font:var(--type-label);color:var(--ink-700)}
+.cm-mo--preparing .cm-mo__term{color:var(--text-tertiary)}
+.cm-mo__title{font:var(--type-body);letter-spacing:var(--text-body-ls);color:var(--text-secondary);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;word-break:keep-all}
+.cm-mo--unread .cm-mo__title{color:var(--text-body)}
+.cm-mo__meta{font:var(--type-caption);color:var(--text-4)}
+.cm-mo__end{padding-top:6px;display:flex;align-items:center;gap:6px;min-width:8px}
+.cm-mo__dot{width:8px;height:8px;border-radius:var(--radius-full);background:var(--ink-600)}
+.cm-mo__prep{width:14px;height:2px;border-radius:1px;background:var(--paper-4);overflow:hidden;position:relative}
+.cm-mo__prep::after{content:"";position:absolute;inset:0;width:50%;background:var(--ink-400);animation:cm-sweep 1400ms var(--ease-in-out) infinite}
+
+/* cm-answer — 정본 components/classmate/AnswerCard.jsx 의 AnswerCard */
+.cm-ans{background:var(--surface-card);border:1px solid var(--border-hairline);border-radius:var(--radius-lg);padding:16px;min-width:0;display:flex;flex-direction:column;gap:12px;animation:cm-fade-in var(--duration-base) var(--ease-enter) both}
+.cm-ans__meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font:var(--type-caption);color:var(--text-tertiary)}
+.cm-ans__meta .cm-tag{margin-right:2px}
+.cm-ans__con{font:var(--type-conclusion);letter-spacing:var(--text-conclusion-ls);color:var(--text-body);margin:0;word-break:keep-all}
+.cm-ans__con code{font:var(--type-code);font-size:14px;background:var(--code-bg);padding:1px 5px;border-radius:var(--radius-xs)}
+.cm-ans__ev{display:flex;flex-wrap:wrap;gap:6px}
+.cm-ans__secs{margin:0 -16px -4px;padding:0 16px;border-top:1px solid var(--border-hairline)}
+.cm-ans__secs .cm-disc:first-child{border-top:0}
+.cm-ans__p{margin:0 0 8px}
+.cm-ans__p:last-child{margin-bottom:0}
+.cm-ans__quote{background:var(--surface-sunken);border-radius:var(--radius-md);padding:10px 12px;display:flex;flex-direction:column;gap:4px}
+.cm-ans__quote-t{font:var(--type-body);color:var(--text-body);margin:0;quotes:"“" "”"}
+.cm-ans__quote-t::before{content:open-quote;color:var(--text-4)}
+.cm-ans__quote-t::after{content:close-quote;color:var(--text-4)}
+.cm-ans__quote-m{font:var(--type-caption);color:var(--text-tertiary)}
+.cm-ans__follow{display:flex;flex-direction:column;gap:8px}
+.cm-ans__follow-l{font:var(--type-caption);color:var(--text-tertiary)}
+.cm-ans__load{display:flex;flex-direction:column;gap:12px}
+.cm-ans__load-t{font:var(--type-body);color:var(--text-secondary)}
+.cm-ans__sweep{height:2px;background:var(--paper-4);border-radius:1px;overflow:hidden;position:relative}
+.cm-ans__sweep::after{content:"";position:absolute;inset:0;width:40%;background:var(--ink-400);animation:cm-sweep 1400ms var(--ease-in-out) infinite}
+.cm-ans__sk{height:12px;border-radius:3px;background:var(--paper-3)}
+
+/* cm-sources — 정본 components/classmate/SourceStatus.jsx 의 SourceStatus */
+.cm-src{display:flex;flex-direction:column;min-width:0}
+.cm-src--compact{flex-direction:row;flex-wrap:wrap;gap:6px 14px;align-items:center}
+.cm-src__row{display:flex;align-items:center;gap:10px;min-height:40px;padding:6px 0;border-top:1px solid var(--border-hairline);min-width:0}
+.cm-src__row:first-child{border-top:0}
+.cm-src__ic{flex:none;display:flex;color:var(--text-tertiary)}
+.cm-src__row--off .cm-src__ic,.cm-src__row--paused .cm-src__ic{color:var(--text-4)}
+.cm-src__main{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px}
+.cm-src__name{font:var(--type-label);color:var(--text-body);display:flex;align-items:center;gap:8px}
+.cm-src__row--off .cm-src__name,.cm-src__row--paused .cm-src__name{color:var(--text-secondary)}
+.cm-src__detail{font:var(--type-caption);color:var(--text-tertiary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cm-src__act{flex:none}
+.cm-src__c{display:inline-flex;align-items:center;gap:6px;font:var(--type-caption);color:var(--text-secondary);white-space:nowrap}
+.cm-src__c .cm-icon{color:var(--text-tertiary)}
+
+/* cm-stuck — 정본 components/classmate/StuckButton.jsx 의 StuckButton */
+.cm-stuck{display:flex;flex-direction:column;gap:8px;min-width:0}
+.cm-stuck__btn{position:relative;display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:var(--control-h-hero);padding:0 16px;border:0;margin:0;border-radius:var(--radius-lg);background:var(--action-primary);color:var(--text-on-accent);font:var(--weight-bold) 16px/24px var(--font-sans);letter-spacing:-0.01em;cursor:pointer;overflow:hidden;transition:var(--transition-color);-webkit-tap-highlight-color:transparent}
+.cm-stuck__btn:hover{background:var(--action-primary-hover)}
+.cm-stuck__btn:active{background:var(--action-primary-active)}
+.cm-stuck__btn:focus-visible{outline:none;box-shadow:var(--focus-ring)}
+.cm-stuck__btn[disabled]{cursor:default}
+.cm-stuck__btn--saving{background:var(--ink-700)}
+.cm-stuck__btn--saved{background:var(--ink-800)}
+.cm-stuck__btn--quiet{background:var(--surface-card);color:var(--text-body);border:1px solid var(--border-strong)}
+.cm-stuck__btn--quiet:hover{background:var(--surface-hover)}
+.cm-stuck__kbd{position:absolute;right:12px;top:50%;transform:translateY(-50%);font:var(--type-caption);font-family:var(--font-mono);padding:1px 6px;border-radius:var(--radius-xs);background:rgba(255,255,255,.14);color:rgba(255,255,255,.85)}
+.cm-stuck__btn--quiet .cm-stuck__kbd{background:var(--surface-sunken);color:var(--text-tertiary)}
+.cm-stuck__bar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.18);overflow:hidden}
+.cm-stuck__bar::after{content:"";position:absolute;inset:0;width:40%;background:rgba(255,255,255,.85);animation:cm-sweep 1400ms var(--ease-in-out) infinite}
+.cm-stuck__sub{font:var(--type-caption);color:var(--text-tertiary);text-align:center;padding:0 8px}
+.cm-stuck__sub b{font-weight:500;color:var(--text-secondary)}
