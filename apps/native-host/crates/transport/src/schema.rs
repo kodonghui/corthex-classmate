@@ -227,12 +227,47 @@ pub fn validate_definition(
     name: &str,
     value: &Value,
 ) -> Result<(), Vec<Violation>> {
+    validate_at(kind, &format!("/definitions/{name}"), value, || {
+        format!("{kind} 에 {name} 정의가 없습니다")
+    })
+}
+
+/// 계약 스키마 안의 **JSON 포인터 한 자리**로만 검사합니다.
+///
+/// `tutor.ask` 의 `snapshot` 처럼 계약 파일 전체가 아니라 속성 하나의 정의만 봐야 하는
+/// 자리가 씁니다. `#/definitions/…` 창고가 아니라 `properties` 안을 가리킬 수 있다는 점만
+/// [`validate_definition`] 과 다릅니다. 어긋난 자리는 그 정의를 뿌리로 삼아
+/// `/ages/transcriptSec` 처럼 적힙니다.
+///
+///     use classmate_transport::schema::{validate_pointer, SchemaKind};
+///     let snapshot = serde_json::json!({
+///         "transcriptSegmentIds": ["ts-p3-041"],
+///         "ages": { "transcriptSec": 3, "screenSec": 1, "editorSec": null }
+///     });
+///     assert!(validate_pointer(SchemaKind::Question, "/properties/snapshot", &snapshot).is_ok());
+pub fn validate_pointer(
+    kind: SchemaKind,
+    pointer: &str,
+    value: &Value,
+) -> Result<(), Vec<Violation>> {
+    validate_at(kind, pointer, value, || {
+        format!("{kind} 에 {pointer} 자리가 없습니다")
+    })
+}
+
+/// [`validate_definition`] 과 [`validate_pointer`] 가 함께 쓰는 속입니다.
+///
+/// 포인터가 가리키는 자리가 없으면 값 쪽 잘못이 아니라 **부르는 쪽 잘못**이므로
+/// [`ViolationKind::UnsupportedSchema`] 로 알립니다. `missing` 은 그때 쓸 문구입니다.
+fn validate_at(
+    kind: SchemaKind,
+    pointer: &str,
+    value: &Value,
+    missing: impl FnOnce() -> String,
+) -> Result<(), Vec<Violation>> {
     let root = schema_of(kind);
-    let Some(target) = follow_pointer(root, &format!("/definitions/{name}")) else {
-        return Err(vec![Violation::unsupported(
-            "",
-            format!("{kind} 에 {name} 정의가 없습니다"),
-        )]);
+    let Some(target) = follow_pointer(root, pointer) else {
+        return Err(vec![Violation::unsupported("", missing())]);
     };
 
     let mut violations = Vec::new();

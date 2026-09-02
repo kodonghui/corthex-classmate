@@ -71,24 +71,49 @@ if let Err(violations) = validate(SchemaKind::SessionEvent, &event) {
 
 ## 3. 봉투 표 — 어떤 type 을 어떤 스키마로 볼까
 
-`ENVELOPE_RULES` 는 `src/main.rs` 가 실제로 나눠 주는 이름과 같습니다. `Router::handle` 이 갈래로 받는 넷과 `respond()` 가 받는 `ping` 을 합쳐 **다섯**입니다. 한쪽만 늘어나면 `the_table_matches_the_router_in_main_rs` 시험이 `src/main.rs` 원문을 읽어 대조하다가 먼저 빨갛게 됩니다.
+`ENVELOPE_RULES` 는 `apps/native-host/src/router.rs` 의 `Router::handle` 이 실제로 나눠 주는 이름과 같습니다. 2라운드에서 튜터 갈래 둘이 붙어 **일곱**입니다. 한쪽만 늘어나면 `the_table_matches_the_router_in_router_rs` 시험이 `src/router.rs` 원문을 읽어 대조하다가 먼저 빨갛게 됩니다.
 
-| `type` | `periodId` | 딸림 값 → 스키마 | 추가 검사 |
-|---|---|---|---|
-| `ping` | 필요 없음 | 없음 | 없음 |
-| `event.append` | 필요 | `event` → `session-event` | 없음 |
-| `session.status` | 필요 | 없음 | 없음 |
-| `session.export` | 필요 | 없음 | 없음 |
-| `frame.store` | 필요 | `frame` → `screen-frame` | `bytesBase64` · `path` |
+| `type` | `periodId` | `questionId` | 딸림 값 → 스키마 | 추가 검사 |
+|---|---|---|---|---|
+| `ping` | 필요 없음 | 필요 없음 | 없음 | 없음 |
+| `event.append` | 필요 | 필요 없음 | `event` → `session-event` | 없음 |
+| `session.status` | 필요 | 필요 없음 | 없음 | 없음 |
+| `session.export` | 필요 | 필요 없음 | 없음 | 없음 |
+| `frame.store` | 필요 | 필요 없음 | `frame` → `screen-frame` | `bytesBase64` · `path` |
+| `tutor.ask` | 필요 | 필요 | 없음 | `provider` · `snapshot` · `question` |
+| `tutor.retry` | 필요 | 필요 | 없음 | 없음 |
 
-`frame.store` 만 스키마 하나로 끝나지 않아 `ExtraCheck::FrameBody` 를 답니다. 고정 계약 (가)가 정한 두 가지를 더 봅니다.
+스키마 하나로 끝나지 않는 봉투 둘에는 `ExtraCheck` 가 붙습니다.
+
+**`ExtraCheck::FrameBody`** — `frame.store` · 고정 계약 (가)
 
 - `bytesBase64` 는 비어 있지 않은 문자열입니다. 본문을 실제로 푸는 것은 저장소 몫이라 여기서는 자리와 모양만 봅니다.
 - `frame.path` 는 `frames/<frame.id>.webp` 여야 합니다. 어긋나면 `/frame/path` 를 가리킵니다. 파일 이름을 `id` 로 못 박아 두면 확장이 준 경로가 교시 폴더 밖을 가리킬 자리가 없어집니다.
 
+**`ExtraCheck::AskSnapshot`** — `tutor.ask` · 고정 계약 (마)
+
+- `provider` 는 `ASK_PROVIDERS`(`claude` · `codex`) 안의 이름입니다. 이 값으로 어떤 CLI 를 부를지 갈리므로 목록 밖의 값을 흘려보내지 않습니다.
+- `snapshot` 은 `question.schema.json` 의 **`/properties/snapshot`**(QuestionSnapshot) 정의로 봅니다. 계약 파일 전체가 아니라 속성 하나만 봐야 하므로 `schema::validate_pointer(kind, pointer, value)` 를 씁니다. `#/definitions/…` 창고만 가리킬 수 있던 `validate_definition` 과 여기서 갈립니다.
+- `question` 은 없어도 되지만, 있으면 **UTF-8 `QUESTION_MAX_BYTES`(4096) 바이트 이하**의 문자열입니다. 다른 길이 검사와 달리 글자 수가 아니라 바이트 수입니다 — 모델에 넘길 문맥의 크기를 재는 값이기 때문입니다. 한글만 쓰면 약 1,365자입니다.
+- `kind` 와 `word` 는 보지 않습니다. 무엇을 어떻게 물었는지는 파이프라인(단위 6)이 봉인할 때 다시 봅니다.
+
 `validate_envelope(&message)` 는 통과하면 걸린 규칙을, 어긋나면 봉투 기준 자리를 돌려줍니다(`/event/payload/to` 처럼 필드 이름이 앞에 붙습니다). 모르는 `type` 은 그 이름을 되뇌지 않고 아는 이름 목록만 알려 줍니다.
 
-`periodId` 는 계약의 `PeriodId` 모양으로 봅니다. `../../etc/passwd` 같은 값이 저장 폴더 이름으로 내려가지 못하게 여기서 먼저 막습니다.
+`periodId` 는 계약의 `PeriodId` 모양, `questionId` 는 계약의 `Id` 모양으로 봅니다. `../../etc/passwd` 같은 값이 저장 폴더 이름으로 내려가지 못하게 여기서 먼저 막습니다.
+
+### 어긋난 자리 → 확장이 분기할 낱말
+
+호스트는 어긋난 자리 목록을 그대로 확장에 주지 않고 `envelope_reason(&violations)` 으로 낱말 하나를 고릅니다. 보는 순서가 곧 우선순위입니다.
+
+```
+/question 이 어긋났나?      ─예─▶ question-too-long
+       │아니오
+/snapshot 아래가 어긋났나?  ─예─▶ malformed-snapshot
+       │아니오
+       └───────────────────────▶ envelope-invalid
+```
+
+세 낱말은 `REASON_QUESTION_TOO_LONG` · `REASON_MALFORMED_SNAPSHOT` · `REASON_ENVELOPE_INVALID` 상수로 내놓습니다. 사람이 읽을 자세한 문구는 `describe(&violations)` 이고, 둘 다 확장이 보낸 값을 담지 않습니다.
 
 ## 4. 무엇으로 검사했나
 
@@ -118,10 +143,11 @@ node --test apps/native-host/scripts/*.test.mjs
 
 `register-host.mjs` 는 dry-run 이 기본이고 **`--apply` 가 있을 때만** 매니페스트 파일을 쓰고 `reg` 를 실행합니다(Phase 1 에는 dry-run 인데도 파일을 썼습니다). 실행 파일이 아직 없으면 `--apply` 를 거절합니다 — 없는 경로를 적어 두면 Chrome 이 아무 말 없이 안 붙기 때문입니다. `host-roundtrip.mjs` 는 자식이 15초(`ROUNDTRIP_TIMEOUT_MS`) 안에 끝나지 않으면 멈춰 세우고 실패로 알립니다. 두 스크립트 모두 진입점 가드가 있어 `import` 만으로는 움직이지 않습니다. 자세한 사용법은 `apps/native-host/README.md` §4 에 있습니다.
 
-## 6. 2라운드 계획
+## 6. 2라운드에 바뀐 것
 
-지금은 루트 크레이트의 `src/protocol.rs` 와 이 크레이트의 `src/framing.rs` 가 **같은 프레이밍을 두 벌** 들고 있습니다. 1라운드에서는 단위끼리 같은 파일을 고치지 않으려고 일부러 복사본을 두었습니다. 2라운드에 할 일:
+1라운드에는 루트 크레이트의 `src/protocol.rs` 와 이 크레이트의 `src/framing.rs` 가 **같은 프레이밍을 두 벌** 들고 있었습니다(단위끼리 같은 파일을 고치지 않으려고 일부러 둔 복사본입니다). 2라운드에서 정리했습니다.
 
-1. `src/main.rs` 가 `classmate_transport::framing` 을 쓰게 바꾸고 `src/protocol.rs` 를 지웁니다.
-2. `src/main.rs` 의 `Router::handle` 앞에 `validate_envelope` 를 끼워 계약에 어긋난 메시지를 저장소까지 내려보내지 않습니다.
-3. 루트 `Cargo.toml` 에 `classmate-transport` 를 의존성으로 더합니다(루트 파일은 단위 7 소유라 1라운드에서는 건드리지 않았습니다).
+1. `src/protocol.rs` 를 지웠습니다. 프레이밍은 `classmate_transport::framing` 하나뿐이고 `apps/native-host/src/router.rs` 가 그것을 그대로 씁니다. 지운 파일의 시험은 전부 `framing.rs` 에 이미 같거나 더 넓은 모양으로 있어서 옮길 것이 없었습니다(0바이트 본문·상한 경계 1 MiB±1 까지 여기서 봅니다).
+2. `Router::handle` 이 갈래를 나누기 **전에** `validate_envelope` 를 지납니다. 계약에 어긋난 메시지는 저장소를 열지도 파일을 만들지도 못합니다. 걸린 것은 `envelope-invalid` · `question-too-long` · `malformed-snapshot` 셋 중 하나로 답합니다. 봉투 표에 아예 없는 `type` 만 예전처럼 `unknown-message-type` 입니다.
+3. 봉투 표가 다섯에서 **일곱**으로 늘었습니다(`tutor.ask` · `tutor.retry`). `include_str!` 대조 시험도 `src/main.rs` 가 아니라 `src/router.rs` 를 봅니다.
+4. 루트 `Cargo.toml` 의 `classmate-transport` 의존성은 2라운드 선커밋에서 이미 들어갔습니다.
