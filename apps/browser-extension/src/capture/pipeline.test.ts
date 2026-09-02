@@ -8,6 +8,8 @@ import { codeFrameOptions, makeCodeFrame, makeFrame, makeSlideFrame, withNoise }
 const WIDTH = 640;
 const HEIGHT = 360;
 const BASE_MS = Date.parse('2026-09-02T10:00:00.000Z');
+/** 통을 만든 시각을 고정해 두면 id 가 `sf-p3-100000-001` 로 확정됩니다. */
+const ID_PREFIX = 'sf-p3-100000-';
 
 /** 부른 횟수를 세는 모의 인코더. Node 에는 OffscreenCanvas 가 없어서 이렇게 씁니다. */
 class CountingEncoder implements FrameEncoder {
@@ -39,7 +41,7 @@ class ArraySource implements FrameSource {
 }
 
 function newPipeline() {
-  const store = new FrameStore({ periodId: '2026-09-02-p3' });
+  const store = new FrameStore({ periodId: '2026-09-02-p3', startedAt: BASE_MS });
   const encoder = new CountingEncoder();
   const pipeline = new CapturePipeline({ store, encoder });
   return { store, encoder, pipeline };
@@ -112,7 +114,11 @@ describe('CapturePipeline 변화 감지', () => {
     ]);
     expect(encoder.calls).toBe(3);
     expect(store.size).toBe(3);
-    expect(store.list().map((frame) => frame.id)).toEqual(['sf-001', 'sf-002', 'sf-003']);
+    expect(store.list().map((frame) => frame.id)).toEqual([
+      `${ID_PREFIX}001`,
+      `${ID_PREFIX}002`,
+      `${ID_PREFIX}003`,
+    ]);
 
     // 첫 장만 changedFromPrev 가 false 입니다. 견줄 앞 장이 없었기 때문입니다.
     expect(store.list().map((frame) => frame.changedFromPrev)).toEqual([false, true, true]);
@@ -142,7 +148,7 @@ describe('CapturePipeline 변화 감지', () => {
   });
 
   it('onFrame 은 통에 들어간 장만 알려 줍니다', async () => {
-    const store = new FrameStore({ periodId: '2026-09-02-p3' });
+    const store = new FrameStore({ periodId: '2026-09-02-p3', startedAt: BASE_MS });
     const seen: string[] = [];
     const pipeline = new CapturePipeline({
       store,
@@ -155,7 +161,7 @@ describe('CapturePipeline 변화 감지', () => {
     await pipeline.offer(makeFrame(options), BASE_MS + 1000);
     await pipeline.offer(makeSlideFrame(WIDTH, HEIGHT), BASE_MS + 2000);
 
-    expect(seen).toEqual(['sf-001', 'sf-002']);
+    expect(seen).toEqual([`${ID_PREFIX}001`, `${ID_PREFIX}002`]);
   });
 
   it('reset 뒤 첫 장은 다시 기준이 됩니다', async () => {

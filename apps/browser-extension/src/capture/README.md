@@ -23,10 +23,13 @@ background (서비스 워커)                 entrypoints/background.ts
   │  capture.stream { streamId, periodId, threshold?, sampleIntervalMs? }   ← 두 값을 그대로 실어 보냄
   ▼
 Offscreen 문서                            entrypoints/offscreen/main.ts
-  │  resolveCaptureSettings(...)          ← 빈자리를 기본값으로 채우는 유일한 곳
-  │  getUserMedia → <video> → <canvas> → getImageData
+  │  openCaptureSession (session-setup.ts) 여는 순서와 실패했을 때의 정리를 지키는 곳
+  │    ① resolveCaptureSettings · new FrameStore · canvas 문맥  ← 스트림보다 **먼저**
+  │    ② getUserMedia → ③ <video> → ④ play() → ⑤ 나머지 조립
+  │       ②부터 어디서 던지든 트랙을 멈추고 <video> 를 문서에서 뗍니다
   ▼
 SamplingLoop  (sampling-loop.ts)          회차를 잡는 유일한 곳 · 앞 회차가 끝나야 다음 회차
+  │  회차 결과 → reduceCaptureRun (capture-run-state.ts) → 상태 · 연속 실패 예산
   ▼
 CapturePipeline (pipeline.ts)
   ├─ computeDHash (dhash.ts)              9x8 회색조 → 64비트 지문
@@ -54,11 +57,45 @@ CapturePipeline (pipeline.ts)
 | 해시 여유 | `1` 회색 단계 | `dhash.ts` `HASH_EPSILON` | 흰 여백처럼 평평한 자리에서 대소가 잡음에 뒤집히는 것을 막습니다 |
 | 메모리 상한 | 60분 · 48MiB · 3600장 | `frame-store.ts` | 셋 중 하나라도 넘으면 오래된 장부터 버리고 `droppedFrames` 로 셉니다 |
 | 통 나이 상한 | 60분 | `frame-sink.ts` `MemoryFrameSink.maxAgeMs` | 60분이 지난 장은 교시가 바뀐 것이므로 마지막 한 장도 남기지 않습니다 |
+| 연속 실패 예산 | `5`회 | `capture-run-state.ts` `DEFAULT_ERROR_BUDGET` | 회차가 이만큼 **연달아** 실패하면 마지막 오류를 알리고 세션을 접습니다. 사이에 한 번이라도 성공하면 셈은 0 으로 돌아갑니다 |
 
 빈자리를 기본값으로 채우고 범위를 확인하는 곳은 `messages.ts` 의 `resolveCaptureSettings`
 **한 곳뿐**입니다. background 는 값을 손대지 않고 그대로 넘깁니다. 규칙을 두 곳에 두면
 한쪽만 고쳐 두 곳이 어긋나기 때문입니다. 음수·NaN·무한대·64 초과 임계값·0 이하 간격은
-조용히 고치지 않고 `RangeError` 로 막습니다.
+조용히 고치지 않고 `RangeError` 로 막습니다. `SamplingLoop` 생성자도 같은 규칙(0 이하 거절)을
+씁니다.
+
+## 캡처 상태 갈아타기
+
+`CaptureState` 는 사이드패널 SourceFooter 문구의 근거입니다(`messages.ts`). 갈아타는 규칙은
+`capture-run-state.ts` 의 순수 함수 `reduceCaptureRun` 한 곳에 있습니다.
+
+```
+        시작                 회차 ✓                      회차 ✗
+idle ──────────▶ starting ──────────▶ capturing ◀──────────────┐
+                                          │  회차 ✗            │ 회차 ✓ (셈 0 으로)
+                                          ▼                    │
+                                        error ─────────────────┘
+                                          │  연속 5회째 실패
+                                          ▼
+                                   세션 종료 + 마지막 capture.error
+```
+
+`error` 는 **종착역이 아닙니다.** 회차 한 번이 실패해도 다음 회차가 성공하면 `capturing`
+으로 돌아옵니다. 예전에는 되돌리는 자리가 캡처를 처음 시작할 때뿐이라 한 번 실패하면 상태가
+영원히 굳었고, 반대로 계속 실패해도 캡처가 멈추지 않았습니다.
+
+## 세션을 여는 순서
+
+`session-setup.ts` 의 `openCaptureSession` 이 지키는 두 가지입니다.
+
+1. **던질 수 있는 검사를 스트림보다 먼저.** 설정 범위(`resolveCaptureSettings`) · 교시 이름
+   (`new FrameStore`) · canvas 2d 문맥은 `getUserMedia` 앞에서 끝냅니다. 여기서 막히면 아직
+   연 자원이 없으므로 되돌릴 것도 없습니다.
+2. **스트림을 연 뒤 실패하면 그 자리에서 정리.** `<video>` 만들기 · `play()` · 마지막 조립 중
+   어디서 던지든 트랙을 멈추고 `<video>` 를 문서에서 뗀 뒤 오류를 그대로 올립니다. 바깥
+   `stopSession()` 에 맡기지 않는 까닭은, 그 함수가 보는 세션 변수가 맨 마지막에야 채워져
+   실패한 시작에서는 끝내 비어 있기 때문입니다(그래서 예전에는 트랙과 `<video>` 가 남았습니다).
 
 ## 계약 (가) — `frame.store` 봉투
 
@@ -67,24 +104,62 @@ CapturePipeline (pipeline.ts)
 ```
 확장 → 호스트  { "type": "frame.store", "periodId": "2026-09-02-p3",
                 "frame": { ScreenFrame 아홉 칸 }, "bytesBase64": "<WebP>" }
-호스트 → 확장  { "type": "frame.stored", "periodId": "…", "id": "sf-p3-001",
-                "path": "frames/sf-p3-001.webp", "bytes": 12345, "seq": 10 }
+호스트 → 확장  { "type": "frame.stored", "periodId": "…", "id": "sf-p3-103210-001",
+                "path": "frames/sf-p3-103210-001.webp", "bytes": 12345, "seq": 10 }
 실패           { "type": "error", "message": "frame store failed",
                 "reason": "<짧게>", "received": "frame.store" }   ← 프로세스는 계속 삶
 ```
 
-지키는 경계 세 가지입니다.
+`seq` 는 **호스트의 이벤트 순번**입니다. "몇 번째 프레임인지" 가 아닙니다. 호스트는 프레임뿐
+아니라 전사 같은 다른 기록도 같은 표에 이어 붙이고(`apps/native-host/src/store/mod.rs` 의
+`events` 표는 `seq INTEGER PRIMARY KEY AUTOINCREMENT`) 그 번호를 그대로 돌려주므로, 첫
+프레임의 `seq` 가 10 일 수 있습니다. 장 수는 확장이 따로 세야 합니다.
+
+지키는 경계 네 가지입니다.
 
 1. **`id` 형식.** `^sf-[A-Za-z0-9_-]{1,60}$` 만 통과합니다. 점(`.`)과 빗금(`/`)이 없으므로
    `sf-../../etc/passwd` 같은 값은 봉투를 만들기 전에 `RangeError` 로 막힙니다.
-2. **`path` 는 계산합니다.** `buildFrameStore` 는 확장이 준 `frame.path` 를 믿지 않고 언제나
+2. **`periodId` 형식.** `^[0-9]{4}-[0-9]{2}-[0-9]{2}-p[1-9][0-9]*$` 만 통과합니다. 호스트의
+   `is_contract_period_id`(`apps/native-host/src/store/frames.rs`)와 같은 규칙이고,
+   `FrameStore` 를 만들 때 확인합니다. 호스트가 거절할 이름을 여기서 먼저 막지 않으면
+   한 시간 모은 장이 통째로 버려집니다.
+3. **`path` 는 계산합니다.** `buildFrameStore` 는 확장이 준 `frame.path` 를 믿지 않고 언제나
    `frames/<id>.webp` 를 `id` 에서 다시 만듭니다. 호스트도 같은 계산을 해서 대조하므로,
-   확장이 준 문자열이 파일 경로가 되는 길이 없습니다(Gate D 결정).
-3. **1 MiB 가드.** 직렬화한 봉투가 `MAX_MESSAGE_BYTES = 1_048_576` 바이트를 넘으면 보내지
+   확장이 준 문자열이 파일 경로가 되는 길이 없습니다(Gate D 결정). `frame` 칸에는 계약
+   아홉 칸만 **골라** 담습니다. 통 안의 모양을 펼쳐 담으면 `bytes · mime` 같은 여분 칸이
+   실려 호스트의 `additionalProperties: false` 검증에 걸립니다.
+4. **1 MiB 가드.** 직렬화한 봉투가 `MAX_MESSAGE_BYTES = 1_048_576` 바이트를 넘으면 보내지
    않고 `{ skipped: true, reason: 'too-large' }` 를 돌려줍니다. Chrome 의 Native Messaging
    본문 상한이 1 MiB 이고(`apps/native-host/src/protocol.rs`), 넘겨 보내면 연결이 끊깁니다.
    상한과 **정확히 같은** 크기는 보냅니다. 건너뛴 장은 `skippedTooLarge` 로 세어 두었다가
    화면에 알립니다. 한 장을 못 보냈다고 캡처 전체가 멈추지는 않습니다.
+   크기는 base64 를 만들기 **전에** 산술로 잽니다 — 고정 부분(base64 를 뺀 봉투)의 UTF-8
+   길이에 `base64Length(바이트 수) = 4 × ⌈바이트 수 ÷ 3⌉` 을 더하면 값이 정확히 같습니다.
+   그래서 상한을 넘는 장은 큰 문자열을 한 번도 만들지 않고 건너뜁니다.
+
+### 프레임 id 는 이렇게 짓습니다
+
+```
+sf-p3-103210-001
+│  │  │      └─ 이 캡처 세션에서 몇 번째 장인지 (세 자리, 1000장을 넘으면 네 자리)
+│  │  └──────── 캡처를 시작한 시각 시분초 (UTC)  ← 같은 교시에서 다시 켠 것을 가름
+│  └─────────── 교시 조각 (periodId `2026-09-02-p3` 의 `p3`)
+└────────────── 계약이 요구하는 머리글자
+```
+
+교시와 시작 시각을 붙이는 까닭은 호스트가 교시마다 `frames.id` 를 기본 키로 두고 같은 id 를
+`duplicate-frame` 으로 거절하기 때문입니다(`apps/native-host/src/store/frames.rs`). 예전처럼
+`sf-001` 부터 다시 붙이면, 같은 교시에서 캡처를 껐다 켠 순간부터 모든 장이 거절됩니다.
+`docs/spikes/gate-d-recovery.md` 는 "Meet 탭에서 다시 시작" 을 정상 복구 경로로 못 박아 두어
+예외가 아니라 설계된 흐름입니다.
+
+가르는 단위는 **1초**입니다. 같은 교시에서 같은 초에 두 번 시작하면 겹치지만, 캡처 시작은
+사람 손짓(`tabCapture` 가 요구합니다) 뒤에만 되므로 실제로는 닿지 않습니다.
+
+fixtures 와 계약 보기의 `sf-p3-001` · `sf-p3-042`(`packages/contracts/schemas/examples/`,
+`fixtures/synthetic-class/golden-ioc/`)는 **손으로 지은 값**이라 시각 조각이 없습니다. 두
+모양 모두 계약 정규식 `^sf-[A-Za-z0-9_-]{1,60}$` 를 통과하므로 그대로 두어도 되고, 확장이
+실제로 만드는 값만 시각 조각을 답니다. fixtures 는 이 워커가 손대지 않습니다.
 
 ## 시험
 
@@ -98,6 +173,15 @@ Node(Vitest)에는 `OffscreenCanvas` 도 `ImageData` 도 없고 실제 Meet 탭�
   화면은 저장소에 한 장도 담지 않습니다(불변 원칙 §4-3). `capture-scenario.test.ts` 가
   동일 → 변화 → 동일 열을 흘려 보내며 sink 호출 횟수 · WebP 굽는 횟수 · 1 MiB 가드 ·
   60분 상한을 한 시나리오에서 순서대로 확인합니다.
+
+`entrypoints/**` 는 vitest 가 보지 않는 자리입니다. 그래서 Offscreen 문서가 하던 **판단**을
+`src/capture/**` 로 빼 두고 거기에 시험을 붙였습니다. 문서에 남은 것은 브라우저 API 를 부르는
+일뿐입니다.
+
+| 뺀 판단 | 간 곳 | 시험 |
+|---|---|---|
+| 세션 여는 순서와 실패 정리 | `session-setup.ts` | `session-setup.test.ts` — 가짜 스트림·가짜 `<video>` 로 "실패하면 정말 트랙을 멈추고 요소를 떼는가" |
+| 회차 결과에 따른 상태 갈아타기 | `capture-run-state.ts` | `capture-run-state.test.ts` — 실패 뒤 성공하면 회복하는가, 5연속 실패면 접는가 |
 
 ```bash
 pnpm --filter @classmate/browser-extension test        # 단위 시험
@@ -114,8 +198,9 @@ node spikes/meet-capture-measure.mjs                   # Chromium 실측 (dhash�
 - `chrome.runtime.connectNative('com.corthex.classmate.host')` 연결. 바꿀 곳은
   `entrypoints/background.ts` 의 `frameSink` 한 줄입니다. `MemoryFrameSink` 자리에 같은
   `FrameSink` 인터페이스를 지키는 `NativeHostFrameSink` 를 끼우면 됩니다.
-- 호스트 답 처리. `frame.stored` 는 `seq` 로 몇 장까지 갔는지 확인하고, `error` 는 사람이
-  읽을 한 줄로 사이드패널에 올립니다. 판별 함수 `isFrameStoredMessage` ·
+- 호스트 답 처리. `frame.stored` 는 어느 `id` 가 어느 `path` 로 들어갔는지 확인하는 데 쓰고,
+  `error` 는 사람이 읽을 한 줄로 사이드패널에 올립니다. `seq` 는 호스트의 **이벤트 순번**이라
+  장 수가 아니므로 "몇 장까지 갔는지" 로 읽지 않습니다. 판별 함수 `isFrameStoredMessage` ·
   `isHostErrorMessage` 는 이미 있습니다.
 - 재연결·재시도. 도우미가 죽었을 때 몇 장을 들고 기다릴지, 몇 번 다시 붙을지는 Gate D
   판정 뒤에 정합니다. 지금은 메모리 통이 60분·48MiB 안에서 들고 있습니다.

@@ -18,7 +18,21 @@
  *   **타입으로만** 들여와서 씁니다(`import type`). 값을 들여오면 Ajv 가 확장 번들에 섞여
  *   MV3 의 콘텐츠 보안 정책에 걸립니다. 스키마가 바뀌면 여기 타입도 같이 깨져서
  *   `pnpm --filter @classmate/browser-extension typecheck` 가 먼저 알려 줍니다.
+ *
+ * 프레임 id 는 이렇게 생겼습니다.
+ *
+ *   sf-p3-103210-001
+ *   │  │  │      └─ 이 캡처 세션에서 몇 번째 장인지 (세 자리, 1000장을 넘으면 네 자리)
+ *   │  │  └──────── 캡처를 시작한 시각 시분초 (UTC)  ← 같은 교시에서 다시 켠 것을 가름
+ *   │  └─────────── 교시 조각 (periodId 의 `p3`)
+ *   └────────────── 계약이 요구하는 머리글자
+ *
+ *   교시와 시작 시각을 붙이는 까닭은 호스트가 교시마다 `frames.id` 를 기본 키로 두고
+ *   같은 id 를 `duplicate-frame` 으로 거절하기 때문입니다. 예전처럼 `sf-001` 부터 다시
+ *   붙이면 같은 교시에서 캡처를 껐다 켠 순간부터 모든 장이 거절됩니다.
  */
+
+import { assertPeriodId, assertScreenFrameId } from './host-messages';
 
 import type { ScreenFrame } from '@classmate/contracts';
 
@@ -59,8 +73,11 @@ export interface FrameStoreOptions {
   maxBytes?: number;
   /** 장 수 상한. 기본 3600장(1fps 로 60분). */
   maxFrames?: number;
-  /** id 앞에 붙일 글자. 기본 `sf-`. */
-  idPrefix?: string;
+  /**
+   * 이 캡처 세션이 시작한 시각입니다. id 가운데 여섯 자리(`103210`)가 여기서 나옵니다.
+   * 기본값은 통을 만드는 지금입니다. 시험에서는 고정된 값을 넣어 id 를 확정합니다.
+   */
+  startedAt?: Date | string | number;
 }
 
 export interface FrameStoreStats {
@@ -89,6 +106,51 @@ function toIsoString(value: Date | string | number): string {
   return date.toISOString();
 }
 
+/**
+ * 교시 식별자에서 교시 조각만 뽑습니다. `2026-09-02-p3` → `p3`.
+ *
+ * 계약 모양이 `YYYY-MM-DD-p<번호>` 라 마지막 `-` 뒤가 곧 교시 조각입니다. 모양이 다르면
+ * `assertPeriodId` 가 먼저 막으므로 여기서는 뽑기만 합니다.
+ */
+export function periodSegment(periodId: string): string {
+  assertPeriodId(periodId);
+  return periodId.slice(periodId.lastIndexOf('-') + 1);
+}
+
+/**
+ * 시각을 `시분초` 여섯 자리로 적습니다. `10:32:10` → `103210`.
+ *
+ * **UTC 기준**입니다. 시계를 어느 시간대에 맞춰 두었든 같은 순간이면 같은 글자가 나와야
+ * 시험이 기계마다 흔들리지 않기 때문입니다(프레임의 `capturedAt` 도 UTC 로 적습니다).
+ */
+export function compactUtcTime(value: Date | string | number): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new RangeError('캡처 시작 시각이 올바르지 않아요');
+  }
+  const hours = String(date.getUTCHours()).padStart(2, '0');
+  const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+  const seconds = String(date.getUTCSeconds()).padStart(2, '0');
+  return `${hours}${minutes}${seconds}`;
+}
+
+/**
+ * id 앞에 붙일 글자를 만듭니다. `2026-09-02-p3` + `10:32:10` → `sf-p3-103210-`.
+ *
+ * 왜 교시와 시작 시각을 함께 넣는가:
+ *   호스트는 교시마다 `frames.id` 를 기본 키로 둡니다
+ *   (`apps/native-host/src/store/frames.rs` 의 `duplicate-frame` 거절). 예전처럼 `sf-001`
+ *   부터 다시 붙이면, 같은 교시에서 캡처를 껐다 켠 순간부터 모든 장이 "이미 있는 id" 로
+ *   거절됩니다. 교시 조각은 어느 교시의 장인지 눈으로 보이게 하고, 시작 시각 여섯 자리는
+ *   같은 교시 안의 재시작을 갈라 줍니다.
+ *
+ * 한계: 가르는 단위가 **1초**입니다. 같은 교시에서 같은 초에 두 번 시작하면 겹칩니다.
+ * 캡처 시작은 사람 손짓(`tabCapture` 가 요구합니다) 뒤에만 되므로 실제로는 닿지 않습니다.
+ */
+export function frameIdPrefix(periodId: string, startedAt: Date | string | number): string {
+  return `sf-${periodSegment(periodId)}-${compactUtcTime(startedAt)}-`;
+}
+
 interface Entry {
   frame: CapturedFrame;
   atMs: number;
@@ -100,6 +162,7 @@ export class FrameStore {
   readonly maxDurationMs: number;
   readonly maxBytes: number;
   readonly maxFrames: number;
+  /** id 앞에 붙는 글자입니다. 보기 `sf-p3-103210-`. 교시와 캡처 시작 시각이 들어 있습니다. */
   readonly idPrefix: string;
 
   private entries: Entry[] = [];
@@ -109,19 +172,24 @@ export class FrameStore {
   private droppedBytesTotal = 0;
 
   constructor(options: FrameStoreOptions) {
-    if (!options.periodId) {
-      throw new RangeError('교시 식별자가 있어야 해요');
-    }
+    // 교시 이름은 호스트와 **같은 규칙**으로 먼저 봅니다. 호스트가 거절할 이름을 여기서
+    // 막아, 한 시간 모은 장을 통째로 버리는 일이 없게 합니다.
+    assertPeriodId(options.periodId);
+
     this.periodId = options.periodId;
     this.source = options.source ?? 'meet-tab';
     this.maxDurationMs = options.maxDurationMs ?? DEFAULT_MAX_DURATION_MS;
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.maxFrames = options.maxFrames ?? DEFAULT_MAX_FRAMES;
-    this.idPrefix = options.idPrefix ?? 'sf-';
+    this.idPrefix = frameIdPrefix(this.periodId, options.startedAt ?? new Date());
 
     if (this.maxDurationMs <= 0 || this.maxBytes <= 0 || this.maxFrames <= 0) {
       throw new RangeError('상한은 0 보다 커야 해요');
     }
+
+    // 첫 id 를 미리 만들어 봅니다. 규칙에 안 맞으면(보기: 교시 번호가 지나치게 길어 61글자를
+    // 넘음) 프레임을 담기 시작한 뒤가 아니라 **지금** 막힙니다.
+    this.idFor(this.nextSequence);
   }
 
   /** 지금 들고 있는 장 수입니다. */
@@ -152,7 +220,7 @@ export class FrameStore {
     }
 
     const capturedAt = toIsoString(input.capturedAt);
-    const id = `${this.idPrefix}${String(this.nextSequence).padStart(3, '0')}`;
+    const id = this.idFor(this.nextSequence);
     this.nextSequence += 1;
 
     const frame: CapturedFrame = {
@@ -173,6 +241,16 @@ export class FrameStore {
     this.bytes += input.bytes;
     this.evict();
     return frame;
+  }
+
+  /**
+   * 순번 하나로 id 를 만듭니다. `sf-p3-103210-001` 모양입니다.
+   * 만든 값은 곧바로 호스트와 **같은 규칙**으로 확인합니다(계약 `^sf-[A-Za-z0-9_-]{1,60}$`).
+   */
+  private idFor(sequence: number): string {
+    const id = `${this.idPrefix}${String(sequence).padStart(3, '0')}`;
+    assertScreenFrameId(id);
+    return id;
   }
 
   /** 오래된 것부터 버려 세 상한을 모두 지키게 만듭니다. 마지막 한 장은 남깁니다. */

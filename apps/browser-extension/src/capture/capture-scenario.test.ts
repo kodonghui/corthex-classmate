@@ -29,6 +29,8 @@ const PERIOD = '2026-09-02-p3';
 const WIDTH = 640;
 const HEIGHT = 360;
 const BASE_MS = Date.parse('2026-09-02T10:00:00.000Z');
+/** 통을 만든 시각을 고정해 두면 id 가 `sf-p3-100000-001` 로 확정됩니다. */
+const ID_PREFIX = 'sf-p3-100000-';
 
 /** 실제로 그리지 않고 정해진 바이트만 돌려주는 그림판입니다. Node 에는 캔버스가 없습니다. */
 class StubSurface implements EncoderSurface {
@@ -88,7 +90,7 @@ function buildRig() {
   const memory = new MemoryFrameSink({ now: clock.now });
   const sink = new CountingSink(memory);
 
-  const store = new FrameStore({ periodId: PERIOD, source: 'meet-tab' });
+  const store = new FrameStore({ periodId: PERIOD, source: 'meet-tab', startedAt: BASE_MS });
   const encoder = new OffscreenWebpEncoder({
     includePayload: true,
     createSurface: (width, height) => {
@@ -142,7 +144,7 @@ describe('합성 프레임 시나리오', () => {
     const back = await pipeline.offer(makeCodeFrame(WIDTH, HEIGHT, 1), BASE_MS + 5000);
     expect(back.status).toBe('stored');
     expect(sink.calls).toBe(3);
-    expect(sink.seen).toEqual(['sf-001', 'sf-002', 'sf-003']);
+    expect(sink.seen).toEqual([`${ID_PREFIX}001`, `${ID_PREFIX}002`, `${ID_PREFIX}003`]);
 
     expect(pipeline.stats()).toMatchObject({ offered: 6, changed: 3, encoded: 3, stored: 3 });
     expect(memory.stats()).toMatchObject({
@@ -183,7 +185,7 @@ describe('합성 프레임 시나리오', () => {
     clock.advance(60 * 60 * 1000 + 1000);
     await pipeline.offer(makeCodeFrame(WIDTH, HEIGHT, 1), BASE_MS + 60 * 60 * 1000 + 1000);
 
-    expect(memory.list().map((record) => record.id)).toEqual(['sf-003']);
+    expect(memory.list().map((record) => record.id)).toEqual([`${ID_PREFIX}003`]);
     expect(memory.stats()).toMatchObject({
       stored: 2,
       skippedTooLarge: 1,

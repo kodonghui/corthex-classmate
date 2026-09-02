@@ -1,17 +1,28 @@
 import { describe, expect, it } from 'vitest';
 import { createValidator, formatErrors } from '@classmate/contracts';
 import type { ScreenFrame } from '@classmate/contracts';
-import { DEFAULT_MAX_DURATION_MS, FrameStore, toScreenFrame } from './frame-store';
+import {
+  compactUtcTime,
+  DEFAULT_MAX_DURATION_MS,
+  frameIdPrefix,
+  FrameStore,
+  periodSegment,
+  toScreenFrame,
+} from './frame-store';
+import { SCREEN_FRAME_ID_PATTERN } from './host-messages';
 
 const PERIOD = '2026-09-02-p3';
 const BASE_MS = Date.parse('2026-09-02T10:00:00.000Z');
 
+/** 시작 시각을 고정해 두면 id 가운데 여섯 자리가 `100000` 으로 확정됩니다. */
+const ID_PREFIX = 'sf-p3-100000-';
+
 function store(overrides: Partial<ConstructorParameters<typeof FrameStore>[0]> = {}): FrameStore {
-  return new FrameStore({ periodId: PERIOD, ...overrides });
+  return new FrameStore({ periodId: PERIOD, startedAt: BASE_MS, ...overrides });
 }
 
 describe('FrameStore.add', () => {
-  it('id 는 sf- 뒤에 세 자리 번호를 붙이고 path 를 만들어 줍니다', () => {
+  it('id 는 교시·시작 시각·순번을 이어 붙이고 path 를 만들어 줍니다', () => {
     const frames = store();
     const first = frames.add({
       capturedAt: BASE_MS,
@@ -21,8 +32,8 @@ describe('FrameStore.add', () => {
       height: 720,
     });
 
-    expect(first.id).toBe('sf-001');
-    expect(first.path).toBe('frames/sf-001.webp');
+    expect(first.id).toBe(`${ID_PREFIX}001`);
+    expect(first.path).toBe(`frames/${ID_PREFIX}001.webp`);
     expect(first.periodId).toBe(PERIOD);
     expect(first.source).toBe('meet-tab');
     expect(first.mime).toBe('image/webp');
@@ -35,7 +46,7 @@ describe('FrameStore.add', () => {
       width: 1280,
       height: 720,
     });
-    expect(second.id).toBe('sf-002');
+    expect(second.id).toBe(`${ID_PREFIX}002`);
     expect(frames.totalBytes).toBe(3072);
   });
 
@@ -130,6 +141,93 @@ describe('FrameStore.add', () => {
   });
 });
 
+describe('프레임 id 는 교시와 캡처 시작 시각을 담습니다', () => {
+  it('periodSegment 는 교시 조각만 뽑습니다', () => {
+    expect(periodSegment('2026-09-02-p3')).toBe('p3');
+    expect(periodSegment('2026-09-02-p12')).toBe('p12');
+    expect(periodSegment('2026-12-31-p1')).toBe('p1');
+  });
+
+  it('periodSegment 는 계약 모양이 아닌 이름을 RangeError 로 막습니다', () => {
+    // 호스트의 `is_contract_period_id` 와 같은 규칙입니다. 여기서 막지 않으면 한 시간 모은
+    // 장이 호스트에서 통째로 거절됩니다.
+    for (const bad of ['p3', '2026-09-02', '2026-09-02-p0', '2026-9-2-p3', '2026-09-02-p3/x']) {
+      expect(() => periodSegment(bad), bad).toThrow(RangeError);
+    }
+  });
+
+  it('compactUtcTime 은 시분초 여섯 자리를 UTC 로 적습니다', () => {
+    expect(compactUtcTime(Date.parse('2026-09-02T10:32:10.000Z'))).toBe('103210');
+    expect(compactUtcTime(Date.parse('2026-09-02T00:00:00.000Z'))).toBe('000000');
+    expect(compactUtcTime(new Date('2026-09-02T23:59:59.999Z'))).toBe('235959');
+    expect(() => compactUtcTime('시각 아님')).toThrow(RangeError);
+  });
+
+  it('만들어진 id 는 계약 정규식 ^sf-[A-Za-z0-9_-]{1,60}$ 를 통과합니다', () => {
+    const frames = store();
+    for (let i = 0; i < 3; i += 1) {
+      const frame = frames.add({
+        capturedAt: BASE_MS + i * 1000,
+        hash: 'abcdef0123456789',
+        bytes: 10,
+        width: 1280,
+        height: 720,
+      });
+      expect(SCREEN_FRAME_ID_PATTERN.test(frame.id), frame.id).toBe(true);
+      expect(frame.path).toBe(`frames/${frame.id}.webp`);
+    }
+  });
+
+  it('같은 교시에서 캡처를 다시 켜면 앞 세션과 id 가 겹치지 않습니다', () => {
+    // 예전에는 통을 새로 만들 때마다 sf-001 부터 다시 붙어, 호스트가 같은 교시의 재시작분을
+    // duplicate-frame 으로 전량 거절했습니다.
+    const input = {
+      capturedAt: BASE_MS,
+      hash: 'abcdef0123456789',
+      bytes: 10,
+      width: 1280,
+      height: 720,
+    };
+
+    const first = new FrameStore({ periodId: PERIOD, startedAt: BASE_MS });
+    const second = new FrameStore({ periodId: PERIOD, startedAt: BASE_MS + 90_000 });
+
+    const firstId = first.add(input).id;
+    const secondId = second.add(input).id;
+
+    expect(firstId).toBe('sf-p3-100000-001');
+    expect(secondId).toBe('sf-p3-100130-001');
+    expect(firstId).not.toBe(secondId);
+  });
+
+  it('교시가 다르면 id 도 다릅니다', () => {
+    expect(frameIdPrefix('2026-09-02-p3', BASE_MS)).toBe('sf-p3-100000-');
+    expect(frameIdPrefix('2026-09-02-p4', BASE_MS)).toBe('sf-p4-100000-');
+  });
+
+  it('id 가 61글자를 넘길 교시 번호는 통을 만들 때 바로 막습니다', () => {
+    // 장을 담기 시작한 뒤가 아니라 지금 막혀야 합니다. 계약 정규식은 sf- 뒤 60글자까지입니다.
+    const absurd = `2026-09-02-p${'9'.repeat(60)}`;
+    expect(() => new FrameStore({ periodId: absurd, startedAt: BASE_MS })).toThrow(RangeError);
+  });
+
+  it('1000번째 장은 네 자리로 이어지고 규칙도 그대로 지킵니다', () => {
+    const frames = store({ maxFrames: 2 });
+    let last = '';
+    for (let i = 0; i < 1000; i += 1) {
+      last = frames.add({
+        capturedAt: BASE_MS + i,
+        hash: 'abcdef0123456789',
+        bytes: 1,
+        width: 8,
+        height: 8,
+      }).id;
+    }
+    expect(last).toBe(`${ID_PREFIX}1000`);
+    expect(SCREEN_FRAME_ID_PATTERN.test(last)).toBe(true);
+  });
+});
+
 describe('FrameStore 상한', () => {
   it('바이트 상한을 넘으면 오래된 것부터 버립니다', () => {
     const frames = store({ maxBytes: 3000 });
@@ -146,8 +244,8 @@ describe('FrameStore 상한', () => {
     expect(frames.size).toBe(3);
     expect(frames.totalBytes).toBe(3000);
     expect(frames.droppedFrames).toBe(2);
-    expect(frames.list()[0]?.id).toBe('sf-003');
-    expect(frames.latest()?.id).toBe('sf-005');
+    expect(frames.list()[0]?.id).toBe(`${ID_PREFIX}003`);
+    expect(frames.latest()?.id).toBe(`${ID_PREFIX}005`);
   });
 
   it('장 수 상한을 넘으면 오래된 것부터 버립니다', () => {
@@ -161,7 +259,7 @@ describe('FrameStore 상한', () => {
         height: 720,
       });
     }
-    expect(frames.list().map((frame) => frame.id)).toEqual(['sf-003', 'sf-004']);
+    expect(frames.list().map((frame) => frame.id)).toEqual([`${ID_PREFIX}003`, `${ID_PREFIX}004`]);
   });
 
   it('교시 60분을 넘긴 장은 버립니다', () => {
@@ -192,7 +290,7 @@ describe('FrameStore 상한', () => {
       width: 1280,
       height: 720,
     });
-    expect(frames.list().map((frame) => frame.id)).toEqual(['sf-002', 'sf-003']);
+    expect(frames.list().map((frame) => frame.id)).toEqual([`${ID_PREFIX}002`, `${ID_PREFIX}003`]);
     expect(frames.droppedFrames).toBe(1);
   });
 
@@ -206,7 +304,7 @@ describe('FrameStore 상한', () => {
       height: 720,
     });
     expect(frames.size).toBe(1);
-    expect(frames.latest()?.id).toBe('sf-001');
+    expect(frames.latest()?.id).toBe(`${ID_PREFIX}001`);
   });
 
   it('stats 는 지금 몇 장·몇 바이트·몇 장 버렸는지 알려 줍니다', () => {
@@ -251,6 +349,6 @@ describe('FrameStore 상한', () => {
       width: 1280,
       height: 720,
     });
-    expect(next.id).toBe('sf-002');
+    expect(next.id).toBe(`${ID_PREFIX}002`);
   });
 });

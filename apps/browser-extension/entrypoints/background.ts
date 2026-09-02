@@ -188,7 +188,10 @@ export default defineBackground(() => {
   // 이유는, `tabCapture` 가 요구하는 "사용자 제스처" 를 확실히 만들 수 있는 자리가 지금은
   // 아이콘 클릭뿐이기 때문입니다. 실제 Meet 탭으로 손 시험을 할 때 위 setPanelBehavior 한 덩어리를
   // 잠시 주석 처리하고 다시 빌드하면 이 갈래가 살아납니다(docs/spikes/gate-b-meet.md §사람이 할 일 1).
-  // Phase 2 에서 사이드패널에 버튼이 생기면 이 갈래는 지웁니다.
+  //
+  // 지울 때: **2라운드에서 사이드패널 캡처 버튼이 생긴 뒤** 이 리스너를 지웁니다
+  // (docs/TASKS.md 에 적힌 제거 예정 항목입니다). 버튼 클릭 자체가 `tabCapture` 가 요구하는
+  // 사용자 제스처가 되므로 그때는 이 갈래가 필요 없습니다.
   chrome.action.onClicked.addListener((tab) => {
     if (tab.id === undefined) return;
     const periodId = currentPeriodId();
@@ -206,7 +209,10 @@ export default defineBackground(() => {
   //
   // 안전 메모: 이 손잡이는 확장 자신의 서비스 워커 전역에만 붙습니다. 웹 페이지·콘텐츠
   // 스크립트는 이 전역에 닿을 수 없고, 화면·전사에서 읽은 문장을 실행하는 길도 아닙니다
-  // (불변 원칙 §4-7). Phase 2 에서 사이드패널 버튼이 생기면 함께 지웁니다.
+  // (불변 원칙 §4-7).
+  //
+  // 지울 때: **2라운드에서 사이드패널 캡처 버튼이 생긴 뒤** 위 아이콘 클릭 갈래와 함께
+  // 지웁니다(docs/TASKS.md 에 적힌 제거 예정 항목입니다).
   (globalThis as unknown as { classmateCapture?: unknown }).classmateCapture = {
     /** 캡처 시작. 사용자 제스처가 없으면 `tabCapture` 가 실패합니다(그래서 보통은 아이콘 클릭을 씁니다). */
     start: (tabId: number, periodId: string = currentPeriodId()) =>

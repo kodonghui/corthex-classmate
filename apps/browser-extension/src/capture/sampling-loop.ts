@@ -101,8 +101,11 @@ export class SamplingLoop {
     this.onError = options.onError;
     this.timers = options.timers ?? systemTimers;
 
-    if (!Number.isFinite(this.intervalMs) || this.intervalMs < 0) {
-      throw new RangeError('샘플링 간격은 0 이상이어야 해요');
+    // 0 도 막습니다. 간격 0 은 회차가 끝나자마자 다음 회차를 잡아 CPU 를 통째로 먹는데,
+    // `resolveCaptureSettings`(messages.ts)가 이미 `0 보다 큰 수` 만 통과시키므로 두 곳의
+    // 규칙을 같게 둡니다. 규칙이 어긋나면 한쪽으로 들어온 0 이 조용히 살아납니다.
+    if (!Number.isFinite(this.intervalMs) || this.intervalMs <= 0) {
+      throw new RangeError('샘플링 간격은 0 보다 커야 해요');
     }
   }
 
