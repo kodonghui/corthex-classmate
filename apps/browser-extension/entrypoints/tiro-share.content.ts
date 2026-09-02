@@ -9,14 +9,14 @@ import {
   stopWithFlush,
   TIRO_SHARE_MATCHES,
 } from '../src/tiro';
-import type {
-  FlushableConnector,
-  HintDegradedSignal,
-  SelectorBrokenSignal,
-  TiroPartial,
-  TranscriptSegment,
-  Unsubscribe,
-} from '../src/tiro';
+import type { FlushableConnector, Unsubscribe } from '../src/tiro';
+import type { TiroMessage } from '../src/background/tiro-messages';
+import {
+  TIRO_MESSAGE_TYPES,
+  TIRO_START_REQUEST,
+  TIRO_STOP_REQUEST,
+  isTiroRequest,
+} from '../src/background/tiro-messages';
 
 /**
  * Tiro 공유 페이지 content script (Gate A · 2순위 경로).
@@ -24,50 +24,29 @@ import type {
  * 하는 일은 하나입니다: 공유 페이지 DOM 을 MutationObserver 로 읽어
  * `chrome.runtime.sendMessage` 로 백그라운드에 넘깁니다.
  *
- * **받는 쪽은 아직 없습니다.** background 의 수신 처리·세션 저장·Native Messaging 전달은
- * Phase 2 몫이고 이 게이트의 소유가 아닙니다. 그래서 지금 `sendMessage` 는 거의 항상
- * "Receiving end does not exist" 로 떨어지고, 아래에서 그것을 조용히 삼킵니다.
- * 이건 버그가 아니라 Phase 1 의 정상 상태입니다.
+ * **받는 쪽은 2라운드에 붙었습니다.** `src/background/router.ts` 가 이 메시지들을 받아
+ * 로컬 도우미의 `event.append` 와 사이드패널로 나눠 보냅니다. 말의 이름과 좁힘 함수는
+ * 양쪽이 같은 파일(`src/background/tiro-messages.ts`)을 보고, 이 파일은 그것을 다시 냅니다.
+ * 사이드패널이 닫혀 있고 서비스 워커가 잠들어 있으면 `sendMessage` 가 잠깐 떨어질 수
+ * 있는데, 그것은 오류가 아니라 정상이라 아래에서 조용히 삼킵니다.
  *
  * 지키는 것 (불변 원칙 §3 · §7):
  *  - 공유 URL·비밀번호를 로그에 남기지 않습니다. 콘솔에는 개수와 상태 이름만 씁니다.
  *  - 전사 문장을 명령으로 해석하지 않습니다. 문자열을 그대로 메시지 payload 에 담기만 합니다.
  */
 
-/** 백그라운드로 보내는 메시지 이름입니다. Phase 2 수신부가 이 이름을 그대로 씁니다. */
-export const TIRO_MESSAGE_TYPES = {
-  segment: 'tiro.segment',
-  partial: 'tiro.partial',
-  hintDegraded: 'tiro.hint_degraded',
-  selectorBroken: 'tiro.selector_broken',
-} as const;
+// 말의 이름은 `src/background/tiro-messages.ts` 가 정본입니다. 1라운드에는 이 파일 안에
+// 있었지만, 받는 쪽(라우터)이 생기면서 양쪽이 같은 파일을 보도록 옮겼습니다.
+// 밖에서 쓰던 이름이 끊기지 않게 여기서 그대로 다시 냅니다.
+export { TIRO_MESSAGE_TYPES, TIRO_START_REQUEST, TIRO_STOP_REQUEST };
+export type { TiroMessage };
 
-export type TiroMessage =
-  | { type: 'tiro.segment'; segment: TranscriptSegment }
-  | { type: 'tiro.partial'; partial: TiroPartial }
-  | { type: 'tiro.hint_degraded'; signal: HintDegradedSignal }
-  | { type: 'tiro.selector_broken'; signal: SelectorBrokenSignal };
-
-/**
- * 백그라운드에서 **받는** 요청 이름입니다.
- *
- * 교시를 사람이 끝냈을 때 옵니다. 받으면 진행 중 문단을 flush 하고 관찰을 멈춥니다.
- * 보내는 쪽(background)은 다른 단위 소유라 이 파일에서 만들지 않습니다.
- */
-export const TIRO_STOP_REQUEST = 'tiro.stop';
-
-/** 이 content script 가 알아듣는 요청입니다. 모르는 모양은 그냥 무시합니다. */
-function isStopRequest(message: unknown): boolean {
-  if (typeof message !== 'object' || message === null) return false;
-  return (message as { type?: unknown }).type === TIRO_STOP_REQUEST;
-}
-
-/** 받는 쪽이 없을 때 나는 오류를 삼킵니다. Phase 1 에서는 이게 정상입니다. */
+/** 받는 쪽이 없을 때 나는 오류를 삼킵니다. 패널이 닫혀 있으면 흔한 일입니다. */
 function send(message: TiroMessage): void {
   if (typeof chrome === 'undefined' || !chrome.runtime?.id) return;
   try {
     void Promise.resolve(chrome.runtime.sendMessage(message)).catch(() => {
-      // Phase 2 수신부가 붙기 전까지는 받는 쪽이 없습니다.
+      // 서비스 워커가 잠들어 있으면 잠깐 이렇게 떨어집니다. 다음 문단이 다시 깨웁니다.
     });
   } catch {
     // 확장 문맥이 이미 내려간 경우(새로고침 직후)입니다.
@@ -174,11 +153,21 @@ export default defineContentScript({
       if (action === 'stop') stopObserving();
     });
 
-    // 사람이 교시를 끝내면 background 가 `tiro.stop` 을 보냅니다. 받는 쪽이 아직 없어도
-    // 듣는 것은 공짜라 미리 붙여 둡니다(보내는 쪽은 다음 라운드의 다른 단위 소유입니다).
+    // 서비스 워커가 보내는 두 가지 요청을 듣습니다.
+    //
+    //   tiro.stop  — 사람이 교시를 끝냈거나 "다시 연결" 을 눌렀습니다. 진행 중 문단을
+    //                partial 세그먼트로 한 번 건진 뒤 관찰을 멈춥니다.
+    //   tiro.start — 위 `tiro.stop` 바로 뒤에 옵니다. 관찰을 다시 세웁니다.
+    //
+    // 공유 페이지가 아닌 tiro.ooo 페이지(로그인·설정)에서는 `tiro.start` 를 받아도 시작하지
+    // 않습니다. 시작 판정은 언제나 주소가 합니다.
     chrome.runtime.onMessage.addListener((message: unknown) => {
-      if (!isStopRequest(message)) return;
-      stopObserving();
+      if (!isTiroRequest(message)) return;
+      if (message.type === TIRO_STOP_REQUEST) {
+        stopObserving();
+        return;
+      }
+      if (isSharePageUrl(location.href)) startObserving();
     });
   },
 });
