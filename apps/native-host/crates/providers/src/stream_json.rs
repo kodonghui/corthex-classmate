@@ -1,17 +1,22 @@
-//! `claude --output-format stream-json` 의 줄 단위 스트림을 이벤트로 바꾸는 파서.
+//! `claude --output-format stream-json` 의 줄 단위 스트림을 이벤트로 바꾸는 파서입니다.
 //!
-//! 규칙은 `spikes/lib/stream-json.mjs` 에서 그대로 옮겼다.
+//! 규칙은 `spikes/lib/stream-json.mjs` 에서 그대로 옮겼습니다.
 //!
-//! - 표준출력에는 JSON 객체가 한 줄에 하나씩 흐른다.
-//! - 자식 프로세스의 stdout 청크는 줄 경계에서 끊긴다는 보장이 없다 → 마지막 조각을 버퍼에 남긴다.
-//! - JSON 이 아닌 줄(경고 배너 등)은 무시하고 개수만 센다.
+//! - 표준출력에는 JSON 객체가 한 줄에 하나씩 흐릅니다.
+//! - 자식 프로세스의 stdout 청크는 줄 경계에서 끊긴다는 보장이 없습니다 → 마지막 조각을 버퍼에 남깁니다.
+//! - JSON 이 아닌 줄(경고 배너 등)은 무시하고 개수만 셉니다.
 //!
-//! 옮기면서 **한 곳만 엄해졌다**. spike 는 파싱에 실패한 줄을 전부 배너로 보고 넘어가지만,
-//! 여기서는 `{` 로 시작하는데 파싱에 실패한 줄을 **깨진 프레임**으로 보고
-//! [`ProviderError::Protocol`] 을 낸다. `{` 로 시작하지 않는 줄만 배너로 넘긴다.
-//! 이유는 두 가지다. (1) `{` 로 시작하는 줄은 자기가 이벤트라고 주장한 줄이라 조용히 버리면
-//! 답변 조각이 사라진 채 성공으로 보인다. (2) 상위 단위가 "답이 잘렸다"를 알아채야 계약의
-//! `status: "error"` 로 내려갈 수 있다.
+//! # spike 와 다른 두 곳
+//!
+//! 1. **깨진 프레임을 더 엄하게 봅니다.** spike 는 파싱에 실패한 줄을 전부 배너로 보고 넘어가지만,
+//!    여기서는 `{` 로 시작하는데 파싱에 실패한 줄을 **깨진 프레임**으로 보고
+//!    [`ProviderError::Protocol`] 을 냅니다. `{` 로 시작하지 않는 줄만 배너로 넘깁니다.
+//!    이유는 두 가지입니다. (1) `{` 로 시작하는 줄은 자기가 이벤트라고 주장한 줄이라 조용히 버리면
+//!    답변 조각이 사라진 채 성공으로 보입니다. (2) 상위 단위가 "답이 잘렸다"를 알아채야 계약의
+//!    `status: "error"` 로 내려갈 수 있습니다.
+//! 2. **`type` 칸이 없는 객체를 세지 않습니다.** spike 는 객체이기만 하면 `events` 에 기록하지만,
+//!    여기서는 상위로 흘려보낼 것이 없어 그대로 버리고 비JSON 계수(`non_json_lines`)에도 올리지
+//!    않습니다. 계수는 "JSON 이 아니어서 못 읽은 줄"만 세는 자리로 남겨 둡니다.
 //!
 //! 관측한 이벤트 모양(Gate C2 실측 2026-09-02 · claude 2.1.252):
 //!
@@ -25,48 +30,48 @@ use serde_json::Value;
 
 use crate::provider::{ProviderError, ProviderEvent};
 
-/// 최종 `result` 이벤트에서 뽑은 지표.
+/// 최종 `result` 이벤트에서 뽑은 지표입니다.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ResultMetrics {
-    /// `subtype`. 성공은 `success` 다.
+    /// `subtype` 입니다. 성공은 `success` 입니다.
     pub subtype: Option<String>,
-    /// `is_error` 가 참일 때만 참. 칸이 없으면 거짓이다.
+    /// `is_error` 가 참일 때만 참입니다. 칸이 없으면 거짓입니다.
     pub is_error: bool,
-    /// CLI 가 스스로 잰 소요 시간(ms).
+    /// CLI 가 스스로 잰 소요 시간(ms)입니다.
     pub duration_ms: Option<u64>,
-    /// 모델 호출에만 쓴 시간(ms).
+    /// 모델 호출에만 쓴 시간(ms)입니다.
     pub duration_api_ms: Option<u64>,
-    /// 모델이 돌린 차례 수.
+    /// 모델이 돌린 차례 수입니다.
     pub num_turns: Option<u64>,
-    /// 이 회차 비용(USD).
+    /// 이 회차 비용(USD)입니다.
     pub total_cost_usd: Option<f64>,
-    /// `result` 칸의 답변 본문. `assistant` 이벤트가 하나도 없을 때의 대비책이다.
+    /// `result` 칸의 답변 본문입니다. `assistant` 이벤트가 하나도 없을 때의 대비책입니다.
     pub result_text: Option<String>,
 }
 
 impl ResultMetrics {
-    /// 성공한 회차인지 판정한다.
+    /// 성공한 회차인지 판정합니다.
     ///
-    /// spike 의 `isSuccessResult()` 와 같다. `is_error` 칸이 아예 없는 오류 result
-    /// (보기 `subtype: "error_max_turns"`)를 성공으로 세지 않으려고 `subtype` 까지 본다.
+    /// spike 의 `isSuccessResult()` 와 같습니다. `is_error` 칸이 아예 없는 오류 result
+    /// (보기 `subtype: "error_max_turns"`)를 성공으로 세지 않으려고 `subtype` 까지 봅니다.
     pub fn is_success(&self) -> bool {
         self.subtype.as_deref() == Some("success") && !self.is_error
     }
 }
 
-/// 파서가 한 줄에서 뽑아낸 것.
+/// 파서가 한 줄에서 뽑아낸 것입니다.
 #[derive(Debug, Clone, PartialEq)]
 pub enum StreamItem {
-    /// 상위로 그대로 흘려보낼 진행 조각.
+    /// 상위로 그대로 흘려보낼 진행 조각입니다.
     Event(ProviderEvent),
-    /// 최종 지표. 이 줄이 오면 회차가 끝난 것이다.
+    /// 최종 지표입니다. 이 줄이 오면 회차가 끝난 것입니다.
     Result(ResultMetrics),
 }
 
-/// 줄 단위 stream-json 파서.
+/// 줄 단위 stream-json 파서입니다.
 ///
-/// 상태를 들고 있으므로 회차마다 새로 만든다. 답변 본문을 메모리에 모으지만 로그·파일로는
-/// 내보내지 않는다(§4-3 — 본문은 길이만 남긴다).
+/// 상태를 들고 있으므로 회차마다 새로 만듭니다. 답변 본문을 메모리에 모으지만 로그·파일로는
+/// 내보내지 않습니다(§4-3 — 본문은 길이만 남깁니다).
 #[derive(Debug, Default)]
 pub struct StreamJsonParser {
     buffer: String,
@@ -77,16 +82,16 @@ pub struct StreamJsonParser {
 }
 
 impl StreamJsonParser {
-    /// 빈 파서를 만든다.
+    /// 빈 파서를 만듭니다.
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// stdout 청크 하나를 넣는다. 줄이 덜 온 마지막 조각은 버퍼에 남긴다.
+    /// stdout 청크 하나를 넣습니다. 줄이 덜 온 마지막 조각은 버퍼에 남깁니다.
     pub fn push(&mut self, chunk: &str) -> Result<Vec<StreamItem>, ProviderError> {
         self.buffer.push_str(chunk);
         let mut items = Vec::new();
-        // 마지막 조각(개행이 아직 없는 부분)은 버퍼에 남기고 나머지만 처리한다.
+        // 마지막 조각(개행이 아직 없는 부분)은 버퍼에 남기고 나머지만 처리합니다.
         while let Some(index) = self.buffer.find('\n') {
             let line: String = self.buffer.drain(..=index).collect();
             if let Some(item) = self.consume_line(&line)? {
@@ -96,7 +101,7 @@ impl StreamJsonParser {
         Ok(items)
     }
 
-    /// 이미 줄 단위로 잘린 입력을 넣는다. 자식 프로세스를 `BufRead::lines` 로 읽을 때 쓴다.
+    /// 이미 줄 단위로 잘린 입력을 넣습니다. 자식 프로세스를 `BufRead::lines` 로 읽을 때 씁니다.
     pub fn push_line(&mut self, line: &str) -> Result<Vec<StreamItem>, ProviderError> {
         match self.consume_line(line)? {
             Some(item) => Ok(vec![item]),
@@ -104,7 +109,7 @@ impl StreamJsonParser {
         }
     }
 
-    /// 스트림이 끝났을 때 버퍼에 남은 마지막 줄을 처리한다.
+    /// 스트림이 끝났을 때 버퍼에 남은 마지막 줄을 처리합니다.
     pub fn end(&mut self) -> Result<Vec<StreamItem>, ProviderError> {
         let rest = std::mem::take(&mut self.buffer);
         if rest.trim().is_empty() {
@@ -116,22 +121,25 @@ impl StreamJsonParser {
         }
     }
 
-    /// 지금까지 이어 붙인 답변 본문.
+    /// 지금까지 이어 붙인 답변 본문입니다.
     pub fn text(&self) -> &str {
         &self.text
     }
 
-    /// `system/init` 에서 읽은 모델 이름.
+    /// `system/init` 에서 읽은 모델 이름입니다.
     pub fn model(&self) -> Option<&str> {
         self.model.as_deref()
     }
 
-    /// 최종 `result` 지표. 아직 오지 않았으면 `None`.
+    /// 최종 `result` 지표입니다. 아직 오지 않았으면 `None` 입니다.
     pub fn result(&self) -> Option<&ResultMetrics> {
         self.result.as_ref()
     }
 
-    /// 무시한 비JSON 줄 수(경고 배너 등).
+    /// 무시한 비JSON 줄 수입니다(경고 배너 등).
+    ///
+    /// `{` 로 시작하지 않아 JSON 으로 읽지도 않은 줄만 셉니다. JSON 으로는 읽혔지만 `type` 칸이
+    /// 없어 버린 객체는 여기에 들어가지 않습니다(모듈 머리말의 "spike 와 다른 두 곳" 2번).
     pub fn non_json_lines(&self) -> usize {
         self.non_json_lines
     }
@@ -142,11 +150,11 @@ impl StreamJsonParser {
             return Ok(None);
         }
         if !line.starts_with('{') {
-            // 이벤트라고 주장하지 않는 줄이다. spike 와 같이 세기만 하고 넘어간다.
+            // 이벤트라고 주장하지 않는 줄입니다. spike 와 같이 세기만 하고 넘어갑니다.
             self.non_json_lines += 1;
             return Ok(None);
         }
-        // 본문은 오류 메시지에 담지 않는다(§4-3·§4-7). 길이만 담는다.
+        // 본문은 오류 메시지에 담지 않습니다(§4-3·§4-7). 길이만 담습니다.
         let event: Value = serde_json::from_str(line).map_err(|err| {
             ProviderError::Protocol(format!(
                 "stream-json 줄이 깨졌습니다 · {}바이트 · {}행 {}열",
@@ -157,7 +165,9 @@ impl StreamJsonParser {
         })?;
 
         let Some(kind) = event.get("type").and_then(Value::as_str) else {
-            // type 이 없는 객체는 모양을 모르는 줄이다. 세지 않고 조용히 넘긴다(spike 와 같다).
+            // `type` 이 없는 객체는 모양을 모르는 줄이라 상위로 흘릴 것이 없어 버립니다.
+            // 비JSON 계수에도 올리지 않습니다 — **여기서 spike 와 갈립니다.**
+            // spike(`spikes/lib/stream-json.mjs`)는 객체이기만 하면 `events` 에 기록합니다.
             return Ok(None);
         };
 
@@ -204,15 +214,15 @@ impl StreamJsonParser {
                 }
                 Ok(Some(StreamItem::Result(metrics)))
             }
-            // 모르는 type 은 무시한다. 새 이벤트가 생겨도 회차가 깨지지 않게 하려는 것이다.
+            // 모르는 type 은 무시합니다. 새 이벤트가 생겨도 회차가 깨지지 않게 하려는 것입니다.
             _ => Ok(None),
         }
     }
 }
 
-/// `assistant` 이벤트에서 텍스트 조각을 뽑는다. 텍스트가 없으면 `None`.
+/// `assistant` 이벤트에서 텍스트 조각을 뽑습니다. 텍스트가 없으면 `None` 입니다.
 ///
-/// `message.content` 는 블록 배열일 수도 있고 문자열일 수도 있다(spike 와 같은 규칙).
+/// `message.content` 는 블록 배열일 수도 있고 문자열일 수도 있습니다(spike 와 같은 규칙입니다).
 fn assistant_text(event: &Value) -> Option<String> {
     let content = event.get("message")?.get("content")?;
     if let Some(text) = content.as_str() {
@@ -242,7 +252,7 @@ fn assistant_text(event: &Value) -> Option<String> {
 mod tests {
     use super::*;
 
-    // Gate C2 실측에서 관측한 세 줄 모양을 그대로 쓴다.
+    // Gate C2 실측에서 관측한 세 줄 모양을 그대로 씁니다.
     const INIT: &str = r#"{"type":"system","subtype":"init","model":"claude-opus-5[1m]"}"#;
     const ASSISTANT: &str =
         r#"{"type":"assistant","message":{"content":[{"type":"text","text":"IoC 는 …"}]}}"#;
@@ -281,7 +291,7 @@ mod tests {
         let mut parser = StreamJsonParser::new();
         let whole = format!("{INIT}\n{ASSISTANT}\n");
         let cut = whole.len() / 2;
-        // 줄 한가운데에서 자른다. UTF-8 경계로 맞춘다.
+        // 줄 한가운데에서 자릅니다. UTF-8 경계로 맞춥니다.
         let cut = (0..=cut)
             .rev()
             .find(|i| whole.is_char_boundary(*i))
@@ -303,11 +313,28 @@ mod tests {
     }
 
     #[test]
+    fn an_object_without_a_type_is_dropped_and_not_counted() {
+        // 모듈 머리말 "spike 와 다른 두 곳" 2번을 시험으로 못 박습니다.
+        // spike 는 이 줄을 이벤트로 기록하지만 여기서는 버리고, 비JSON 계수에도 올리지 않습니다.
+        let mut parser = StreamJsonParser::new();
+        let items = parser
+            .push("{\"noType\":1}\n{\"subtype\":\"init\",\"model\":\"몰래 바꾸려는 값\"}\n")
+            .expect("type 없는 객체는 오류가 아닙니다");
+        assert!(items.is_empty());
+        // 계수는 "JSON 으로 읽지도 못한 줄"만 셉니다. 여기서는 둘 다 JSON 으로 읽혔습니다.
+        assert_eq!(parser.non_json_lines(), 0);
+        // 본문·모델·result 어디에도 흔적을 남기지 않습니다.
+        assert_eq!(parser.text(), "");
+        assert_eq!(parser.model(), None);
+        assert!(parser.result().is_none());
+    }
+
+    #[test]
     fn non_json_banner_lines_are_counted_not_failed() {
         let mut parser = StreamJsonParser::new();
         let items = parser
             .push("Warning: workspace trust banner\n[deprecated] something\n")
-            .expect("배너는 오류가 아니다");
+            .expect("배너는 오류가 아닙니다");
         assert!(items.is_empty());
         assert_eq!(parser.non_json_lines(), 2);
     }
@@ -321,7 +348,7 @@ mod tests {
         match err {
             ProviderError::Protocol(detail) => {
                 assert!(detail.contains("깨졌습니다"), "{detail}");
-                // 본문이 오류 메시지에 새어 나가면 안 된다.
+                // 본문이 오류 메시지에 새어 나가면 안 됩니다.
                 assert!(!detail.contains("assistant"), "{detail}");
             }
             other => panic!("Protocol 을 기대했습니다 · {other:?}"),

@@ -1,27 +1,27 @@
-//! Codex 제공자 — **아직 스텁이다.**
+//! Codex 제공자 — **아직 스텁입니다.**
 //!
-//! Gate C2(2026-09-02) 시점에 계정 사용 한도가 소진되어 실측을 하지 못했다. 네트워크 호출 없이
-//! 확인한 것은 프로토콜의 **모양**뿐이다(메소드 이름 188개 · 요청/응답 타입 307개).
+//! Gate C2(2026-09-02) 시점에 계정 사용 한도가 소진되어 실측을 하지 못했습니다. 네트워크 호출 없이
+//! 확인한 것은 프로토콜의 **모양**뿐입니다(메소드 이름 188개 · 요청/응답 타입 307개).
 //! 지연·비용·실제 이벤트 순서는 **미측정**이므로 여기서 흉내 내지 않고 [`ProviderError::NotImplemented`]
-//! 를 그대로 돌려준다. 겉보기에 되는 척하는 구현이 가장 나쁜 결과이기 때문이다.
+//! 를 그대로 돌려줍니다. 겉보기에 되는 척하는 구현이 가장 나쁜 결과이기 때문입니다.
 //!
 //! # 프로토콜 메모 (실측 전 · `codex app-server` stdio · experimental 표시)
 //!
-//! 전송은 stdio 위의 JSON-RPC 다. `codex app-server` 를 자식 프로세스로 띄우고 stdin 으로 요청을,
-//! stdout 으로 응답·알림을 주고받는다. 어댑터가 쓸 최소 흐름은 넷이다.
+//! 전송은 stdio 위의 JSON-RPC 입니다. `codex app-server` 를 자식 프로세스로 띄우고 stdin 으로 요청을,
+//! stdout 으로 응답·알림을 주고받습니다. 어댑터가 쓸 최소 흐름은 넷입니다.
 //!
 //! ```text
-//! 우리 → codex   thread/start          대화 하나를 연다 (이어 하려면 thread/resume)
-//! 우리 → codex   turn/start            이번 차례에 보낼 문맥·질문을 넘긴다
+//! 우리 → codex   thread/start          대화 하나를 엽니다 (이어 하려면 thread/resume)
+//! 우리 → codex   turn/start            이번 차례에 보낼 문맥·질문을 넘깁니다
 //! codex → 우리   turn/started          차례가 시작됐다는 알림
-//! codex → 우리   item/agentMessage/delta   답변 조각 (Claude 의 완성 메시지보다 이른 표시가 가능하다)
-//! codex → 우리   item/reasoning/textDelta  생각 조각 (화면에 그대로 쓰지 않는다)
+//! codex → 우리   item/agentMessage/delta   답변 조각 (Claude 의 완성 메시지보다 이른 표시가 가능합니다)
+//! codex → 우리   item/reasoning/textDelta  생각 조각 (화면에 그대로 쓰지 않습니다)
 //! codex → 우리   item/started · item/completed  항목 경계
 //! codex → 우리   turn/completed        차례가 끝났다는 알림
-//! 우리 → codex   turn/interrupt        타임아웃·취소 때 차례를 끊는다
+//! 우리 → codex   turn/interrupt        타임아웃·취소 때 차례를 끊습니다
 //! ```
 //!
-//! 승인 경계 메소드 세 가지는 수업 모드에서 **전부 거절**로 고정한다(불변 원칙 §4-6 읽기 전용).
+//! 승인 경계 메소드 세 가지는 수업 모드에서 **전부 거절**로 고정합니다(불변 원칙 §4-6 읽기 전용).
 //!
 //! ```text
 //! item/commandExecution/requestApproval   → 거절
@@ -41,33 +41,33 @@
 //! | 종료·타임아웃 시 `turn/interrupt` 응답 모양 | 미확인 | 실측 |
 //! | 로그인 만료 때의 오류 모양 | 미확인 | 실측 |
 //!
-//! 채우는 순서와 사람이 할 일은 `docs/spikes/gate-c2-provider.md` 의 "사람이 할 일" 2·3번에 있다.
+//! 채우는 순서와 사람이 할 일은 `docs/spikes/gate-c2-provider.md` 의 "사람이 할 일" 2·3번에 있습니다.
 
 use std::path::{Path, PathBuf};
 
 use crate::provider::{AskOutcome, AskRequest, ProviderError, ProviderEvent, TutorProvider};
 
-/// `codex app-server` 를 띄울 때 붙는 하위 명령.
+/// `codex app-server` 를 띄울 때 붙는 하위 명령입니다.
 ///
-/// 실행 파일 이름은 여기에 없다. Claude 쪽과 같은 규칙으로 **호출자가 경로를 준다**.
+/// 실행 파일 이름은 여기에 없습니다. Claude 쪽과 같은 규칙으로 **호출자가 경로를 줍니다**.
 pub const APP_SERVER_ARGS: [&str; 1] = ["app-server"];
 
-/// Codex app-server 제공자(스텁).
+/// Codex app-server 제공자입니다(스텁).
 #[derive(Debug, Clone)]
 pub struct CodexAppServerProvider {
     cli_path: PathBuf,
 }
 
 impl CodexAppServerProvider {
-    /// CLI 실행 파일 경로 하나로 스텁을 만든다. 기본값도 PATH 탐색도 없다.
+    /// CLI 실행 파일 경로 하나로 스텁을 만듭니다. 기본값도 PATH 탐색도 없습니다.
     ///
-    /// 경로를 받아 두는 이유는 실측이 끝난 뒤 이 자리에 구현을 채우기 위해서다.
-    /// 지금은 **아무것도 실행하지 않는다.**
+    /// 경로를 받아 두는 이유는 실측이 끝난 뒤 이 자리에 구현을 채우기 위해서입니다.
+    /// 지금은 **아무것도 실행하지 않습니다.**
     pub fn new(cli_path: PathBuf) -> Self {
         Self { cli_path }
     }
 
-    /// 나중에 띄울 CLI 경로.
+    /// 나중에 띄울 CLI 경로입니다.
     pub fn cli_path(&self) -> &Path {
         &self.cli_path
     }
@@ -108,9 +108,9 @@ mod tests {
         let mut seen = Vec::new();
         let err = provider
             .ask(&req, &mut |event| seen.push(event))
-            .expect_err("스텁은 언제나 실패한다");
+            .expect_err("스텁은 언제나 실패합니다");
         assert!(matches!(err, ProviderError::NotImplemented), "{err:?}");
-        // 이벤트가 하나도 없다는 것이 "자식 프로세스를 띄우지 않았다"의 방증이다.
+        // 이벤트가 하나도 없다는 것이 "자식 프로세스를 띄우지 않았다"의 방증입니다.
         assert!(seen.is_empty());
     }
 

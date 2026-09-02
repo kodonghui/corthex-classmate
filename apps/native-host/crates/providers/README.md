@@ -1,6 +1,6 @@
 # classmate-providers
 
-튜터 제공자 어댑터입니다. `TutorProvider` trait 하나 뒤에 두 제공자를 붙입니다. **Claude CLI 제공자**는 호출자가 준 실행 파일 경로를 `-p --output-format stream-json --verbose` 로 띄우고, 질문과 문맥은 명령행이 아니라 **stdin** 으로만 흘려보낸 뒤 stdout 을 줄 단위 stream-json 으로 읽어 `Status → TextDelta… → Usage` 순서의 이벤트로 바꿉니다. 제한 시간을 넘기면 `taskkill /PID <pid> /T /F` 로 프로세스를 **트리째** 끊고 `Timeout` 을 돌려줍니다. **Codex 제공자**는 사용 한도 소진으로 실측을 못 해 지금은 `NotImplemented` 스텁이고, app-server stdio 프로토콜 메모와 실측 후 채울 칸만 `src/codex.rs` 주석에 적어 두었습니다. 앞단의 `ProviderQueue` 는 작업 스레드 하나로 **한 번에 한 건만** CLI 를 띄우고 대기 줄 상한(기본 4)을 넘으면 곧바로 거절합니다. 자격증명은 어디에도 저장·전송하지 않고(불변 원칙 §4-2) 로그인은 각 CLI 가 스스로 한 것을 그대로 씁니다. 시험은 실제 CLI 를 **0회** 부르고 언제나 `node tests/fake-claude.mjs` 만 띄웁니다. 검증은 `cargo test -p classmate-providers --manifest-path apps/native-host/Cargo.toml` 입니다(41개 통과).
+튜터 제공자 어댑터입니다. `TutorProvider` trait 하나 뒤에 두 제공자를 붙입니다. **Claude CLI 제공자**는 호출자가 준 실행 파일 경로를 `-p --output-format stream-json --verbose` 로 띄우고, 질문과 문맥은 명령행이 아니라 **stdin** 으로만 흘려보낸 뒤 stdout 을 줄 단위 stream-json 으로 읽어 `Status → TextDelta… → Usage` 순서의 이벤트로 바꿉니다. 제한 시간을 넘기면 `taskkill /PID <pid> /T /F` 로 프로세스를 **트리째** 끊고 stderr 꼬리를 실은 `Timeout` 을 돌려줍니다. **Codex 제공자**는 사용 한도 소진으로 실측을 못 해 지금은 `NotImplemented` 스텁이고, app-server stdio 프로토콜 메모와 실측 후 채울 칸만 `src/codex.rs` 주석에 적어 두었습니다. 앞단의 `ProviderQueue` 는 작업 스레드 하나로 **한 번에 한 건만** CLI 를 띄우고 대기 줄 상한(기본 4)을 넘으면 곧바로 거절합니다. 자격증명은 어디에도 저장·전송하지 않고(불변 원칙 §4-2) 로그인은 각 CLI 가 스스로 한 것을 그대로 씁니다. 시험은 실제 CLI 를 **0회** 부르고 언제나 `node tests/fake-claude.mjs` 만 띄웁니다. 검증은 `cargo test -p classmate-providers --manifest-path apps/native-host/Cargo.toml` 입니다(49개 통과).
 
 ## 1. 무엇이 어디에 있나
 
@@ -29,6 +29,7 @@ ProviderQueue ── 대기 줄(상한 4) ── 작업 스레드 1개
         ▼                             ▼                             ▼
    stdin 쓰기 스레드            stdout 읽기 스레드            stderr 읽기 스레드
    프롬프트 전체를 넣고 닫음     한 줄씩 mpsc 로 보냄          마지막 2,000자만 보관
+   쓰기 실패는 통로로 보고       (회차 실패 때만 원인으로 붙음)  실패 경로에서도 join 합니다
                                       │
                                       ▼
                              StreamJsonParser
@@ -61,7 +62,7 @@ npm 이 설치한 CLI 는 `.cmd` 배치 래퍼입니다. `cmd.exe /c <래퍼>` �
 
 | 입력 | 결과 | 비고 |
 |---|---|---|
-| `%dp0%` 표식 + 실재하는 `.js` | `node` + 그 `.js` | node 는 셈 옆 → PATH 순서로 찾습니다(런타임만, 튜터 CLI 아님) |
+| `%dp0%` 표식 + 실재하는 `.js` | `node` + 그 `.js` | node 는 셈 옆 → PATH 순서로 찾습니다(런타임만, 튜터 CLI 아님). `.cmd`/`.bat` 배치 래퍼는 **런타임 후보에서 뺍니다** — 받아들이면 진짜 프로세스가 다시 손자가 됩니다 |
 | `%dp0%` 표식 + 실재하는 `.exe` | 그 `.exe` 를 직접 | `node.exe` 는 대상에서 뺍니다 |
 | `%dp0%` 표식이 없는 손수 쓴 배치 | 해석하지 않음 → `cmd.exe /c` 폴백 | 모르는 배치를 뜯지 않습니다 |
 | 표식은 있으나 가리키는 파일이 없음 | 해석하지 않음 | 있다고 속이지 않습니다 |
@@ -77,12 +78,13 @@ t=0 ─────────────── req.timeout ──────
                                                   ├─ 우리 쪽 파이프를 쥔 스레드는 그대로 두고
                                                   ├─ taskkill /PID <pid> /T /F  (트리째)
                                                   ├─ 실패하면 child.kill()      (최소한 자식은)
-                                                  └─ 최대 250ms 유예 뒤 Err(Timeout)
+                                                  ├─ 최대 250ms 유예 뒤 stderr 스레드를 거두고
+                                                  └─ Err(Timeout { stderr_tail })
 ```
 
 | 상황 | 돌려주는 것 |
 |---|---|
-| 마감까지 스트림이 끝나지 않음 | `Timeout` (자식 트리 종료) |
+| 마감까지 스트림이 끝나지 않음 | `Timeout { stderr_tail }` (자식 트리 종료 · stderr **마지막 200자**) |
 | 실행 파일을 띄우지 못함 | `Spawn(io::Error)` |
 | `{` 로 시작하는데 JSON 이 아닌 줄 | `Protocol` (본문은 담지 않고 길이·위치만) |
 | `result` 줄 없이 스트림 종료 | `Protocol("result 이벤트 없이 …")` |
@@ -90,6 +92,8 @@ t=0 ─────────────── req.timeout ──────
 | 종료 코드가 0 이 아님 | `NonZeroExit { code, stderr_tail }` — stderr **마지막 200자** |
 | 큐 상한 초과 | `Queue("full")` |
 | 큐가 이미 닫힘 | `Queue("shutdown")` |
+| 프롬프트 stdin 쓰기 실패 + 회차도 실패 | `Protocol("프롬프트를 stdin 으로 다 쓰지 못했습니다 · <종류> · <n>바이트 시도 · 뒤이은 실패: …")` |
+| 프롬프트 stdin 쓰기 실패 + 회차는 성공 | 성공 — 자식이 stdin 을 먼저 닫아 생기는 `BrokenPipe` 는 `-p` 모드에서 정상입니다 |
 
 JSON 이 아닌 배너 줄(`{` 로 시작하지 않는 줄)은 실패가 아니라 무시하고 개수만 셉니다(`StreamJsonParser::non_json_lines`).
 
@@ -98,7 +102,7 @@ JSON 이 아닌 배너 줄(`{` 로 시작하지 않는 줄)은 실패가 아니�
 Gate C2 에서 **검증 스크립트가 모듈을 `import` 했다는 이유만으로 실제 `claude` 5회가 실행되어 승인 없이 1.251323 USD 가 나간 사고**가 있었습니다. 이 크레이트는 같은 사고가 구조적으로 일어나지 못하게 네 겹으로 막습니다.
 
 1. **생성자가 경로를 요구합니다.** `ClaudeCliProvider::new(cli_path)` · `CodexAppServerProvider::new(cli_path)` 둘 다 경로가 필수 인자이고, 기본값도 PATH 탐색도 없습니다. 경로를 모르는 코드는 제공자를 만들 수 없습니다.
-2. **실행 파일 이름 리터럴이 없습니다.** `src/**` · `tests/**` 어디에도 `claude`·`codex` 를 이름으로 띄우는 자리가 없고, `tests/no_real_cli.rs` 가 매 시험마다 그 사실을 확인합니다(찾는 낱말은 이 파일이 스스로 걸리지 않게 실행 시점에 이어 붙여 만듭니다).
+2. **실행 파일 이름이 인자에 실리지 않습니다.** `tests/no_real_cli.rs` 가 `src/**` · `tests/**` 를 훑되, 낱말 하나가 아니라 **자리**로 봅니다. 프로세스를 띄우거나 인자를 붙이는 호출(`Command::new` · `arg` · `args` · `spawn` · PATH 탐색)의 인자 구간을 괄호 짝을 세어 잘라 내고, 그 안의 문자열 리터럴을 경로 구분자·확장자·대소문자를 지운 "실행 파일 이름"으로 정규화해 튜터 CLI 이름이 아닌지 확인합니다. 같은 구간의 리터럴을 이어 붙인 것도 함께 보므로 `"cl" + "aude"` 같은 조립 우회가 걸리고, `.cmd` 래퍼를 푼 뒤의 `node <스크립트>` 와 `cmd.exe /c` 폴백도 결국 이 자리들을 지납니다. 생성자 `Default` 구현과 튜터 CLI 이름이 든 환경변수 폴백이 없다는 것도 같은 파일이 확인합니다(찾는 낱말과 호출 머리는 이 파일이 스스로 걸리지 않게 실행 시점에 이어 붙여 만듭니다).
 3. **시험은 가짜 CLI 만 띄웁니다.** `tests/support/mod.rs` 가 PATH 에서 찾는 것은 **node 런타임**뿐이고, 스크립트는 언제나 이 크레이트 안의 `tests/fake-claude.mjs` 입니다.
 4. **가짜 CLI 에 진입점 가드가 있습니다.** `import.meta.url === pathToFileURL(process.argv[1]).href` 일 때만 돕니다. 사고를 낸 그 결함을 그대로 막는 장치입니다.
 
@@ -132,7 +136,7 @@ Gate C2 시점에 사용 한도가 소진되어 **지연·비용은 미측정**�
 
 ```bash
 cd apps/native-host
-cargo test -p classmate-providers                       # 41개 통과
+cargo test -p classmate-providers                       # 49개 통과
 cargo clippy -p classmate-providers --all-targets -- -D warnings
 cargo fmt -p classmate-providers -- --check
 ```

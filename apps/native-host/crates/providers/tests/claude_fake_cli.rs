@@ -1,7 +1,7 @@
-//! Claude 제공자 통합 시험 — **가짜 CLI 만** 자식 프로세스로 띄운다.
+//! Claude 제공자 통합 시험 — **가짜 CLI 만** 자식 프로세스로 띄웁니다.
 //!
-//! 실제 `claude`·`codex` 는 이 파일에서 0회 실행된다. 띄우는 것은 언제나
-//! `node <크레이트>/tests/fake-claude.mjs` 다(경로는 `support::fake_cli_args` 가 만든다).
+//! 실제 `claude`·`codex` 는 이 파일에서 0회 실행됩니다. 띄우는 것은 언제나
+//! `node <크레이트>/tests/fake-claude.mjs` 입니다(경로는 `support::fake_cli_args` 가 만듭니다).
 
 mod support;
 
@@ -36,9 +36,17 @@ fn request(timeout: Duration) -> AskRequest {
     )
 }
 
+/// 두 표식 사이의 조각을 뽑습니다. 가짜 CLI 가 `--echo-stdin` 으로 되돌려 준 값을 읽는 데 씁니다.
+fn between<'a>(haystack: &'a str, open: &str, close: &str) -> Option<&'a str> {
+    let start = haystack.find(open)? + open.len();
+    let rest = &haystack[start..];
+    let end = rest.find(close)?;
+    Some(&rest[..end])
+}
+
 #[test]
 fn a_healthy_stream_yields_events_in_order_and_an_outcome() {
-    let provider = provider(&["--echo-stdin"]);
+    let provider = provider(&[]);
     let mut seen = Vec::new();
     let outcome = provider
         .ask(&request(Duration::from_secs(30)), &mut |event| {
@@ -73,22 +81,85 @@ fn a_healthy_stream_yields_events_in_order_and_an_outcome() {
 
 #[test]
 fn the_prompt_travels_on_stdin_not_on_the_command_line() {
-    // 가짜 CLI 가 받은 stdin 바이트 수를 result 에 실어 돌려준다는 사실을 이용한다.
-    // 명령행에는 고정 인자만 실리므로, 질문 글자가 자식에게 닿는 길은 stdin 뿐이다(§4-7).
+    // 가짜 CLI 가 `--echo-stdin` 일 때 (1) 자기가 받은 stdin 본문과 (2) 자기 argv 를 그대로
+    // 되돌려 줍니다. 그 둘을 맞대어 "질문·문맥은 stdin 으로만 갔고 명령행에는 없다"를
+    // 실측으로 확인합니다(§4-7). 주장만 하는 시험이 되지 않게 하려는 자리입니다.
     let req = request(Duration::from_secs(30));
-    let sent = req.prompt().len();
-    assert!(sent > 0);
+    let prompt = req.prompt();
+    assert!(!prompt.is_empty());
 
     let provider = provider(&["--echo-stdin"]);
     let outcome = provider
         .ask(&req, &mut |_| {})
         .expect("가짜 CLI 는 성공해야 합니다");
-    assert!(outcome.text.contains("결론입니다"));
 
-    // 명령행 계획에는 질문 문자열이 없다.
+    // 1) 보낸 바이트 수와 자식이 받은 바이트 수가 같습니다.
+    let echoed_bytes: usize = between(&outcome.text, "[STDIN-BYTES]", "[/STDIN-BYTES]")
+        .expect("가짜 CLI 가 stdin 바이트 수를 돌려주어야 합니다")
+        .parse()
+        .expect("바이트 수는 숫자입니다");
+    assert_eq!(
+        echoed_bytes,
+        prompt.len(),
+        "stdin 으로 도착한 바이트 수가 프롬프트와 다릅니다"
+    );
+
+    // 2) 본문도 한 글자까지 같습니다. 프롬프트 전달이 끊기면 여기서 깨집니다.
+    let arrived = between(&outcome.text, "[STDIN]", "[/STDIN]")
+        .expect("가짜 CLI 가 stdin 본문을 돌려주어야 합니다");
+    assert_eq!(
+        arrived, prompt,
+        "stdin 으로 도착한 본문이 프롬프트와 다릅니다"
+    );
+    assert!(arrived.contains("생성자 주입이 왜 필요한가요"), "{arrived}");
+    assert!(arrived.contains("seg-7"), "{arrived}");
+    assert!(arrived.contains("seg-8"), "{arrived}");
+
+    // 3) 같은 회차의 argv 에는 질문도 문맥도 없습니다. 있는 것은 고정 인자뿐입니다.
+    let argv = between(&outcome.text, "[ARGV]", "[/ARGV]")
+        .expect("가짜 CLI 가 자기 argv 를 돌려주어야 합니다");
+    assert!(!argv.contains("생성자 주입"), "{argv}");
+    assert!(!argv.contains("seg-7"), "{argv}");
+    assert!(!argv.contains("조교"), "{argv}");
+    assert!(argv.contains("--output-format"), "{argv}");
+    assert!(argv.contains("stream-json"), "{argv}");
+
+    // 4) 실행 계획(명령행)에도 질문 문자열이 없습니다.
     let plan = provider.launch_plan();
     let rendered = format!("{:?} {:?}", plan.command, plan.prefix_args);
     assert!(!rendered.contains("생성자 주입"), "{rendered}");
+}
+
+#[test]
+fn a_child_that_closes_stdin_early_still_succeeds() {
+    // 자식이 프롬프트를 다 읽지 않고 stdin 을 먼저 닫으면 부모의 쓰기가 BrokenPipe 로 실패할 수
+    // 있습니다. `-p` 모드에서는 정상이므로, 답이 제대로 왔다면 회차는 성공이어야 합니다.
+    let provider = provider(&["--close-stdin-early"]);
+    let outcome = provider
+        .ask(&request(Duration::from_secs(30)), &mut |_| {})
+        .expect("stdin 이 먼저 닫혀도 답이 왔으면 성공입니다");
+    assert_eq!(outcome.text, "결론입니다. 이유는 둘입니다.");
+}
+
+#[test]
+fn a_failed_run_after_a_broken_stdin_keeps_the_stream_failure_visible() {
+    // 같은 상황에서 회차가 실패로 끝나면 원인이 사라지지 않아야 합니다.
+    // 쓰기가 실제로 깨졌으면 그 사실이 앞에 붙고, 깨지지 않았으면 원래 메시지만 남습니다.
+    let provider = provider(&["--close-stdin-early", "--no-result"]);
+    let err = provider
+        .ask(&request(Duration::from_secs(30)), &mut |_| {})
+        .expect_err("result 가 없으면 실패입니다");
+    match err {
+        ProviderError::Protocol(detail) => {
+            assert!(detail.contains("result 이벤트 없이"), "{detail}");
+            if detail.contains("프롬프트를 stdin 으로 다 쓰지 못했습니다") {
+                // 원인을 덧붙였다면 보내려던 바이트 수도 함께 있어야 합니다(본문은 담지 않습니다).
+                assert!(detail.contains("바이트 시도"), "{detail}");
+                assert!(!detail.contains("생성자 주입"), "{detail}");
+            }
+        }
+        other => panic!("Protocol 을 기대했습니다 · {other:?}"),
+    }
 }
 
 #[test]
@@ -108,8 +179,8 @@ fn a_hanging_cli_times_out_and_the_process_tree_disappears() {
         .expect_err("멈춘 CLI 는 타임아웃이어야 합니다");
     let elapsed = started.elapsed();
 
-    assert!(matches!(err, ProviderError::Timeout), "{err:?}");
-    // 회차는 타임아웃 + taskkill 소요 + 유예(250ms) 안에 끝나야 한다. 방어선은 Gate C2 와 같이 3초다.
+    assert!(matches!(err, ProviderError::Timeout { .. }), "{err:?}");
+    // 회차는 타임아웃 + taskkill 소요 + 유예(250ms) 안에 끝나야 합니다. 방어선은 Gate C2 와 같이 3초입니다.
     assert!(elapsed < Duration::from_secs(3), "회차 종결 {elapsed:?}");
 
     if cfg!(windows) {
@@ -123,7 +194,7 @@ fn a_hanging_cli_times_out_and_the_process_tree_disappears() {
             2,
             "자식과 손자 PID 두 개를 기대합니다 · {text:?}"
         );
-        // taskkill /T 가 트리를 끊었으므로 둘 다 사라져야 한다.
+        // taskkill /T 가 트리를 끊었으므로 둘 다 사라져야 합니다.
         for pid in pids {
             assert!(
                 wait_until_dead(pid, Duration::from_secs(2)),
@@ -132,6 +203,24 @@ fn a_hanging_cli_times_out_and_the_process_tree_disappears() {
         }
     }
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_timeout_carries_the_stderr_tail() {
+    // Gate C2 가 꼽은 위험인 "로그인 만료" 는 CLI 가 stderr 에 배너만 찍고 멈추는 모양일 수
+    // 있습니다. 그때 호출자가 받는 것이 빈 손이면 원인을 찾을 수 없으므로, 타임아웃 경로에서도
+    // stderr 읽기 스레드를 거두고 꼬리를 실어 줍니다.
+    let provider = provider(&["--hang", "--stderr-banner"]);
+    let err = provider
+        .ask(&request(Duration::from_millis(1_000)), &mut |_| {})
+        .expect_err("멈춘 CLI 는 타임아웃이어야 합니다");
+    match err {
+        ProviderError::Timeout { stderr_tail } => {
+            assert!(stderr_tail.contains("로그인 만료를 흉내"), "{stderr_tail}");
+            assert!(stderr_tail.chars().count() <= 200, "{stderr_tail}");
+        }
+        other => panic!("Timeout 을 기대했습니다 · {other:?}"),
+    }
 }
 
 #[test]
