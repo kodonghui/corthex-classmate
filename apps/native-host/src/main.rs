@@ -1,16 +1,24 @@
-//! Corthex Classmate 로컬 도우미(Chrome Native Messaging Host)의 진입점.
+//! Corthex Classmate 로컬 도우미(Chrome Native Messaging Host)의 진입점입니다.
 //!
-//! 하는 일은 둘이다. 하나는 신원 확인(`ping` → `hello`), 다른 하나는 **교시 기록 보관**이다.
+//! 하는 일은 둘입니다. 하나는 신원 확인(`ping` → `hello`), 다른 하나는 **교시 기록 보관**입니다.
 //! 확장이 보낸 세션 기록을 교시별 SQLite(WAL) 파일에 붙이고, 얼마나 쌓였는지 알려 주고,
-//! 요청하면 JSONL 로 내보낸다. stdin 이 닫히면 0 으로 끝난다.
+//! 요청하면 JSONL 로 내보냅니다. stdin 이 닫히면 0 으로 끝납니다.
 //!
-//! 지키는 경계 (docs/master-prompt.md §4):
-//! - stdout 은 프로토콜 전용이다. 사람이 읽을 로그는 전부 stderr 로만 나간다.
-//! - 메시지 안의 문자열을 명령·셸로 절대 넘기지 않는다(§4-7). `periodId` 는 글자 집합을 좁혀
-//!   받고 내보내기 경로는 이미 있는 폴더의 `.jsonl` 만 받는다. 실행 경로 자체가 없다.
-//! - 오류로 되돌려 보내는 값에 본문 원문이나 파일 경로를 담지 않는다.
-//! - 네트워크로 내보내는 코드가 없다. 수업 데이터는 이 PC 안에만 남는다(§4-1).
+//! 지키는 경계 (docs/master-prompt.md §4)
+//! - stdout 은 프로토콜 전용입니다. 사람이 읽을 로그는 전부 stderr 로만 나갑니다.
+//! - 메시지 안의 문자열을 명령·셸로 절대 넘기지 않습니다(§4-7). `periodId` 는 글자 집합을 좁혀
+//!   받고 내보내기 경로는 이미 있는 폴더의 `.jsonl` 만 받습니다. 실행 경로 자체가 없습니다.
+//! - 오류로 되돌려 보내는 값에 본문 원문이나 파일 경로를 담지 않습니다.
+//! - 네트워크로 내보내는 코드가 없습니다. 수업 데이터는 이 PC 안에만 남습니다(§4-1).
+//!
+//! 오류 응답의 모양은 하나입니다
+//! ----------------------------
+//! 실패한 부탁에 답하는 값은 종류를 가리지 않고 `{type, message, reason, received}` 네 칸이고
+//! 넷 다 문자열입니다. 확장의 판별기(`apps/browser-extension/src/capture/host-messages.ts` 의
+//! `isHostErrorMessage`)가 이 넷이 모두 문자열일 때만 오류로 알아보기 때문입니다. 어느 칸이라도
+//! 비면 확장은 그 답을 조용히 흘려버립니다.
 
+use std::collections::hash_map::Entry;
 use std::collections::HashMap;
 use std::io::{self, BufWriter, Read, Write};
 use std::path::PathBuf;
@@ -23,14 +31,20 @@ use classmate_host::protocol::{self, Frame};
 use classmate_host::store::frames::ScreenFrameMeta;
 use classmate_host::store::{self, base64, SessionEvent, SessionStore, StoreError};
 
-/// 확장이 이해하는 프로토콜 세대. 모양이 바뀌면 올린다.
+/// 확장이 이해하는 프로토콜 세대입니다. 모양이 바뀌면 올립니다.
 const PROTOCOL_VERSION: u64 = 1;
 
-/// 모르는 type 을 그대로 되돌려 줄 때의 길이 상한.
-/// 확장이 보낸 긴 문장이 응답과 로그로 되돌아가지 않게 잘라 낸다.
+/// 모르는 type 을 그대로 되돌려 줄 때의 길이 상한입니다.
+/// 확장이 보낸 긴 문장이 응답과 로그로 되돌아가지 않게 잘라 냅니다.
 const ECHOED_TYPE_MAX_CHARS: usize = 64;
 
-/// 봉투에서 우리가 보는 것은 type 하나뿐이다. 나머지 필드는 아직 읽지 않는다.
+/// `received` 에 적을 것이 없을 때 쓰는 낱말입니다.
+///
+/// 이 칸을 `null` 로 두면 확장의 `isHostErrorMessage` 가 오류 답으로 알아보지 못하므로,
+/// 확장이 보낸 type 이 없거나 문자열이 아닐 때도 **문자열 하나**를 채워 둡니다.
+const UNKNOWN_RECEIVED: &str = "unknown";
+
+/// 봉투에서 우리가 보는 것은 type 하나뿐입니다. 나머지 필드는 아직 읽지 않습니다.
 #[derive(Debug, Default, Deserialize)]
 struct Envelope {
     #[serde(rename = "type", default)]
@@ -55,11 +69,11 @@ fn main() -> ExitCode {
     }
 }
 
-/// stdin 이 닫힐 때까지 프레임을 하나씩 읽고 답한다.
+/// stdin 이 닫힐 때까지 프레임을 하나씩 읽고 답합니다.
 ///
-/// 본문을 끝까지 읽었는데 JSON 이 아니었던 프레임은 **오류로 답하고 계속 산다**. 스트림이
-/// 다음 프레임 경계에 그대로 서 있기 때문이다. 프레임 자체가 깨졌을 때(길이 헤더가 끊김·본문이
-/// 잘림·상한 초과)만 다음 경계를 알 수 없어 오류로 끝낸다.
+/// 본문을 끝까지 읽었는데 JSON 이 아니었던 프레임은 **오류로 답하고 계속 삽니다**. 스트림이
+/// 다음 프레임 경계에 그대로 서 있기 때문입니다. 프레임 자체가 깨졌을 때(길이 헤더가 끊김·본문이
+/// 잘림·상한 초과)만 다음 경계를 알 수 없어 오류로 끝냅니다.
 fn serve<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<()> {
     let mut router = Router::new();
 
@@ -78,18 +92,18 @@ fn serve<R: Read, W: Write>(reader: &mut R, writer: &mut W) -> io::Result<()> {
     }
 }
 
-/// 열어 둔 교시 저장소를 들고 메시지를 나눠 주는 자리.
+/// 열어 둔 교시 저장소를 들고 메시지를 나눠 주는 자리입니다.
 ///
-/// 저장소는 `periodId` 마다 하나씩 열어 두고 다시 쓴다. 교시 하나가 파일 하나이므로
-/// 8교시를 들어도 열려 있는 손잡이는 최대 여덟 개다.
+/// 저장소는 `periodId` 마다 하나씩 열어 두고 다시 씁니다. 교시 하나가 파일 하나이므로
+/// 8교시를 들어도 열려 있는 손잡이는 최대 여덟 개입니다.
 struct Router {
-    /// 이미 정해진 저장 폴더. `None` 이면 첫 저장 메시지에서 환경을 보고 정한다.
+    /// 이미 정해진 저장 폴더입니다. `None` 이면 첫 저장 메시지에서 환경을 보고 정합니다.
     data_dir: Option<PathBuf>,
     stores: HashMap<String, SessionStore>,
 }
 
 impl Router {
-    /// 저장 폴더를 아직 정하지 않은 채로 만든다. `ping` 만 오가면 폴더를 건드리지 않는다.
+    /// 저장 폴더를 아직 정하지 않은 채로 만듭니다. `ping` 만 오가면 폴더를 건드리지 않습니다.
     fn new() -> Self {
         Self {
             data_dir: None,
@@ -97,7 +111,7 @@ impl Router {
         }
     }
 
-    /// 저장 폴더를 못 박아 만든다. 시험이 임시 폴더를 쓰려고 쓴다.
+    /// 저장 폴더를 못 박아 만듭니다. 시험이 임시 폴더를 쓰려고 씁니다.
     #[cfg(test)]
     fn with_data_dir(data_dir: PathBuf) -> Self {
         Self {
@@ -126,7 +140,10 @@ impl Router {
         }
     }
 
-    /// 이 교시의 저장소를 준다. 아직 없으면 그때 연다.
+    /// 이 교시의 저장소를 줍니다. 아직 없으면 그때 엽니다.
+    ///
+    /// 넣자마자 다시 꺼내며 `expect` 로 "반드시 있다" 고 적어 두는 대신, `entry` 로 넣은 자리를
+    /// 그대로 돌려줍니다. 이 자리에는 확장이 보낸 값이 오가므로 죽을 수 있는 문장을 두지 않습니다.
     fn store(&mut self, period_id: &str) -> store::Result<&SessionStore> {
         let data_dir = match &self.data_dir {
             Some(existing) => existing.clone(),
@@ -137,16 +154,14 @@ impl Router {
             }
         };
 
-        if !self.stores.contains_key(period_id) {
-            let opened = SessionStore::open(&data_dir, period_id)?;
-            eprintln!("[classmate-host] 교시 {period_id} 저장소를 열었습니다");
-            self.stores.insert(period_id.to_string(), opened);
+        match self.stores.entry(period_id.to_string()) {
+            Entry::Occupied(already) => Ok(already.into_mut()),
+            Entry::Vacant(slot) => {
+                let opened = SessionStore::open(&data_dir, period_id)?;
+                eprintln!("[classmate-host] 교시 {period_id} 저장소를 열었습니다");
+                Ok(slot.insert(opened))
+            }
         }
-
-        Ok(self
-            .stores
-            .get(period_id)
-            .expect("방금 넣었으므로 반드시 있다"))
     }
 
     fn try_append(&mut self, message: &Value) -> store::Result<Value> {
@@ -158,14 +173,26 @@ impl Router {
         let event: SessionEvent =
             serde_json::from_value(raw).map_err(|_| StoreError::MalformedEvent("event"))?;
 
-        let seq = self.store(&period_id)?.append(&event)?;
+        let appended = self.store(&period_id)?.append_reporting(&event)?;
 
-        Ok(json!({
+        let mut ack = json!({
             "type": "event.ack",
             "periodId": period_id,
-            "seq": seq,
+            "seq": appended.seq,
             "id": event.id,
-        }))
+        });
+        if !appended.inserted {
+            // 같은 id 가 이미 있어 **새로 넣지 않았습니다.** 예전에는 이 사실을 아무 데도 알리지
+            // 않고 성공으로만 답해서, 내용이 다른 줄이 조용히 사라져도 확장이 알 길이 없었습니다.
+            // 기존 ack 모양은 그대로 두고 이 칸 하나만 더 실어 알립니다.
+            ack["duplicate"] = Value::Bool(true);
+            eprintln!(
+                "[classmate-host] 같은 id 의 기록이 이미 있어 새로 넣지 않았습니다 · seq {}",
+                appended.seq
+            );
+        }
+
+        Ok(ack)
     }
 
     fn try_status(&mut self, message: &Value) -> store::Result<Value> {
@@ -202,11 +229,11 @@ impl Router {
         }))
     }
 
-    /// `frame.store` — WebP 한 장을 파일로 놓고 메타와 `screen.frame` 기록을 함께 남긴다.
+    /// `frame.store` — WebP 한 장을 파일로 놓고 메타와 `screen.frame` 기록을 함께 남깁니다.
     ///
-    /// 봉투에 실린 `frame.path` 는 **대조용**일 뿐이다. 실제로 쓰는 자리는 호스트가 `id` 로
-    /// 다시 계산한다(Gate D 결정 · `docs/master-prompt.md` §4-7). 응답의 `path` 도 절대 경로가
-    /// 아니라 계약의 상대 경로(`frames/<id>.webp`)다.
+    /// 봉투에 실린 `frame.path` 는 **대조용**일 뿐입니다. 실제로 쓰는 자리는 호스트가 `id` 로
+    /// 다시 계산합니다(Gate D 결정 · `docs/master-prompt.md` §4-7). 응답의 `path` 도 절대 경로가
+    /// 아니라 계약의 상대 경로(`frames/<id>.webp`)입니다.
     fn try_store_frame(&mut self, message: &Value) -> store::Result<Value> {
         let period_id = period_id_of(message)?;
 
@@ -236,7 +263,7 @@ impl Router {
     }
 }
 
-/// 메시지에서 교시 이름을 꺼낸다. 문자열이 아니면 저장소가 볼 것도 없이 거절한다.
+/// 메시지에서 교시 이름을 꺼냅니다. 문자열이 아니면 저장소가 볼 것도 없이 거절합니다.
 fn period_id_of(message: &Value) -> store::Result<String> {
     message
         .get("periodId")
@@ -245,9 +272,9 @@ fn period_id_of(message: &Value) -> store::Result<String> {
         .ok_or(StoreError::InvalidPeriodId)
 }
 
-/// 저장이 실패했을 때의 응답. 프로세스는 죽지 않는다.
+/// 저장이 실패했을 때의 응답입니다. 프로세스는 죽지 않습니다.
 ///
-/// `reason` 에는 우리가 직접 쓴 짧은 이유만 담는다. 파일 경로와 본문 원문은 담지 않는다.
+/// `reason` 에는 우리가 직접 쓴 짧은 이유만 담습니다. 파일 경로와 본문 원문은 담지 않습니다.
 fn store_failure(kind: &str, error: &StoreError) -> Value {
     eprintln!("[classmate-host] {kind} 를 처리하지 못했습니다 · {error}");
 
@@ -259,10 +286,10 @@ fn store_failure(kind: &str, error: &StoreError) -> Value {
     })
 }
 
-/// 프레임 저장이 실패했을 때의 응답. 프로세스는 죽지 않는다.
+/// 프레임 저장이 실패했을 때의 응답입니다. 프로세스는 죽지 않습니다.
 ///
-/// `reason` 은 `StoreError::reason_code()` 의 고정 낱말이다. 확장이 이 값으로 분기하고,
-/// 사람이 읽을 자세한 문구는 stderr 로만 나간다. 파일 경로도 본문 원문도 담기지 않는다.
+/// `reason` 은 `StoreError::reason_code()` 의 고정 낱말입니다. 확장이 이 값으로 분기하고,
+/// 사람이 읽을 자세한 문구는 stderr 로만 나갑니다. 파일 경로도 본문 원문도 담기지 않습니다.
 fn frame_failure(error: &StoreError) -> Value {
     eprintln!("[classmate-host] frame.store 를 처리하지 못했습니다 · {error}");
 
@@ -274,17 +301,21 @@ fn frame_failure(error: &StoreError) -> Value {
     })
 }
 
-/// 본문을 풀지 못한 프레임에 대한 응답. 길이만 알려 주고 원문은 담지 않는다.
+/// 본문을 풀지 못한 프레임에 대한 응답입니다. 길이만 알려 주고 원문은 담지 않습니다.
+///
+/// 어느 부탁이었는지는 본문을 못 읽었으니 알 수 없습니다. 그래도 `received` 를 비워 두지 않고
+/// `"unknown"` 을 적습니다. 확장의 판별기가 네 칸이 모두 문자열일 때만 오류로 알아보기 때문입니다.
 fn undecodable_reply(bytes: usize) -> Value {
     json!({
         "type": "error",
         "message": "unreadable message",
+        "reason": "unreadable-message",
         "bytes": bytes,
-        "received": Value::Null,
+        "received": UNKNOWN_RECEIVED,
     })
 }
 
-/// 저장과 상관없는 요청 하나에 대한 응답을 만든다. 부수 효과가 없어서 테스트하기 쉽다.
+/// 저장과 상관없는 요청 하나에 대한 응답을 만듭니다. 부수 효과가 없어서 테스트하기 쉽습니다.
 fn respond(message: &Value) -> Value {
     let envelope: Envelope = serde_json::from_value(message.clone()).unwrap_or_default();
 
@@ -298,20 +329,23 @@ fn respond(message: &Value) -> Value {
         _ => json!({
             "type": "error",
             "message": "unknown message type",
+            "reason": "unknown-message-type",
             "received": echoed_type(message),
         }),
     }
 }
 
-/// 되돌려 보낼 type 값. 문자열이면 길이를 잘라 내고, 없거나 문자열이 아니면 null 로 만든다.
-fn echoed_type(message: &Value) -> Value {
+/// 되돌려 보낼 type 값입니다. 문자열이면 길이를 잘라 내고, 없거나 문자열이 아니면 `"unknown"`.
+///
+/// 예전에는 이 자리가 `null` 이었습니다. 그러면 확장의 `isHostErrorMessage` 가 오류 답으로
+/// 알아보지 못하고 그냥 흘려버리므로, 무슨 값이 왔든 **문자열 하나**를 돌려줍니다.
+fn echoed_type(message: &Value) -> String {
     match message.get("type") {
         Some(Value::String(text)) if text.chars().count() > ECHOED_TYPE_MAX_CHARS => {
-            let clipped: String = text.chars().take(ECHOED_TYPE_MAX_CHARS).collect();
-            Value::String(clipped)
+            text.chars().take(ECHOED_TYPE_MAX_CHARS).collect()
         }
-        Some(Value::String(text)) => Value::String(text.clone()),
-        _ => Value::Null,
+        Some(Value::String(text)) => text.clone(),
+        _ => UNKNOWN_RECEIVED.to_string(),
     }
 }
 
@@ -378,18 +412,19 @@ mod tests {
 
         assert_eq!(reply["type"], "error");
         assert_eq!(reply["message"], "unknown message type");
+        assert_eq!(reply["reason"], "unknown-message-type");
         assert_eq!(reply["received"], "launch");
         // 명령처럼 생긴 필드는 응답 어디에도 실리지 않는다.
         assert!(!reply.to_string().contains("cmd.exe"), "{reply}");
     }
 
     #[test]
-    fn missing_or_non_string_type_becomes_null() {
-        assert_eq!(respond(&json!({})).get("received"), Some(&Value::Null));
-        assert_eq!(
-            respond(&json!({ "type": 7 })).get("received"),
-            Some(&Value::Null)
-        );
+    fn missing_or_non_string_type_becomes_the_unknown_word() {
+        // 예전에는 이 자리가 null 이라 확장의 isHostErrorMessage 가 오류로 알아보지 못했다.
+        assert_eq!(respond(&json!({}))["received"], "unknown");
+        assert_eq!(respond(&json!({ "type": 7 }))["received"], "unknown");
+        assert!(is_extension_shaped_error(&respond(&json!({}))));
+        assert!(is_extension_shaped_error(&respond(&json!({ "type": 7 }))));
     }
 
     #[test]
@@ -399,6 +434,44 @@ mod tests {
 
         let received = reply["received"].as_str().expect("문자열이어야 한다");
         assert_eq!(received.chars().count(), ECHOED_TYPE_MAX_CHARS);
+    }
+
+    /// 확장의 `isHostErrorMessage`(host-messages.ts) 가 보는 것과 같은 조건이다.
+    /// `type` 이 `error` 이고 `message`·`reason`·`received` 가 **모두 문자열**이어야 한다.
+    fn is_extension_shaped_error(reply: &Value) -> bool {
+        reply["type"] == "error"
+            && ["message", "reason", "received"]
+                .iter()
+                .all(|field| reply[*field].is_string())
+    }
+
+    #[test]
+    fn every_error_reply_has_the_four_fields_the_extension_looks_for() {
+        let dir = temp_dir("error-shape");
+        let mut router = Router::with_data_dir(dir.to_path_buf());
+
+        // ① 모르는 type · ② type 이 없음 · ③ type 이 문자열이 아님
+        for message in [json!({ "type": "launch" }), json!({}), json!({ "type": 7 })] {
+            let reply = router.handle(&message);
+            assert!(is_extension_shaped_error(&reply), "{reply}");
+        }
+
+        // ④ 본문을 못 읽은 프레임
+        let unreadable = undecodable_reply(9);
+        assert!(is_extension_shaped_error(&unreadable), "{unreadable}");
+        assert_eq!(unreadable["received"], "unknown");
+
+        // ⑤ 저장 실패 · ⑥ 프레임 저장 실패
+        let store_failed = router.handle(&json!({
+            "type": "session.status",
+            "periodId": "../../etc/passwd",
+        }));
+        assert!(is_extension_shaped_error(&store_failed), "{store_failed}");
+        assert_eq!(store_failed["received"], "session.status");
+
+        let frame_failed = router.handle(&frame_store_request("nope", FIXTURE_WEBP_BASE64));
+        assert!(is_extension_shaped_error(&frame_failed), "{frame_failed}");
+        assert_eq!(frame_failed["received"], "frame.store");
     }
 
     #[test]
@@ -452,6 +525,8 @@ mod tests {
         assert_eq!(seen[0]["type"], "hello");
         assert_eq!(seen[1]["type"], "error");
         assert_eq!(seen[1]["message"], "unreadable message");
+        assert_eq!(seen[1]["reason"], "unreadable-message");
+        assert_eq!(seen[1]["received"], "unknown");
         assert_eq!(seen[1]["bytes"], 9);
         assert!(!seen[1].to_string().contains("not json"), "{}", seen[1]);
         assert_eq!(seen[2]["type"], "hello");
@@ -482,6 +557,10 @@ mod tests {
             assert_eq!(reply["type"], "event.ack", "{reply}");
             assert_eq!(reply["periodId"], event.period_id);
             assert_eq!(reply["id"], event.id);
+            assert!(
+                reply.get("duplicate").is_none(),
+                "처음 들어온 줄에는 duplicate 칸이 없다: {reply}"
+            );
             let seq = reply["seq"].as_u64().expect("seq 는 숫자다");
             assert!(seq > last_seq, "seq 는 늘어나기만 한다");
             last_seq = seq;
@@ -500,9 +579,91 @@ mod tests {
             "event": events[0],
         }));
         assert_eq!(again["seq"], 1);
+        assert_eq!(again["type"], "event.ack", "{again}");
+        assert_eq!(again["duplicate"], true, "새로 넣지 않았다고 알려야 한다");
         let after =
             router.handle(&json!({ "type": "session.status", "periodId": "2026-09-02-p3" }));
         assert_eq!(after["count"], 27);
+    }
+
+    #[test]
+    fn an_ack_says_when_a_different_body_was_dropped_for_a_duplicate_id() {
+        // 같은 id 로 **내용이 다른** 줄이 오면 저장되지 않는다. 예전에는 그것을 그냥 성공으로
+        // 답해서 확장이 알 길이 없었다. 이제 ack 에 duplicate 를 실어 알린다.
+        let dir = temp_dir("duplicate-ack");
+        let mut router = Router::with_data_dir(dir.to_path_buf());
+        let first = fixture_events().remove(0);
+
+        let ack = router.handle(&json!({
+            "type": "event.append",
+            "periodId": first.period_id,
+            "event": first,
+        }));
+        assert_eq!(ack["type"], "event.ack", "{ack}");
+        assert!(ack.get("duplicate").is_none());
+
+        let mut different = first.clone();
+        different.payload = json!({ "note": "같은 id 인데 내용이 다르다" });
+        let second = router.handle(&json!({
+            "type": "event.append",
+            "periodId": different.period_id,
+            "event": different,
+        }));
+
+        assert_eq!(second["type"], "event.ack", "{second}");
+        assert_eq!(
+            second["seq"], ack["seq"],
+            "먼저 들어간 줄의 seq 를 그대로 준다"
+        );
+        assert_eq!(second["duplicate"], true, "{second}");
+
+        let status =
+            router.handle(&json!({ "type": "session.status", "periodId": "2026-09-02-p3" }));
+        assert_eq!(status["count"], 1, "새로 들어간 줄은 없다");
+    }
+
+    #[test]
+    fn a_multibyte_timestamp_is_refused_and_the_router_keeps_going() {
+        // 예전에는 이 값 하나로 clock.rs 가 패닉해서 호스트 프로세스가 통째로 죽었다.
+        // 지금은 오류로 답하고 **그 다음 부탁이 그대로 처리된다**(프로세스가 살아 있다는 증거).
+        let dir = temp_dir("utf8-at");
+        let mut router = Router::with_data_dir(dir.to_path_buf());
+
+        for broken_at in ["2026-09-02T10:32:1한", "2026-09-02T00:00:00+가1", "아까"] {
+            let reply = router.handle(&json!({
+                "type": "event.append",
+                "periodId": "2026-09-02-p3",
+                "event": {
+                    "id": format!("ev-utf8-{}", broken_at.len()),
+                    "periodId": "2026-09-02-p3",
+                    "at": broken_at,
+                    "type": "panel.opened",
+                    "payload": {},
+                },
+            }));
+
+            assert_eq!(reply["type"], "error", "{reply}");
+            assert_eq!(reply["received"], "event.append");
+            assert!(is_extension_shaped_error(&reply), "{reply}");
+        }
+
+        // frame.store 의 capturedAt 도 같은 자리를 지난다.
+        for broken_at in ["2026-09-02T10:32:1한", "2026-09-02T00:00:00+가1"] {
+            let mut request = frame_store_request("sf-p3-900", FIXTURE_WEBP_BASE64);
+            request["frame"]["capturedAt"] = json!(broken_at);
+            let reply = router.handle(&request);
+
+            assert_eq!(reply["type"], "error", "{reply}");
+            assert_eq!(reply["reason"], "malformed-frame", "{reply}");
+        }
+
+        // 프로세스는 살아 있고 다음 부탁이 그대로 처리된다.
+        assert_eq!(router.handle(&json!({ "type": "ping" }))["type"], "hello");
+        let next = router.handle(&frame_store_request("sf-p3-001", FIXTURE_WEBP_BASE64));
+        assert_eq!(next["type"], "frame.stored", "{next}");
+        let status =
+            router.handle(&json!({ "type": "session.status", "periodId": "2026-09-02-p3" }));
+        assert_eq!(status["count"], 1, "거절된 것은 하나도 남지 않았다");
     }
 
     #[test]

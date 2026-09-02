@@ -6,7 +6,8 @@
 //! 부모(이 시험)                          자식(같은 시험 실행 파일, 환경 변수로 역할을 바꿈)
 //!   │ CLASSMATE_RECOVERY_WRITER=<폴더>
 //!   │ current_exe --exact <쓰기 시험> ─▶ SessionStore::open 뒤 10ms 마다 한 줄씩 append
-//!   │ 500ms 기다림                        (at 에는 그때의 진짜 시각을 밀리초까지 적는다)
+//!   │ 첫 줄이 남을 때까지 폴링             (at 에는 그때의 진짜 시각을 밀리초까지 적는다)
+//!   │ 그 뒤 500ms 더 기다림
 //!   │ child.kill()  ← TerminateProcess    ✕ 끝낼 틈 없이 즉시 죽는다(정리·flush 없음)
 //!   │ 죽인 시각을 적는다
 //!   │ 같은 파일을 다시 open
@@ -21,14 +22,14 @@
 
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use classmate_host::store::clock;
-use classmate_host::store::frames::{frame_path_for, ScreenFrameMeta};
-use classmate_host::store::{SessionEvent, SessionStore};
+use classmate_host::store::frames::{frame_path_for, is_contract_period_id, ScreenFrameMeta};
+use classmate_host::store::{is_safe_period_id, SessionEvent, SessionStore};
 use serde_json::json;
 
 /// 자식에게 "너는 기록하는 쪽" 이라고 알려 주는 환경 변수. 값은 저장 폴더다.
@@ -40,8 +41,18 @@ const WRITER_PERIOD: &str = "recovery-child";
 /// 자식이 한 줄 쓰고 쉬는 간격.
 const WRITE_INTERVAL: Duration = Duration::from_millis(10);
 
-/// 죽이기 전에 기록하게 두는 시간.
+/// 자식이 첫 줄을 남긴 것을 확인한 뒤 더 기록하게 두는 시간.
 const RUN_BEFORE_KILL: Duration = Duration::from_millis(500);
+
+/// 자식이 첫 줄을 남기기를 기다리는 최대 시간.
+///
+/// 예전에는 이 기다림이 없이 `RUN_BEFORE_KILL` 하나에 기댔다. 프로세스 기동 + 저장소 열기 +
+/// 첫 append 가 500 ms 안에 다 끝난다는 가정이라, 부하가 걸린 기계에서는 "한 줄은 남아야 한다"
+/// 가 흔들렸다. 지금은 **정해진 시간을 자는 대신 첫 줄이 실제로 남았는지 눈으로 확인한다.**
+const READY_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// 준비되었는지 다시 확인하는 간격.
+const READY_POLL: Duration = Duration::from_millis(20);
 
 /// 몇 번 되풀이해 재는가.
 const ROUNDS: usize = 5;
@@ -49,13 +60,49 @@ const ROUNDS: usize = 5;
 /// 합격선. §3-6 의 "최근 수초 이내" 를 2초로 못 박는다.
 const LOSS_BUDGET_MS: i64 = 2_000;
 
+/// 자식이 첫 줄을 남길 때까지 기다린다. 시간 안에 못 남기면 `false`.
+///
+/// 읽기만 하므로 WAL 에서는 자식의 쓰기를 막지 않는다. 손잡이는 이 함수 안에서만 살아 있다가
+/// 돌아갈 때 떨어지므로, 부모가 파일을 잡은 채로 자식을 죽이는 일이 없다.
+fn wait_until_the_child_wrote(data_dir: &Path, period_id: &str) -> bool {
+    let deadline = Instant::now() + READY_TIMEOUT;
+    let mut opened: Option<SessionStore> = None;
+
+    while Instant::now() < deadline {
+        if opened.is_none() {
+            opened = SessionStore::open(data_dir, period_id).ok();
+        }
+        if let Some(store) = &opened {
+            if store.count().unwrap_or(0) > 0 {
+                return true;
+            }
+        }
+        thread::sleep(READY_POLL);
+    }
+
+    false
+}
+
 /// 부모가 자식으로 다시 부르는 시험.
 ///
-/// 환경 변수가 없으면(= 보통의 `cargo test` 로 실행되면) 아무것도 하지 않고 끝난다.
+/// 환경 변수가 없으면(= 보통의 `cargo test` 로 실행되면) 자식 역할이 아니다. 그때는 아래
+/// 부모 시험이 기대는 값들이 맞는지 확인한다(단언 없이 통과하는 시험을 만들지 않기 위해서다).
 /// 환경 변수가 있으면 죽을 때까지 기록만 한다.
 #[test]
 fn recovery_writer_child() {
     let Ok(data_dir) = env::var(WRITER_ENV) else {
+        assert!(
+            is_safe_period_id(WRITER_PERIOD),
+            "자식이 열 교시 이름은 파일 이름으로 안전해야 한다: {WRITER_PERIOD}"
+        );
+        assert!(
+            WRITE_INTERVAL < RUN_BEFORE_KILL,
+            "죽이기 전에 여러 줄이 쌓여야 손실 창을 잴 수 있다"
+        );
+        assert!(
+            LOSS_BUDGET_MS > RUN_BEFORE_KILL.as_millis() as i64,
+            "예산이 관찰 구간보다 좁으면 잴 것이 없다"
+        );
         return;
     };
 
@@ -83,19 +130,24 @@ fn a_killed_writer_loses_only_the_last_moment() {
     let mut losses = Vec::with_capacity(ROUNDS);
 
     for round in 1..=ROUNDS {
-        let data_dir = temp_dir(round);
+        let data_dir = temp_dir(&round.to_string());
 
         let mut child = Command::new(env::current_exe().expect("시험 실행 파일 경로"))
             .arg("--exact")
             .arg("recovery_writer_child")
             .arg("--nocapture")
-            .env(WRITER_ENV, &data_dir)
+            .env(WRITER_ENV, &*data_dir)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .spawn()
             .expect("자식을 띄울 수 있어야 한다");
 
+        // 시간에 기대지 않고 첫 줄이 남은 것을 확인한 뒤, 정해진 시간만큼 더 쓰게 둔다.
+        assert!(
+            wait_until_the_child_wrote(&data_dir, WRITER_PERIOD),
+            "{round}회: 자식이 {READY_TIMEOUT:?} 안에 한 줄도 남기지 못했다"
+        );
         thread::sleep(RUN_BEFORE_KILL);
 
         child.kill().expect("강제 종료가 되어야 한다");
@@ -144,8 +196,8 @@ fn a_killed_writer_loses_only_the_last_moment() {
 
         losses.push(loss_ms);
 
+        // 저장소를 먼저 놓아야 임시 폴더를 지울 수 있다. 폴더는 `TempDir` 이 스스로 지운다.
         drop(store);
-        let _ = fs::remove_dir_all(&data_dir);
     }
 
     let mut sorted = losses.clone();
@@ -159,12 +211,38 @@ fn a_killed_writer_loses_only_the_last_moment() {
     );
 }
 
+/// 시험이 끝나면 스스로 지워지는 임시 폴더.
+///
+/// 단언이 실패해 시험이 그 자리에서 멈춰도 폴더가 남지 않는다(`Drop` 은 패닉 중에도 돈다).
+/// `mod.rs`·`frames.rs` 의 시험이 쓰는 것과 같은 모양이다.
+struct TempDir(PathBuf);
+
+impl std::ops::Deref for TempDir {
+    type Target = Path;
+
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl AsRef<Path> for TempDir {
+    fn as_ref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for TempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 /// 회차마다 겹치지 않는 임시 폴더. 경로를 짧게 두어 Windows MAX_PATH(260자)를 피한다.
-fn temp_dir(round: usize) -> PathBuf {
-    let path = env::temp_dir().join(format!("cmrec-{}-{round}", std::process::id()));
+fn temp_dir(tag: &str) -> TempDir {
+    let path = env::temp_dir().join(format!("cmrec-{}-{tag}", std::process::id()));
     let _ = fs::remove_dir_all(&path);
     fs::create_dir_all(&path).expect("임시 폴더를 만들 수 있어야 한다");
-    path
+    TempDir(path)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -196,10 +274,25 @@ const FRAME_BYTES: &[u8] =
 
 /// 죽을 때까지 프레임만 쓰는 자식.
 ///
-/// 환경 변수가 없으면(= 보통의 `cargo test` 로 실행되면) 아무것도 하지 않고 끝난다.
+/// 환경 변수가 없으면(= 보통의 `cargo test` 로 실행되면) 자식 역할이 아니다. 그때는 아래
+/// 부모 시험이 기대는 값들이 맞는지 확인한다.
 #[test]
 fn recovery_frame_writer_child() {
     let Ok(data_dir) = env::var(FRAME_WRITER_ENV) else {
+        assert_eq!(
+            FRAME_BYTES.len(),
+            34,
+            "fixtures 의 1x1 자리표시자 WebP 는 34바이트다"
+        );
+        assert!(
+            is_contract_period_id(FRAME_PERIOD),
+            "프레임은 교시 폴더까지 만들므로 계약 모양이어야 한다: {FRAME_PERIOD}"
+        );
+        assert_eq!(
+            frame_path_for("sf-recovery-00000001"),
+            "frames/sf-recovery-00000001.webp",
+            "부모가 파일을 찾는 규칙과 자식이 적는 path 가 같아야 한다"
+        );
         return;
     };
 
@@ -231,21 +324,24 @@ fn recovery_frame_writer_child() {
 /// 강제 종료 뒤 다시 열었을 때, 프레임 표·파일·기록 셋이 서로 맞는지 본다.
 #[test]
 fn a_killed_frame_writer_leaves_the_file_the_row_and_the_event_in_step() {
-    let data_dir = env::temp_dir().join(format!("cmrecf-{}", std::process::id()));
-    let _ = fs::remove_dir_all(&data_dir);
-    fs::create_dir_all(&data_dir).expect("임시 폴더를 만들 수 있어야 한다");
+    let data_dir = temp_dir("frame");
 
     let mut child = Command::new(env::current_exe().expect("시험 실행 파일 경로"))
         .arg("--exact")
         .arg("recovery_frame_writer_child")
         .arg("--nocapture")
-        .env(FRAME_WRITER_ENV, &data_dir)
+        .env(FRAME_WRITER_ENV, &*data_dir)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
         .expect("자식을 띄울 수 있어야 한다");
 
+    // 프레임 한 장이 곧 기록 한 줄이므로, 기록이 생긴 것으로 첫 장을 확인한다.
+    assert!(
+        wait_until_the_child_wrote(&data_dir, FRAME_PERIOD),
+        "자식이 {READY_TIMEOUT:?} 안에 한 장도 남기지 못했다"
+    );
     thread::sleep(RUN_BEFORE_KILL);
 
     child.kill().expect("강제 종료가 되어야 한다");
@@ -318,6 +414,6 @@ fn a_killed_frame_writer_leaves_the_file_the_row_and_the_event_in_step() {
         .expect("재시작 뒤에도 이어서 쓸 수 있어야 한다");
     assert_eq!(store.frame_count().expect("셈"), rows.len() as u64 + 1);
 
+    // 저장소를 먼저 놓아야 임시 폴더를 지울 수 있다. 폴더는 `TempDir` 이 스스로 지운다.
     drop(store);
-    let _ = fs::remove_dir_all(&data_dir);
 }
