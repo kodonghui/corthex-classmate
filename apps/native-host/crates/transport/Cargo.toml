@@ -8,6 +8,9 @@ license = "MIT"
 publish = false
 
 [dependencies]
+# 프레임 본문과 계약 스키마가 모두 JSON 이라 serde_json 하나만 씁니다.
+# 스키마는 packages/contracts 가 정본이고 여기서는 include_str! 로 읽기만 합니다.
+serde_json = "^1"
 
 [lib]
 name = "classmate_transport"
