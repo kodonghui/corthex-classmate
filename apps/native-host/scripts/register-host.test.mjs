@@ -1,35 +1,39 @@
-// register-host.mjs 시험.
+// register-host.mjs 시험입니다.
 //
-// 여기서는 **레지스트리를 절대 건드리지 않는다.** dry-run 계획과 매니페스트 내용만 본다.
-// 실제 등록(--apply)은 사람이 확인하고 직접 돌린다(README §4-3).
+// 여기서는 **레지스트리를 절대 건드리지 않습니다.** dry-run 계획과 매니페스트 내용만 봅니다.
+// --apply 도 실행 파일이 없어 거절되는 갈래만 보므로 reg 명령까지 가지 않습니다.
+// 실제 등록은 사람이 확인하고 직접 돌립니다(README §4-3).
 //
 // 실행: node --test apps/native-host/scripts/register-host.test.mjs
 
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, describe, it } from 'node:test';
 
 import {
+  EXE_NAME,
   EXTENSION_ID_PATTERN,
   HOST_NAME,
   REGISTRY_KEY,
   buildManifest,
   describePlan,
+  executableCandidates,
   formatCommand,
   main,
   parseArgs,
   planRegistration,
+  resolveExecutable,
 } from './register-host.mjs';
 
-/** 시험용 확장 ID. a~p 소문자 32자다. */
+/** 시험용 확장 ID 입니다. a~p 소문자 32자입니다. */
 const EXTENSION_ID = 'abcdefghijklmnopabcdefghijklmnop';
 
 const tempRoot = mkdtempSync(join(tmpdir(), 'cmreg-'));
 after(() => rmSync(tempRoot, { recursive: true, force: true }));
 
-/** console.log/error 를 잠깐 가로채 줄들을 모은다. */
+/** console.log/error 를 잠깐 가로채 줄들을 모읍니다. */
 function capture(run) {
   const lines = [];
   const realLog = console.log;
@@ -85,6 +89,27 @@ describe('계획 만들기', () => {
     assert.equal(plan.manifest.path, 'C:\\bin\\classmate-host.exe');
   });
 
+  it('--exe 로 준 경로가 없으면 found 가 거짓이다', () => {
+    const missing = join(tempRoot, 'no-such', EXE_NAME);
+    const plan = planRegistration({
+      extensionId: EXTENSION_ID,
+      exe: missing,
+      manifestDir: tempRoot,
+    });
+
+    assert.equal(plan.executable.found, false);
+    assert.match(describePlan(plan).join('\n'), /아직 없어요/);
+  });
+
+  it('--exe 로 준 경로가 있으면 found 가 참이다', () => {
+    const dir = join(tempRoot, 'real-exe');
+    mkdirSync(dir, { recursive: true });
+    const exePath = join(dir, EXE_NAME);
+    writeFileSync(exePath, 'not a real exe', 'utf8');
+
+    assert.deepEqual(resolveExecutable(exePath), { path: exePath, found: true });
+  });
+
   it('제거 계획은 reg delete 이고 매니페스트를 만들지 않는다', () => {
     const plan = planRegistration({
       extensionId: EXTENSION_ID,
@@ -123,7 +148,7 @@ describe('dry-run', () => {
     assert.ok(!existsSync(dir), 'dry-run 은 폴더도 파일도 만들지 않는다');
     assert.match(output, /\[dry-run\] 아무것도 바꾸지 않았어요/);
     assert.match(output, /reg add/);
-    // 쓸 내용도 미리 보여 준다.
+    // 쓸 내용도 미리 보여 줍니다.
     assert.match(output, /"type": "stdio"/);
     assert.match(output, new RegExp(`chrome-extension://${EXTENSION_ID}/`));
   });
@@ -138,6 +163,74 @@ describe('dry-run', () => {
     assert.ok(!existsSync(dir));
     assert.match(output, /reg delete/);
     assert.match(output, /레지스트리 값을 지웁니다/);
+  });
+});
+
+describe('실행 파일 찾기', () => {
+  it('CARGO_TARGET_DIR 을 주면 그 안을 맨 먼저 본다', () => {
+    const candidates = executableCandidates({ CARGO_TARGET_DIR: join(tempRoot, '_target') });
+
+    assert.match(candidates[0], /_target[\\/]x86_64-pc-windows-gnu[\\/]release[\\/]classmate-host/);
+    assert.match(candidates[1], /_target[\\/]release[\\/]classmate-host/);
+    assert.match(candidates[2], /_target[\\/]debug[\\/]classmate-host/);
+    // 그다음이 저장소 루트와 crate 안의 target 입니다.
+    assert.ok(
+      candidates.slice(3).some((path) => /native-host[\\/]target[\\/]debug/.test(path)),
+      candidates.join('\n'),
+    );
+  });
+
+  it('CARGO_TARGET_DIR 이 없으면 저장소 안만 본다', () => {
+    const candidates = executableCandidates({});
+
+    assert.ok(
+      candidates.every((path) => !/_target/.test(path)),
+      candidates.join('\n'),
+    );
+    assert.ok(candidates.some((path) => /native-host[\\/]target[\\/]release/.test(path)));
+    assert.ok(candidates.some((path) => /native-host[\\/]target[\\/]debug/.test(path)));
+  });
+
+  it('CARGO_TARGET_DIR 에 놓인 실행 파일을 실제로 집어 온다', () => {
+    const root = join(tempRoot, 'picked');
+    mkdirSync(join(root, 'release'), { recursive: true });
+    const exePath = join(root, 'release', EXE_NAME);
+    writeFileSync(exePath, 'not a real exe', 'utf8');
+
+    const resolved = resolveExecutable(null, { CARGO_TARGET_DIR: root });
+    assert.deepEqual(resolved, { path: exePath, found: true });
+  });
+});
+
+describe('없는 실행 파일로는 등록하지 않는다', () => {
+  it('--apply 인데 실행 파일이 없으면 1 로 끝나고 아무것도 만들지 않는다', () => {
+    const dir = join(tempRoot, 'apply-without-exe');
+    const missing = join(tempRoot, 'no-such', EXE_NAME);
+
+    const { code, output } = capture(() =>
+      main(['--extension-id', EXTENSION_ID, '--exe', missing, '--manifest-dir', dir, '--apply']),
+    );
+
+    assert.equal(code, 1, output);
+    assert.ok(!existsSync(dir), '매니페스트 폴더를 만들면 안 됩니다');
+    assert.match(output, /실행 파일이 없어서 등록하지 않았어요/);
+    // reg 명령까지 가지 않았음을 [apply] 줄이 없는 것으로 봅니다.
+    assert.ok(!output.includes('[apply]'), output);
+  });
+
+  it('dry-run 은 실행 파일이 없어도 계획을 보여 준다', () => {
+    // 빌드 전에 무엇을 할지 먼저 보는 자리라(README §4-2) 여기서는 막지 않습니다.
+    const dir = join(tempRoot, 'dry-run-without-exe');
+    const missing = join(tempRoot, 'no-such', EXE_NAME);
+
+    const { code, output } = capture(() =>
+      main(['--extension-id', EXTENSION_ID, '--exe', missing, '--manifest-dir', dir]),
+    );
+
+    assert.equal(code, 0, output);
+    assert.ok(!existsSync(dir));
+    assert.match(output, /아직 없어요/);
+    assert.match(output, /--apply 를 해도 등록하지 않아요/);
   });
 });
 

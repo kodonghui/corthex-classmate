@@ -33,6 +33,19 @@ use schema::{SchemaKind, Violation, ViolationKind};
 /// 이 크레이트가 맡는 단위 이름입니다. 스켈레톤이 워크스페이스에 붙었는지 확인하는 용도입니다.
 pub const UNIT: &str = "transport";
 
+/// 표 한 줄로는 적을 수 없는 봉투별 추가 검사입니다.
+///
+/// 스키마 하나로 값 하나를 보는 것으로 끝나지 않는 봉투가 있어서 둡니다. 지금은
+/// `frame.store` 하나뿐입니다(고정 계약 (가) · `apps/native-host/README.md` §2-5).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtraCheck {
+    /// 추가로 볼 것이 없습니다.
+    None,
+    /// `bytesBase64` 가 비어 있지 않은 문자열이어야 하고,
+    /// `frame.path` 가 `frames/<frame.id>.webp` 여야 합니다.
+    FrameBody,
+}
+
 /// 봉투 하나를 어떻게 검사할지 적어 둔 줄입니다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EnvelopeRule {
@@ -42,38 +55,53 @@ pub struct EnvelopeRule {
     pub needs_period_id: bool,
     /// 딸림 값이 있으면 (필드 이름, 그 값을 검사할 계약 스키마) 입니다.
     pub payload: Option<(&'static str, SchemaKind)>,
+    /// 스키마 하나로는 볼 수 없는 추가 검사입니다.
+    pub extra: ExtraCheck,
     /// 무엇을 하는 메시지인지 한 줄입니다.
     pub summary: &'static str,
 }
 
 /// 로컬 도우미가 받는 봉투 전부입니다.
 ///
-/// `src/main.rs` 의 `Router` 가 실제로 나눠 주는 이름과 같습니다. 여기 없는 `type` 은
-/// 호스트가 `error` 로 답하므로 이 표도 모르는 것으로 답합니다.
-pub const ENVELOPE_RULES: [EnvelopeRule; 4] = [
+/// `src/main.rs` 가 실제로 나눠 주는 이름과 같습니다. `Router::handle` 이 갈래로 받는 넷과
+/// `respond()` 가 받는 `ping` 을 합쳐 다섯입니다. 한쪽만 늘면
+/// `the_table_matches_the_router_in_main_rs` 시험이 먼저 빨갛게 됩니다.
+/// 여기 없는 `type` 은 호스트가 `error` 로 답하므로 이 표도 모르는 것으로 답합니다.
+pub const ENVELOPE_RULES: [EnvelopeRule; 5] = [
     EnvelopeRule {
         message_type: "ping",
         needs_period_id: false,
         payload: None,
+        extra: ExtraCheck::None,
         summary: "신원 확인. 호스트는 hello 로 답합니다",
     },
     EnvelopeRule {
         message_type: "event.append",
         needs_period_id: true,
         payload: Some(("event", SchemaKind::SessionEvent)),
+        extra: ExtraCheck::None,
         summary: "교시 기록 한 줄을 저장소에 붙입니다",
     },
     EnvelopeRule {
         message_type: "session.status",
         needs_period_id: true,
         payload: None,
+        extra: ExtraCheck::None,
         summary: "이 교시에 얼마나 쌓였는지 묻습니다",
     },
     EnvelopeRule {
         message_type: "session.export",
         needs_period_id: true,
         payload: None,
+        extra: ExtraCheck::None,
         summary: "이 교시를 JSONL 로 내보냅니다",
+    },
+    EnvelopeRule {
+        message_type: "frame.store",
+        needs_period_id: true,
+        payload: Some(("frame", SchemaKind::ScreenFrame)),
+        extra: ExtraCheck::FrameBody,
+        summary: "화면 프레임 한 장의 정보와 본문(bytesBase64)을 저장소에 넣습니다",
     },
 ];
 
@@ -155,11 +183,62 @@ pub fn validate_envelope(message: &Value) -> Result<&'static EnvelopeRule, Vec<V
         }
     }
 
+    match rule.extra {
+        ExtraCheck::None => {}
+        ExtraCheck::FrameBody => violations.extend(frame_body_violations(fields)),
+    }
+
     if violations.is_empty() {
         Ok(rule)
     } else {
         Err(violations)
     }
+}
+
+/// `frame.store` 봉투만 보는 추가 검사입니다. 고정 계약 (가) 의 두 가지를 봅니다.
+///
+/// - `bytesBase64` 는 비어 있지 않은 문자열입니다. 본문을 실제로 푸는 것은 저장소 몫이라
+///   여기서는 자리와 모양만 봅니다.
+/// - `frame.path` 는 `frames/<frame.id>.webp` 입니다. 파일 이름을 `id` 로 못 박아 두면
+///   확장이 준 경로가 교시 폴더 밖으로 나갈 자리가 없어집니다.
+///
+/// `frame` 안의 값이 문자열이 아니면 스키마 검사가 이미 알렸으므로 겹쳐 말하지 않습니다.
+/// 어긋난 자리만 알리고 받은 값은 문구에 담지 않습니다(§4-7).
+fn frame_body_violations(fields: &serde_json::Map<String, Value>) -> Vec<Violation> {
+    let mut violations = Vec::new();
+
+    let body = match fields.get("bytesBase64") {
+        Some(Value::String(text)) if !text.is_empty() => None,
+        Some(Value::String(_)) => Some("본문이 비어 있습니다"),
+        Some(_) => Some("본문은 base64 문자열이어야 합니다"),
+        None => Some("꼭 있어야 하는 값이 없습니다"),
+    };
+    if let Some(message) = body {
+        violations.push(Violation {
+            path: "/bytesBase64".to_string(),
+            message: message.to_string(),
+            kind: ViolationKind::Value,
+        });
+    }
+
+    let frame = fields.get("frame");
+    let id = frame
+        .and_then(|frame| frame.get("id"))
+        .and_then(Value::as_str);
+    let path = frame
+        .and_then(|frame| frame.get("path"))
+        .and_then(Value::as_str);
+    if let (Some(id), Some(path)) = (id, path) {
+        if path != format!("frames/{id}.webp") {
+            violations.push(Violation {
+                path: "/frame/path".to_string(),
+                message: "path 는 frames/<id>.webp 여야 합니다".to_string(),
+                kind: ViolationKind::Value,
+            });
+        }
+    }
+
+    violations
 }
 
 /// 아는 봉투 이름들을 쉼표로 잇습니다. 우리 표에서 온 값이라 그대로 적어도 안전합니다.
@@ -203,6 +282,73 @@ mod tests {
 
     fn paths(violations: &[Violation]) -> Vec<&str> {
         violations.iter().map(|v| v.path.as_str()).collect()
+    }
+
+    /// 저장소 뿌리입니다. `CARGO_MANIFEST_DIR` 은 `apps/native-host/crates/transport` 입니다.
+    fn repo_root() -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../..")
+            .canonicalize()
+            .expect("저장소 뿌리를 찾을 수 있어야 합니다")
+    }
+
+    /// 골든 고정자료의 첫 프레임입니다. 지어내지 않고 실제 자료를 씁니다.
+    fn golden_frame() -> Value {
+        let path = repo_root().join("fixtures/synthetic-class/golden-ioc/screen-frames.json");
+        let text =
+            std::fs::read_to_string(&path).unwrap_or_else(|error| panic!("{path:?} · {error}"));
+        let frames: Value = serde_json::from_str(&text).expect("JSON 이어야 합니다");
+        frames
+            .as_array()
+            .and_then(|items| items.first())
+            .cloned()
+            .expect("프레임이 하나는 있어야 합니다")
+    }
+
+    /// 고정 계약 (가) 의 `frame.store` 봉투를 만듭니다. 본문을 빼고도 만들 수 있습니다.
+    fn frame_store_message(frame: Value, bytes: Option<&str>) -> Value {
+        let mut message = json!({
+            "type": "frame.store",
+            "periodId": "2026-09-02-p3",
+            "frame": frame,
+        });
+        if let Some(bytes) = bytes {
+            message["bytesBase64"] = json!(bytes);
+        }
+        message
+    }
+
+    /// `apps/native-host/src/main.rs` 원문입니다. 빌드할 때 **읽기만** 합니다.
+    const HOST_MAIN_RS: &str = include_str!("../../../src/main.rs");
+
+    /// `src/main.rs` 에서 봉투 이름으로 갈래를 나누는 자리를 긁어 옵니다.
+    ///
+    /// 보는 모양은 둘입니다. `Router::handle` 의 `"event.append" => …` 와
+    /// `respond()` 의 `Some("ping") => …` 입니다.
+    fn router_types_in_main_rs() -> Vec<String> {
+        let mut found = Vec::new();
+
+        for line in HOST_MAIN_RS.lines() {
+            let Some(arrow) = line.find("=>") else {
+                continue;
+            };
+            let head = line[..arrow].trim_end();
+            let head = head.strip_suffix(')').unwrap_or(head);
+            let Some(rest) = head.strip_suffix('"') else {
+                continue;
+            };
+            let Some(open) = rest.rfind('"') else {
+                continue;
+            };
+            let name = &rest[open + 1..];
+            if !name.is_empty() {
+                found.push(name.to_string());
+            }
+        }
+
+        found.sort_unstable();
+        found.dedup();
+        found
     }
 
     #[test]
@@ -292,6 +438,73 @@ mod tests {
 
         let violations = validate_envelope(&json!({ "type": 7 })).expect_err("문자열이 아닙니다");
         assert_eq!(paths(&violations), vec!["/type"]);
+    }
+
+    #[test]
+    fn frame_store_takes_a_golden_frame_with_its_body() {
+        let message = frame_store_message(golden_frame(), Some("UklGRiQAAABXRUJQ"));
+
+        let rule = validate_envelope(&message).expect("통과해야 합니다");
+        assert_eq!(rule.message_type, "frame.store");
+        assert_eq!(rule.payload, Some(("frame", SchemaKind::ScreenFrame)));
+        assert_eq!(rule.extra, ExtraCheck::FrameBody);
+    }
+
+    #[test]
+    fn frame_store_needs_a_body_that_is_not_empty() {
+        let violations = validate_envelope(&frame_store_message(golden_frame(), None))
+            .expect_err("본문 자리가 없습니다");
+        assert_eq!(paths(&violations), vec!["/bytesBase64"]);
+
+        let violations = validate_envelope(&frame_store_message(golden_frame(), Some("")))
+            .expect_err("본문이 비었습니다");
+        assert_eq!(paths(&violations), vec!["/bytesBase64"]);
+    }
+
+    #[test]
+    fn frame_store_rejects_a_path_that_does_not_match_the_id() {
+        let mut frame = golden_frame();
+        // 계약이 정한 자리(frames/<id>.webp)를 벗어나 폴더 밖을 가리키는 경로입니다.
+        frame["path"] = json!("frames/../../etc/passwd.webp");
+        let message = frame_store_message(frame, Some("UklGRiQAAABXRUJQ"));
+
+        let violations = validate_envelope(&message).expect_err("path 가 id 와 어긋납니다");
+        assert_eq!(paths(&violations), vec!["/frame/path"]);
+        assert!(
+            !describe(&violations).contains("passwd"),
+            "원문이 새면 안 됩니다: {}",
+            describe(&violations)
+        );
+    }
+
+    #[test]
+    fn the_table_holds_the_five_request_types() {
+        // 고정 계약이 말하는 다섯 이름입니다. 순서까지 표와 같아야 합니다.
+        const EXPECTED: [&str; 5] = [
+            "ping",
+            "event.append",
+            "session.status",
+            "session.export",
+            "frame.store",
+        ];
+
+        let ours: Vec<&str> = ENVELOPE_RULES.iter().map(|r| r.message_type).collect();
+        assert_eq!(ours, EXPECTED.to_vec());
+    }
+
+    #[test]
+    fn the_table_matches_the_router_in_main_rs() {
+        let mut ours: Vec<String> = ENVELOPE_RULES
+            .iter()
+            .map(|rule| rule.message_type.to_string())
+            .collect();
+        ours.sort_unstable();
+
+        assert_eq!(
+            router_types_in_main_rs(),
+            ours,
+            "봉투 표와 src/main.rs 의 갈래가 어긋납니다"
+        );
     }
 
     #[test]

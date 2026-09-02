@@ -39,7 +39,7 @@ if let Err(violations) = validate(SchemaKind::SessionEvent, &event) {
 
 | 키워드 | 다루는 범위 |
 |---|---|
-| `type` | 낱개(`"string"`)와 배열(`["integer", "null"]`) 둘 다. `1.0` 도 정수로 봅니다 |
+| `type` | 낱개(`"string"`)와 배열(`["integer", "null"]`) 둘 다. `1.0` 도 정수로 봅니다. 배열은 이름을 **전부** 훑어서 모르는 이름이 뒤에 숨어 있어도 잡습니다 |
 | `properties` · `required` | 있는 것만 내려가서 보고, 없는 것은 그 자리를 가리켜 알립니다 |
 | `additionalProperties` | **참/거짓만.** 스키마 형태로 주면 "지원하지 않음" 오류입니다 |
 | `enum` · `const` | 값 그대로 비교합니다 |
@@ -48,7 +48,7 @@ if let Err(violations) = validate(SchemaKind::SessionEvent, &event) {
 | `minItems` · `maxItems` | 배열 길이 |
 | `items` | **스키마 낱개만.** 배열 형태(튜플)는 다루지 않습니다 |
 | `pattern` | 계약에 실제로 있는 **두 가지만** 손으로 맞춰 봅니다 (아래) |
-| `format` | `date-time` 하나만. RFC 3339 을 손으로 읽습니다(윤년·윤초·시간대 포함) |
+| `format` | `date-time` 하나만. RFC 3339 을 손으로 읽습니다(윤년·윤초·시간대 포함). 윤초는 **UTC 기준** 23:59:60 만 받습니다 — 시간대를 뺀 뒤에 보므로 `2016-12-31T18:59:60-05:00` 도 통과합니다(TypeScript 쪽 `ajv-formats` 와 같은 답입니다) |
 | `$ref` | `#/definitions/…` · `common.schema.json#/definitions/…` · 조각 없는 파일 통째 |
 | `allOf` · `if`/`then` | `session-event` 의 `state.changed` 갈래에 씁니다. `else` 는 다루지 않습니다 |
 | `$schema` · `$id` · `title` · `description` · `definitions` · `x-labels-ko` | 설명·창고라서 검사에 쓰지 않습니다 |
@@ -71,14 +71,20 @@ if let Err(violations) = validate(SchemaKind::SessionEvent, &event) {
 
 ## 3. 봉투 표 — 어떤 type 을 어떤 스키마로 볼까
 
-`ENVELOPE_RULES` 는 `src/main.rs` 의 `Router` 가 실제로 나눠 주는 이름과 같습니다.
+`ENVELOPE_RULES` 는 `src/main.rs` 가 실제로 나눠 주는 이름과 같습니다. `Router::handle` 이 갈래로 받는 넷과 `respond()` 가 받는 `ping` 을 합쳐 **다섯**입니다. 한쪽만 늘어나면 `the_table_matches_the_router_in_main_rs` 시험이 `src/main.rs` 원문을 읽어 대조하다가 먼저 빨갛게 됩니다.
 
-| `type` | `periodId` | 딸림 값 → 스키마 |
-|---|---|---|
-| `ping` | 필요 없음 | 없음 |
-| `event.append` | 필요 | `event` → `session-event` |
-| `session.status` | 필요 | 없음 |
-| `session.export` | 필요 | 없음 |
+| `type` | `periodId` | 딸림 값 → 스키마 | 추가 검사 |
+|---|---|---|---|
+| `ping` | 필요 없음 | 없음 | 없음 |
+| `event.append` | 필요 | `event` → `session-event` | 없음 |
+| `session.status` | 필요 | 없음 | 없음 |
+| `session.export` | 필요 | 없음 | 없음 |
+| `frame.store` | 필요 | `frame` → `screen-frame` | `bytesBase64` · `path` |
+
+`frame.store` 만 스키마 하나로 끝나지 않아 `ExtraCheck::FrameBody` 를 답니다. 고정 계약 (가)가 정한 두 가지를 더 봅니다.
+
+- `bytesBase64` 는 비어 있지 않은 문자열입니다. 본문을 실제로 푸는 것은 저장소 몫이라 여기서는 자리와 모양만 봅니다.
+- `frame.path` 는 `frames/<frame.id>.webp` 여야 합니다. 어긋나면 `/frame/path` 를 가리킵니다. 파일 이름을 `id` 로 못 박아 두면 확장이 준 경로가 교시 폴더 밖을 가리킬 자리가 없어집니다.
 
 `validate_envelope(&message)` 는 통과하면 걸린 규칙을, 어긋나면 봉투 기준 자리를 돌려줍니다(`/event/payload/to` 처럼 필드 이름이 앞에 붙습니다). 모르는 `type` 은 그 이름을 되뇌지 않고 아는 이름 목록만 알려 줍니다.
 
@@ -110,7 +116,7 @@ node apps/native-host/scripts/register-host.mjs --extension-id <a~p 32자> --rem
 node --test apps/native-host/scripts/*.test.mjs
 ```
 
-`register-host.mjs` 는 dry-run 이 기본이고 **`--apply` 가 있을 때만** 매니페스트 파일을 쓰고 `reg` 를 실행합니다(Phase 1 에는 dry-run 인데도 파일을 썼습니다). 두 스크립트 모두 진입점 가드가 있어 `import` 만으로는 움직이지 않습니다. 자세한 사용법은 `apps/native-host/README.md` §4 에 있습니다.
+`register-host.mjs` 는 dry-run 이 기본이고 **`--apply` 가 있을 때만** 매니페스트 파일을 쓰고 `reg` 를 실행합니다(Phase 1 에는 dry-run 인데도 파일을 썼습니다). 실행 파일이 아직 없으면 `--apply` 를 거절합니다 — 없는 경로를 적어 두면 Chrome 이 아무 말 없이 안 붙기 때문입니다. `host-roundtrip.mjs` 는 자식이 15초(`ROUNDTRIP_TIMEOUT_MS`) 안에 끝나지 않으면 멈춰 세우고 실패로 알립니다. 두 스크립트 모두 진입점 가드가 있어 `import` 만으로는 움직이지 않습니다. 자세한 사용법은 `apps/native-host/README.md` §4 에 있습니다.
 
 ## 6. 2라운드 계획
 

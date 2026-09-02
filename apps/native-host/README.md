@@ -215,13 +215,17 @@ node apps/native-host/scripts/register-host.mjs --extension-id <32자 ID> --remo
 | `--help` | 아니오 | 사용법 |
 
 `--exe` 를 생략하면 아래 순서로 찾고, 하나도 없으면 첫 번째 경로를 그대로 쓰면서 "아직 없어요" 라고 알려 줍니다.
+뿌리 세 곳을 차례로 보고, 뿌리마다 `x86_64-pc-windows-gnu/release` → `release` → `debug` 순서로 봅니다.
 
 ```
-1  <저장소 루트>/target/x86_64-pc-windows-gnu/release/classmate-host.exe
-2  <저장소 루트>/target/release/classmate-host.exe
-3  apps/native-host/target/x86_64-pc-windows-gnu/release/classmate-host.exe
-4  apps/native-host/target/release/classmate-host.exe   ← 지금 실제로 놓이는 자리
+① $CARGO_TARGET_DIR/…      ← 이 환경변수를 준 경우에만. 경로가 길어 여기로 뺐을 때를 위한 자리입니다
+② <저장소 루트>/target/…
+③ apps/native-host/target/…   ← 지금 실제로 놓이는 자리
 ```
+
+`--exe` 로 준 경로도 **있는지 함께 봅니다.** 실행 파일을 찾지 못하면 dry-run 은 계획을 그대로 보여 주지만
+(빌드 전에 무엇을 할지 먼저 보는 자리입니다), `--apply` 는 아무것도 바꾸지 않고 종료 코드 1 로 끝납니다.
+없는 경로를 매니페스트에 적고 `reg` 까지 하면 Chrome 이 아무 말 없이 안 붙어서 원인을 찾기 어렵기 때문입니다.
 
 ### 4-6. 안전 기준
 
@@ -239,6 +243,8 @@ node apps/native-host/scripts/register-host.mjs --extension-id <32자 ID> --remo
 
 등록이 아니라 "정말 주고받아지는가" 를 보려면 왕복 스크립트를 씁니다. 실행 파일을 띄워
 프레임으로 감싼 `{"type":"ping"}` 을 보내고 `hello` 가 돌아오는지 확인하고 0 또는 1 로 끝납니다.
+자식이 15초(`ROUNDTRIP_TIMEOUT_MS`) 안에 끝나지 않으면 멈춰 세우고 실패로 알립니다. 사람이 눈으로
+보는 도구라 대답 없이 멈춰 있는 것이 곧 판정 불능이기 때문입니다.
 
 ```bash
 # 개발 빌드가 없으면 cargo build 로 먼저 만듭니다
