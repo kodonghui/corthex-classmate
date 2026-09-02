@@ -237,3 +237,7 @@ rustup 이 GNU 툴체인에 자체 링커(`rust-mingw`)를 함께 내려 주므�
 | `tests/recovery.rs` | 강제 종료 → 재시작 손실 창 측정(Gate D) |
 | `scripts/register-host.mjs` | 매니페스트 작성과 HKCU 등록/해제 |
 | `manifest/` | 스크립트가 만드는 자리. 커밋하지 않습니다 |
+
+## 7. 워크스페이스 (Phase 2 1라운드)
+
+`Cargo.toml` 은 루트 패키지(`classmate-host`)이면서 워크스페이스 루트입니다. 멤버는 `crates/providers`(단위 8, `classmate-providers`)와 `crates/transport`(단위 9, `classmate-transport`)이고, 세션 저장소(단위 7)는 루트의 `src/store` 를 정리합니다. 단위마다 `cargo test -p <crate>` 로 검증하고, 전체는 `cargo test --workspace` 입니다. `Cargo.lock` 은 워크스페이스 하나가 공유하므로 병렬 worktree 에서 의존성을 더하면 합칠 때 `Cargo.lock` 충돌이 날 수 있습니다 — 그때는 `cargo update -w` 로 다시 만듭니다.

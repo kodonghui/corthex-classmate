@@ -1,7 +1,10 @@
 # Corthex Classmate 로컬 도우미 (Chrome Native Messaging Host).
-# 저장소 루트에 Cargo.toml 이 없으므로 이 crate 가 자기 자신의 워크스페이스 루트다.
-# 빈 [workspace] 는 나중에 루트에 워크스페이스가 생겨도 이 crate 가 끌려 들어가지 않게 막는다.
+# 저장소 루트에 Cargo.toml 이 없으므로 이 crate 가 워크스페이스 루트다(루트 패키지 + 멤버 크레이트).
+# Phase 2 1라운드: providers(단위 8)·transport(단위 9) 는 독립 worktree 에서 `cargo test -p <crate>` 로
+# 검증되게 별도 크레이트로 두고, session-store(단위 7) 는 이 루트 크레이트의 src/store 를 정리한다
+# (`cargo test -p classmate-host`). 멤버가 늘면 여기와 README §7 에 같이 적는다.
 [workspace]
+members = ["crates/providers", "crates/transport"]
 
 [package]
 name = "classmate-host"

@@ -1,0 +1,14 @@
+[package]
+name = "classmate-providers"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "튜터 제공자(Claude CLI · Codex) 어댑터 — TutorProvider trait 와 자식 프로세스 구동 (Phase 2 단위 8)"
+license = "MIT"
+publish = false
+
+[dependencies]
+
+[lib]
+name = "classmate_providers"
+path = "src/lib.rs"

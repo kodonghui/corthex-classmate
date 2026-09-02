@@ -1,0 +1,14 @@
+[package]
+name = "classmate-transport"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "Chrome Native Messaging 전송 — 4바이트 길이 프레이밍 · contracts 스키마 검증 · 레지스트리 매니페스트 (Phase 2 단위 9)"
+license = "MIT"
+publish = false
+
+[dependencies]
+
+[lib]
+name = "classmate_transport"
+path = "src/lib.rs"
