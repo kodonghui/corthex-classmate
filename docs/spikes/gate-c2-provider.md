@@ -551,3 +551,63 @@ node spikes/provider-claude.mjs --fixture /no/such/dir --dry-run   # exit 2  ENO
 - **파서 성공 판정**: `result` 이벤트에 `is_error` 가 없어도 `subtype` 이 오류를 뜻할 수 있어 `subtype === "success"` 를
   함께 본다. 다만 `subtype` 값의 전체 목록은 관측된 것(`success`)뿐이라, 새 성공 subtype 이 생기면 성공을 실패로 셀 수 있다.
 - **`codex app-server` 는 experimental** 표시다. 0.152.0 에서 뽑은 188개 메소드 이름이 다음 버전에서 바뀔 수 있다.
+
+## 부록 — 1라운드 구현 (2026-09-02)
+
+이 절은 **추가만** 한다. 위의 판정·측정값·비용 사고 문단은 고치지 않았다.
+
+Phase 2 1라운드 단위 (8) 이 이 게이트의 결론을 Rust 크레이트 `classmate-providers`
+(`apps/native-host/crates/providers`)로 옮겼다. **이 구현 작업 중 실제 `claude`·`codex` 호출은 0회다.**
+
+### 무엇을 옮겼나
+
+| 이 문서의 근거 | 옮긴 자리 |
+|---|---|
+| `TutorProvider { ask(context, question) → stream }` | `src/provider.rs` — 동기 trait + `AskRequest`·`ProviderEvent`·`AskOutcome`·`ProviderError` |
+| `spikes/lib/stream-json.mjs` 의 줄 파서 규칙 | `src/stream_json.rs` — 청크 버퍼링 · 비JSON 줄 무시·계수 · `assistant` content 두 모양 · `isSuccessResult` |
+| `-p --output-format stream-json --verbose` | `src/claude.rs` 의 `CLI_ARGS` (고정 리터럴 4개) |
+| `resolveCmdWrapper()` — `%dp0%` 표식 · `.js` → node · `.exe` 직접 · 모르는 배치는 폴백 | `src/claude.rs` 의 `resolve_cmd_wrapper()` · `plan_launch()` |
+| 타임아웃 시 `taskkill /PID <pid> /T /F` 트리 종료 + 유예 250ms | `src/claude.rs` 의 `kill_tree()` · `TIMEOUT_GRACE` |
+| 성공 회차에도 stderr 를 버리지 않는다 | 오류에 stderr **마지막 200자**를 실어 준다(`NonZeroExit::stderr_tail`) |
+| "질문 문자열을 argv 로 넘기지 않는다"(남은 위험 · argv 주입 경계) | 프롬프트는 **stdin 전용**. spike 의 argv 기본 모드는 옮기지 않았다 |
+| "한 질문당 CLI 를 새로 띄우면 4~6초를 잃는다" | `src/queue.rs` — 작업 스레드 1개 · 동시 1건 · 대기 줄 상한 4 |
+| Codex 실측 BLOCKED | `src/codex.rs` — `NotImplemented` 스텁 + app-server 프로토콜 메모 + 실측 후 채울 칸 표 |
+
+### 우발 실행 비용 사고를 막는 장치 (이 게이트의 가장 비싼 교훈)
+
+1. 제공자 생성자가 **CLI 경로를 필수 인자로** 받는다. 기본값도 PATH 탐색도 없다.
+2. `src/**` · `tests/**` 어디에도 실행 파일 이름을 못 박은 프로세스 생성이 없다.
+   `tests/no_real_cli.rs` 가 매 시험마다 확인한다(찾는 낱말은 그 파일이 스스로 걸리지 않게
+   실행 시점에 이어 붙인다).
+3. 시험은 언제나 `node` + 크레이트 안 `tests/fake-claude.mjs` 를 띄운다. 그 가짜 CLI 에도
+   이 문서가 요구한 **진입점 가드**(`import.meta.url === pathToFileURL(process.argv[1]).href`)가 있다.
+4. `.cmd` 해석 시험은 임시 폴더에 가짜 `.cmd`·가짜 `node.exe`·가짜 진입점을 만들어 쓴다.
+   존재 여부만 보는 함수라 실행되지 않는다.
+
+### 검증 (2026-09-02 · 로컬 Windows · Git Bash)
+
+```bash
+cargo test -p classmate-providers --manifest-path apps/native-host/Cargo.toml
+```
+
+```
+running 29 tests   (단위) → ok
+running  8 tests   (tests/claude_fake_cli.rs · 가짜 CLI 통합) → ok
+running  3 tests   (tests/no_real_cli.rs · 비용 안전) → ok
+running  1 test    (tests/queue_e2e.rs · 정상 → 타임아웃 → 비정상 종료) → ok
+```
+exit 0 · 합계 41개 통과. `cargo clippy -p classmate-providers --all-targets -- -D warnings` 와
+`cargo fmt -p classmate-providers -- --check` 도 exit 0.
+
+e2e(`tests/queue_e2e.rs`)는 큐 하나에 세 시나리오를 순서대로 넣어 (1) 정상 응답의 이벤트 순서와
+outcome, (2) 타임아웃 뒤 `tasklist` 로 **자식과 손자 PID 가 모두 사라졌는지**, (3) 비정상 종료의
+stderr 꼬리를 확인한다. 띄우는 것은 60초 자는 node 손자를 포함해 전부 가짜 CLI 다.
+
+### 이 문서의 값이 바뀌면 함께 봐야 할 자리
+
+- `result` 의 새 성공 `subtype` 이 생기면 `src/stream_json.rs` 의 `ResultMetrics::is_success()` 와
+  이 문서 "남은 위험 · 파서 성공 판정"을 같이 고친다.
+- npm 셈 모양이 바뀌면 `resolve_cmd_wrapper()` 시험 4개가 먼저 깨진다. 시험 숫자만 고치지 말고
+  이 문서 "Windows 실행 경로" 항목을 함께 고친다.
+- 골든 컨텍스트 재측정(사람이 할 일 1번)이 끝나면 프롬프트 조립 자리가 바뀔 수 있다.
+  지금 크레이트의 프롬프트는 계약 `question.snapshot` 이 식별자만 담기 때문에 **자료 요약**만 싣는다.
