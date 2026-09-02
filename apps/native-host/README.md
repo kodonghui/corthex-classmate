@@ -31,9 +31,9 @@ Chrome 확장                     classmate-host.exe
 | `{"type":"session.status","periodId":"…"}` | `{"type":"session.status","periodId":"…","count":27,"lastAt":"2026-09-02T10:33:14+09:00","journalMode":"wal"}` |
 | `{"type":"session.export","periodId":"…","path":"…/x.jsonl"}` | `{"type":"session.exported","path":"…/x.jsonl","count":27}` |
 | 위 셋이 저장에 실패 | `{"type":"error","message":"session store failed","reason":"<짧은 이유>","received":"<보낸 type>"}` · **프로세스는 계속 산다** |
-| 그 밖의 모든 `type` | `{"type":"error","message":"unknown message type","received":"<보낸 type>"}` |
-| `type` 이 없거나 문자열이 아님 | `{"type":"error","message":"unknown message type","received":null}` |
-| 본문이 UTF-8·JSON 이 아님(길이는 맞음) | `{"type":"error","message":"unreadable message","bytes":<길이>,"received":null}` · **프로세스는 계속 산다** |
+| 그 밖의 모든 `type` | `{"type":"error","message":"unknown message type","reason":"unknown-message-type","received":"<보낸 type>"}` |
+| `type` 이 없거나 문자열이 아님 | `{"type":"error","message":"unknown message type","reason":"unknown-message-type","received":"unknown"}` |
+| 본문이 UTF-8·JSON 이 아님(길이는 맞음) | `{"type":"error","message":"unreadable message","reason":"unreadable-message","bytes":<길이>,"received":"unknown"}` · **프로세스는 계속 산다** |
 | stdin 이 닫힘 | 응답 없음. 종료 코드 **0** |
 | 프레임 자체가 깨짐(길이 헤더가 잘림 · 본문이 잘림 · 상한 초과) | 응답 없음. stderr 에 이유 한 줄, 종료 코드 **1** |
 
