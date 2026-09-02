@@ -6,9 +6,14 @@
 // `import { icons } from "lucide-react"` 같은 전체 조회는 쓰지 않습니다(트리 셰이킹이 깨집니다).
 //
 // 맵에 넣는 기준
-//  - 정본 `design-system/components/**/*.jsx` 에서 실제로 쓰인 이름
+//  - 정본 `design-system/components/**/*.jsx` 전부에서 실제로 쓰인 이름
+//    (core·forms·feedback·surfaces·navigation·overlay 22개 + classmate 10개)
+//  - 정본 `design-system/ui_kits/sidepanel/*.jsx` 에서 실제로 쓰인 이름 (docs/DECISIONS.md 가 소스 정본으로 적었습니다)
 //  - 정본 `design-system/readme.md` ICONOGRAPHY 절의 어휘
 // 금지: `sparkles` · `bot` · `brain` (docs/DECISIONS.md 디자인 정본 적용 기본값). 넣지 않습니다.
+//
+// `test/icons.test.ts` 가 위 두 곳을 재귀로 훑어 쓰인 이름을 뽑고 이 맵과 대조합니다.
+// 정본이 새 아이콘을 쓰면 그 시험이 먼저 깨집니다. 폴더 목록을 시험에 손으로 적지 않습니다.
 
 import {
   ArrowLeft,
@@ -31,6 +36,7 @@ import {
   Monitor,
   PauseCircle,
   Settings2,
+  Trash2,
   WifiOff,
   X,
   type LucideIcon,
@@ -58,6 +64,7 @@ export const ICON_MAP = {
   monitor: Monitor, // Meet 화면
   "pause-circle": PauseCircle, // 잠시 멈춤 배너
   "settings-2": Settings2, // 설정
+  "trash-2": Trash2, // 오늘 기록 지우기 (ui_kits/sidepanel/SettingsScreen.jsx)
   "wifi-off": WifiOff, // 연결 끊김 배너
   x: X, // 닫기 · 지우기
 } satisfies Record<string, LucideIcon>;

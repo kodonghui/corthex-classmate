@@ -31,12 +31,19 @@ CSS 는 토큰 위에 얹힙니다. `@classmate/design-tokens` 의 변수들을 
 
 ## Icon 맵 규칙
 
-`src/icons.ts` 에 **kebab 이름 → lucide-react 컴포넌트** 를 손으로 적습니다.
+`src/icons.ts` 에 **kebab 이름 → lucide-react 컴포넌트** 를 손으로 적습니다. 지금 **23개** 입니다.
 
+- 맵에 넣는 기준은 정본에서 **실제로 쓰인 이름** 입니다.
+  - `design-system/components/**/*.jsx` 전부 — 여섯 폴더 22개 + `classmate` 10개
+  - `design-system/ui_kits/sidepanel/*.jsx` — `SettingsScreen` 의 `trash-2` 가 여기서 옵니다
+  - `design-system/readme.md` ICONOGRAPHY 절의 어휘
 - `import { icons } from "lucide-react"` 같은 전체 조회는 쓰지 않습니다(MV3 번들이 커집니다).
 - 맵에 없는 이름을 주면 개발 모드에서 한 번 경고하고, 빈 `<svg>` 대신 `aria-hidden` 인 빈 `span` 을 그립니다.
+  `process` 전역이 없는 브라우저·MV3 번들과 배포 빌드에서는 경고하지 않습니다.
 - `sparkles` · `bot` · `brain` 은 넣지 않습니다(`docs/DECISIONS.md`).
-- 새 아이콘이 필요하면 맵에 한 줄 더합니다. 시험이 정본 사용처와 `readme.md` 어휘를 대조합니다.
+- 새 아이콘이 필요하면 맵에 한 줄 더합니다. `test/icons.test.ts` 가 위 두 폴더를 **재귀로** 훑어
+  쓰인 이름을 뽑고 맵과 대조하므로, 정본에 새 아이콘이 생기면 시험이 먼저 깨집니다.
+  (폼 필드의 `name="len"` 처럼 아이콘이 아닌 `name` 속성은 세지 않습니다.)
 
 ## 정본과 다른 점
 
@@ -64,9 +71,9 @@ pnpm --filter @classmate/ui-base typecheck   # tsc --noEmit
 
 - `test/render.test.tsx` — 컴포넌트마다 렌더 시험 1개 이상(주요 props·상태·접근성 속성·문구)
 - `test/interaction.test.tsx` — Disclosure 열림/닫힘 · Tabs 고르기 · Dialog 초점/Escape/스크림 · Toast 자동 닫힘
-- `test/css-parity.test.ts` — 정본 `css('cm-…', \`…\`)` 블록과 `<Name>.css` 가 공백만 빼고 같은지 21건, `styles.css` 가 21개를 다 모으는지
-- `test/icons.test.ts` — 정본이 쓰는 이름 + `readme.md` 어휘가 맵에 다 있는지, 금지 3개가 없는지
-- `test/source-hygiene.test.ts` — 런타임 주입 0건 · 외부 주소 0건 · 다른 `@classmate/*` import 0건 · 색 직접 지정 0건
+- `test/css-parity.test.ts` — 정본 `css('cm-…', \`…\`)` 블록과 `<Name>.css` 가 공백만 빼고 같은지 21건, `styles.css` 가 21개를 다 모으는지, 정본이 `css()` 를 **몇 번** 부르는지(21개는 한 번 · `Icon.jsx` 는 0번)
+- `test/icons.test.ts` — 정본 jsx 전부(`components/**` 32개 + `ui_kits/sidepanel` 5개)가 쓰는 이름 + `readme.md` 어휘가 맵에 다 있는지, 금지 3개가 없는지
+- `test/source-hygiene.test.ts` — 런타임 주입 0건 · 외부 주소 0건 · 다른 `@classmate/*` import 0건 · 색 직접 지정 0건(hex · `rgb()` · `hsl()` · 색 이름) · 영어 문장 한 줄 주석 0건
 
 화면 앱은 2라운드 사이드패널에서 붙습니다. 이 라운드에서는 위 렌더 시험이 눈으로 보는 확인을 대신합니다.
 

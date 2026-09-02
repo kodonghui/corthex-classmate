@@ -68,6 +68,33 @@ describe("core", () => {
     warn.mockRestore();
   });
 
+  it("process 전역이 없는 번들에서는 경고 없이 빈 span 만 그린다", () => {
+    // MV3 확장·브라우저 번들에는 process 가 없습니다. 그때 개발 경고가 나가면 콘솔만 시끄러워집니다.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("process", undefined);
+    try {
+      const { container } = render(<Icon name="ui-base-process-없는-환경" />);
+      expect(container.querySelector("span.cm-icon")).not.toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      warn.mockRestore();
+    }
+  });
+
+  it("배포 빌드(NODE_ENV=production)에서도 경고하지 않는다", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    vi.stubGlobal("process", { env: { NODE_ENV: "production" } });
+    try {
+      const { container } = render(<Icon name="ui-base-배포-빌드-이름" />);
+      expect(container.querySelector("span.cm-icon")).not.toBeNull();
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      vi.unstubAllGlobals();
+      warn.mockRestore();
+    }
+  });
+
   it("IconButton 은 label 을 aria-label 과 title 로 함께 쓴다", () => {
     render(<IconButton icon="x" label="닫기" active />);
     const btn = screen.getByRole("button", { name: "닫기" });

@@ -25,7 +25,7 @@ const KW =
   /^(public|private|protected|static|final|class|interface|enum|extends|implements|return|new|if|else|for|while|do|switch|case|break|continue|void|this|super|import|package|try|catch|finally|throw|throws|null|true|false|var|record|abstract|default|instanceof)$/;
 const TYPES = /^(int|long|double|float|boolean|char|byte|short|String|List|Map|Set|Optional|Integer|Long|Object)$/;
 
-// Tiny Java tokenizer — enough to color keywords, types, strings, numbers, comments and annotations.
+// 작은 자바 토큰 분해기입니다. 예약어 · 타입 · 문자열 · 숫자 · 주석 · 애너테이션에 색을 입힐 만큼만 봅니다.
 export function tokenizeJava(line: string): React.ReactNode[] {
   const out: React.ReactNode[] = [];
   let i = 0;
