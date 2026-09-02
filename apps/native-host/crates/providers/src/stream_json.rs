@@ -25,6 +25,29 @@
 //! {"type":"assistant","message":{"content":[{"type":"text","text":"…"}]}, ...}
 //! {"type":"result","subtype":"success","duration_ms":…,"num_turns":…,"total_cost_usd":…}
 //! ```
+//!
+//! # 부분 스트리밍(`--include-partial-messages`)
+//!
+//! `--include-partial-messages` 를 주면 답이 **다 만들어지기 전에** 조각이 먼저 옵니다. Gate C2
+//! 실측에서 첫 글자까지 p50 6.6초였으므로(`docs/spikes/gate-c2-provider-latency.md`) 화면이
+//! 그만큼 빨리 살아나는 것이 이 옵션의 값어치입니다. 줄 모양은 이렇습니다.
+//!
+//! ```text
+//! {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"조각"}}}
+//! ```
+//!
+//! 규칙 셋을 지킵니다.
+//!
+//! 1. `content_block_delta` + `text_delta` 만 [`ProviderEvent::TextDelta`] 로 냅니다. 그 밖의
+//!    `stream_event` 하위 타입(`message_start` · `content_block_start` · `input_json_delta` …)은
+//!    조용히 버립니다. 새 하위 타입이 생겨도 회차가 깨지지 않게 하려는 것입니다.
+//! 2. **청크를 하나라도 본 뒤에 오는 `assistant` 전체 본문은 버립니다.** CLI 는 조각을 다 보낸 뒤
+//!    같은 내용을 `assistant` 로 한 번 더 보내므로, 그대로 이어 붙이면 답이 **두 벌**이 됩니다.
+//! 3. 청크를 하나도 못 본 회차는 예전 그대로입니다 — `assistant` 본문을 씁니다. 옵션이 없는 CLI ·
+//!    옵션을 무시하는 CLI 어느 쪽에서도 회차가 성립합니다.
+//!
+//! 청크를 본 회차에서 최종 본문을 무엇으로 삼는지는 [`StreamJsonParser::saw_partial_chunks`] 를
+//! 보고 `crate::claude` 가 정합니다(`result` 줄 우선 · 없으면 모아 둔 청크).
 
 use serde_json::Value;
 
@@ -79,6 +102,7 @@ pub struct StreamJsonParser {
     text: String,
     model: Option<String>,
     result: Option<ResultMetrics>,
+    partial_chunks: usize,
 }
 
 impl StreamJsonParser {
@@ -136,6 +160,19 @@ impl StreamJsonParser {
         self.result.as_ref()
     }
 
+    /// 이 회차에서 부분 스트리밍 청크를 하나라도 보았는지입니다.
+    ///
+    /// 참이면 `assistant` 전체 본문은 이미 버려졌으므로([`StreamJsonParser`] 모듈 머리말의 규칙 2)
+    /// 최종 본문은 `result` 줄이나 모아 둔 청크에서 가져와야 합니다.
+    pub fn saw_partial_chunks(&self) -> bool {
+        self.partial_chunks > 0
+    }
+
+    /// 이 회차에서 받은 부분 스트리밍 청크 수입니다. 진단용입니다.
+    pub fn partial_chunks(&self) -> usize {
+        self.partial_chunks
+    }
+
     /// 무시한 비JSON 줄 수입니다(경고 배너 등).
     ///
     /// `{` 로 시작하지 않아 JSON 으로 읽지도 않은 줄만 셉니다. JSON 으로는 읽혔지만 `type` 칸이
@@ -186,11 +223,23 @@ impl StreamJsonParser {
                     subtype.to_string(),
                 ))))
             }
+            // 부분 청크가 먼저 왔다면 이 줄은 같은 답을 한 번 더 보내는 것입니다. 이어 붙이면
+            // 본문이 두 벌이 되므로 통째로 버립니다(모듈 머리말 "부분 스트리밍" 규칙 2).
+            "assistant" if self.partial_chunks > 0 => Ok(None),
             "assistant" => match assistant_text(&event) {
                 Some(text) => {
                     self.text.push_str(&text);
                     Ok(Some(StreamItem::Event(ProviderEvent::TextDelta(text))))
                 }
+                None => Ok(None),
+            },
+            "stream_event" => match partial_text_delta(&event) {
+                Some(text) => {
+                    self.partial_chunks += 1;
+                    self.text.push_str(&text);
+                    Ok(Some(StreamItem::Event(ProviderEvent::TextDelta(text))))
+                }
+                // 알 수 없는 하위 타입입니다. 오류가 아니라 무시입니다.
                 None => Ok(None),
             },
             "result" => {
@@ -245,6 +294,28 @@ fn assistant_text(event: &Value) -> Option<String> {
         None
     } else {
         Some(joined)
+    }
+}
+
+/// `stream_event` 줄에서 부분 본문 조각을 뽑습니다. 우리가 아는 모양이 아니면 `None` 입니다.
+///
+/// 우리가 아는 모양은 하나뿐입니다.
+/// `{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"…"}}}`
+/// `message_start` · `content_block_start` · `input_json_delta` 처럼 본문이 아닌 조각은 여기서 걸러집니다.
+fn partial_text_delta(event: &Value) -> Option<String> {
+    let inner = event.get("event")?;
+    if inner.get("type").and_then(Value::as_str) != Some("content_block_delta") {
+        return None;
+    }
+    let delta = inner.get("delta")?;
+    if delta.get("type").and_then(Value::as_str) != Some("text_delta") {
+        return None;
+    }
+    let text = delta.get("text").and_then(Value::as_str)?;
+    if text.is_empty() {
+        None
+    } else {
+        Some(text.to_string())
     }
 }
 
@@ -387,6 +458,103 @@ mod tests {
         let items = parser.end().expect("버퍼 비우기");
         assert_eq!(items.len(), 1);
         assert_eq!(parser.text(), "IoC 는 …");
+    }
+
+    /// 부분 스트리밍 청크 한 줄을 만듭니다.
+    fn chunk(text: &str) -> String {
+        format!(
+            r#"{{"type":"stream_event","event":{{"type":"content_block_delta","index":0,"delta":{{"type":"text_delta","text":"{text}"}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn partial_chunks_become_text_deltas_and_the_late_assistant_copy_is_dropped() {
+        // 청크 3개 → assistant(전체 본문) → result 순서입니다. 실제 CLI 가 보내는 모양입니다.
+        let mut parser = StreamJsonParser::new();
+        let whole =
+            r#"{"type":"assistant","message":{"content":[{"type":"text","text":"가나다"}]}}"#;
+        let stream = format!(
+            "{INIT}\n{}\n{}\n{}\n{whole}\n{RESULT}\n",
+            chunk("가"),
+            chunk("나"),
+            chunk("다"),
+        );
+        let items = parser.push(&stream).expect("부분 스트리밍");
+
+        // init · 청크 3건 · result = 5건. assistant 는 이벤트를 내지 않습니다.
+        assert_eq!(items.len(), 5, "{items:?}");
+        assert_eq!(
+            items[0],
+            StreamItem::Event(ProviderEvent::Status("init".into()))
+        );
+        assert_eq!(
+            items[1..4],
+            [
+                StreamItem::Event(ProviderEvent::TextDelta("가".into())),
+                StreamItem::Event(ProviderEvent::TextDelta("나".into())),
+                StreamItem::Event(ProviderEvent::TextDelta("다".into())),
+            ]
+        );
+        assert!(matches!(items[4], StreamItem::Result(_)), "{items:?}");
+
+        // 본문은 한 벌뿐입니다. 두 벌이면 "가나다가나다" 가 됩니다.
+        assert_eq!(parser.text(), "가나다");
+        assert!(parser.saw_partial_chunks());
+        assert_eq!(parser.partial_chunks(), 3);
+    }
+
+    #[test]
+    fn a_stream_without_chunks_keeps_the_old_assistant_behaviour() {
+        // 옵션이 없거나 CLI 가 무시한 회차입니다. 예전과 한 글자도 다르지 않아야 합니다.
+        let mut parser = StreamJsonParser::new();
+        let items = parser
+            .push(&format!("{INIT}\n{ASSISTANT}\n{RESULT}\n"))
+            .expect("청크 없는 스트림");
+        assert_eq!(items.len(), 3);
+        assert_eq!(
+            items[1],
+            StreamItem::Event(ProviderEvent::TextDelta("IoC 는 …".into()))
+        );
+        assert_eq!(parser.text(), "IoC 는 …");
+        assert!(!parser.saw_partial_chunks());
+        assert_eq!(parser.partial_chunks(), 0);
+    }
+
+    #[test]
+    fn unknown_stream_event_subtypes_are_ignored() {
+        let mut parser = StreamJsonParser::new();
+        let lines = [
+            r#"{"type":"stream_event","event":{"type":"message_start","message":{"id":"m1"}}}"#,
+            r#"{"type":"stream_event","event":{"type":"content_block_start","index":0}}"#,
+            // 본문 델타가 아닌 델타(도구 입력)도 본문으로 세지 않습니다.
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"input_json_delta","partial_json":"{\"a\":"}}}"#,
+            // 빈 조각도 이벤트를 만들지 않습니다.
+            r#"{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":""}}}"#,
+            // `event` 칸이 통째로 없는 줄도 오류가 아닙니다.
+            r#"{"type":"stream_event"}"#,
+        ];
+        let items = parser
+            .push(&format!("{}\n", lines.join("\n")))
+            .expect("알 수 없는 하위 타입은 오류가 아닙니다");
+        assert!(items.is_empty(), "{items:?}");
+        assert_eq!(parser.partial_chunks(), 0);
+        assert!(!parser.saw_partial_chunks());
+        assert_eq!(parser.text(), "");
+        // JSON 으로 읽힌 줄이므로 비JSON 계수에도 올라가지 않습니다.
+        assert_eq!(parser.non_json_lines(), 0);
+    }
+
+    #[test]
+    fn chunks_without_a_result_line_still_add_up_to_the_body() {
+        // `--no-result` 회차입니다. 제공자는 이 회차를 실패로 보지만, 파서가 모아 둔 본문은
+        // 청크의 합이어야 합니다(제공자가 최종 본문을 고를 때 쓰는 대비책입니다).
+        let mut parser = StreamJsonParser::new();
+        parser
+            .push(&format!("{}\n{}\n", chunk("앞"), chunk("뒤")))
+            .expect("청크만 온 스트림");
+        assert_eq!(parser.text(), "앞뒤");
+        assert!(parser.result().is_none());
+        assert!(parser.saw_partial_chunks());
     }
 
     #[test]

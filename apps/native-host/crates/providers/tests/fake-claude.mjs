@@ -23,6 +23,14 @@
 //   --error-result         subtype 이 success 가 아닌 result 를 흘립니다.
 //   --close-stdin-early    프롬프트를 읽지 않고 stdin 을 먼저 닫습니다(부모의 BrokenPipe 를 만듭니다).
 //   --echo-stdin           받은 stdin 본문과 자기 argv 를 답변 조각으로 되돌려 보냅니다.
+//   --partial              답을 stream_event 청크로 먼저 흘린 뒤 assistant 전체 본문과 result 를 냅니다.
+//
+// 위 옵션들의 **이름과 뜻은 고정입니다.** 다른 단위(파이프라인)가 이 파일 경로와 옵션을 그대로
+// 참고하므로, 옵션을 지우거나 뜻을 바꾸면 그쪽 시험이 함께 깨집니다. 더하는 것만 합니다.
+//
+// 알 수 없는 인자는 조용히 무시합니다. 제공자가 언제나 붙이는 고정 인자
+// (`-p --output-format stream-json --verbose --include-partial-messages`)가 그대로 들어오는데,
+// 그중 하나라도 만나서 죽으면 모든 시험이 함께 죽기 때문입니다.
 //
 // stdin 으로 들어온 프롬프트는 **절대 실행하지 않습니다**(불변 원칙 §4-7).
 // 기본값은 길이만 세는 것이고, 본문을 붙잡아 두는 것은 `--echo-stdin` 을 준 시험뿐입니다.
@@ -39,6 +47,14 @@ function emit(object) {
   process.stdout.write(JSON.stringify(object) + '\n')
 }
 
+// 부분 스트리밍 청크 한 줄입니다. 실제 CLI 가 `--include-partial-messages` 에서 내는 모양입니다.
+function emitPartialChunk(text) {
+  emit({
+    type: 'stream_event',
+    event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } },
+  })
+}
+
 function readArgs(argv) {
   const args = {
     hang: argv.includes('--hang'),
@@ -50,6 +66,9 @@ function readArgs(argv) {
     errorResult: argv.includes('--error-result'),
     closeStdinEarly: argv.includes('--close-stdin-early'),
     echoStdin: argv.includes('--echo-stdin'),
+    partial: argv.includes('--partial'),
+    // 제공자가 붙이는 고정 인자입니다. 흐름을 바꾸지는 않고 "받아도 죽지 않는다" 는 사실만 담습니다.
+    includePartialMessages: argv.includes('--include-partial-messages'),
     exitCode: 0,
     pidFile: null,
   }
@@ -126,17 +145,40 @@ async function main() {
     return
   }
 
-  emit({ type: 'assistant', message: { content: [{ type: 'text', text: '결론입니다. ' }] } })
-  emit({ type: 'assistant', message: { content: [{ type: 'text', text: '이유는 둘입니다.' }] } })
-
-  if (args.echoStdin) {
-    // 시험 전용 통로입니다. 받은 stdin 본문과 자기 argv 를 그대로 되돌려 보내, 시험이
-    // "질문·문맥은 stdin 에만 있고 argv 에는 없다" 를 두 쪽 다 보고 대조할 수 있게 합니다.
-    const echo =
-      `\n[STDIN-BYTES]${stdin.bytes}[/STDIN-BYTES]\n` +
+  // 시험 전용 통로입니다. 받은 stdin 본문과 자기 argv 를 그대로 되돌려 보내, 시험이
+  // "질문·문맥은 stdin 에만 있고 argv 에는 없다" 를 두 쪽 다 보고 대조할 수 있게 합니다.
+  const echo = args.echoStdin
+    ? `\n[STDIN-BYTES]${stdin.bytes}[/STDIN-BYTES]\n` +
       `[STDIN]${stdin.text}[/STDIN]\n` +
       `[ARGV]${JSON.stringify(process.argv)}[/ARGV]`
-    emit({ type: 'assistant', message: { content: [{ type: 'text', text: echo }] } })
+    : ''
+
+  // 실제 CLI 와 같이, 청크는 `--include-partial-messages` 를 실제로 받았을 때만 흘립니다.
+  // 그래서 고정 인자에서 그 옵션이 빠지면 --partial 시험이 곧바로 깨집니다.
+  const streamsPartials = args.partial && args.includePartialMessages
+  if (args.partial && !args.includePartialMessages) {
+    process.stderr.write('fake-claude: --partial 인데 --include-partial-messages 가 없어 청크를 내지 않습니다\n')
+  }
+
+  // 청크를 흘리든 아니든 최종 본문은 같습니다. 다른 것은 "몇 조각으로 나눠 보내는가" 뿐입니다.
+  let body = '결론입니다. 이유는 둘입니다.'
+
+  if (streamsPartials) {
+    // 우리가 읽지 않는 하위 타입도 하나 섞습니다. 파서가 조용히 넘기는지 e2e 로 보려는 것입니다.
+    emit({ type: 'stream_event', event: { type: 'message_start', message: { id: 'fake-msg-1' } } })
+    const pieces = ['결론입니다. ', '이유는 ', '둘입니다.']
+    if (echo) pieces.push(echo)
+    for (const piece of pieces) emitPartialChunk(piece)
+    body = pieces.join('')
+    // 청크를 다 보낸 뒤 같은 내용을 한 번 더 보냅니다. 실제 CLI 가 그렇게 하고,
+    // 파서가 이 줄을 두 번 세지 않는지가 시험의 핵심입니다.
+    emit({ type: 'assistant', message: { content: [{ type: 'text', text: body }] } })
+  } else {
+    emit({ type: 'assistant', message: { content: [{ type: 'text', text: '결론입니다. ' }] } })
+    emit({ type: 'assistant', message: { content: [{ type: 'text', text: '이유는 둘입니다.' }] } })
+    if (echo) {
+      emit({ type: 'assistant', message: { content: [{ type: 'text', text: echo }] } })
+    }
   }
 
   if (args.exitCode !== 0) {
@@ -160,7 +202,8 @@ async function main() {
       duration_api_ms: 4,
       num_turns: 1,
       total_cost_usd: 0,
-      result: '결론입니다. 이유는 둘입니다.',
+      // 청크로 나눠 보낸 회차에서는 이 칸이 정본입니다(제공자가 `result` 를 먼저 봅니다).
+      result: body,
       ...(args.echoStdin ? { stdin_bytes: stdin.bytes } : {}),
     })
   }
