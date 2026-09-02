@@ -15,6 +15,7 @@ import type {
   SessionEvent,
   TranscriptSegment,
 } from "@classmate/contracts";
+import { formatIso } from "@classmate/tutor-core";
 
 import answer2Json from "../../../../fixtures/synthetic-class/golden-ioc/answer-2.json";
 import answerQueuedJson from "../../../../fixtures/synthetic-class/golden-ioc/answer-queued.json";
@@ -86,6 +87,46 @@ export function buildGoldenBundle(): GoldenBundle {
     events,
     questions: Object.fromEntries(questions.map((question) => [question.id, question])),
     answers: Object.fromEntries(answers.map((answer) => [answer.id, answer])),
+  };
+}
+
+/** 아직 편집기 문맥이 한 번도 안 온 라이브 모드의 자리표시 id 입니다. */
+export const LIVE_EDITOR_PLACEHOLDER_ID = "ec-live-none";
+
+/**
+ * 라이브 모드가 시작할 때 쓰는 **빈 묶음**입니다. 본문은 나중에 들어옵니다.
+ *
+ *     ReplayStore.live({ periodId, startMs })   ← 여기서 이 함수를 부릅니다
+ *        │ pushSegment · pushFrame · pushEditor · pushEvent
+ *        ▼
+ *     같은 GoldenBundle 모양이 채워짐 → lesson-view 는 fixture 때와 똑같이 읽습니다
+ *
+ * `editor` 는 계약(EditorContext)의 required 8칸을 다 채워야 해서 자리표시 값을 둡니다.
+ * `filePath` · `language` 는 스키마가 `minLength: 1` 이라 빈 문자열을 넣을 수 없고,
+ * `source` 는 `intellij-mcp | fixture` 두 값뿐이라 "아직 IntelliJ 에서 온 것이 아니다" 는
+ * 뜻으로 `fixture` 를 씁니다. 이 자리표시는 질문 봉인(sealSnapshot)에 넣지 않습니다 —
+ * 진짜 문맥이 한 번이라도 와야 봉인에 들어갑니다(`ReplayStore` 의 `#hasEditor`).
+ */
+export function emptyBundle(periodId: PeriodId, startMs: number, subject = "수업"): GoldenBundle {
+  return {
+    periodId,
+    subject,
+    periodIndex: 1,
+    transcript: [],
+    frames: [],
+    editor: {
+      id: LIVE_EDITOR_PLACEHOLDER_ID,
+      periodId,
+      capturedAt: formatIso(startMs),
+      filePath: "아직 열린 파일 없음",
+      language: "text",
+      visibleRange: { startLine: 1, endLine: 1 },
+      excerpt: "",
+      source: "fixture",
+    },
+    events: [],
+    questions: {},
+    answers: {},
   };
 }
 
