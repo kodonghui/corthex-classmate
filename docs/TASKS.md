@@ -31,19 +31,40 @@
 
 ## Phase 1 — 기술 게이트 스파이크 (`docs/spikes/`)
 
-- [~] Gate A `gate-a-tiro.md` — 실측 기록 옮김(2순위 PASS 부분) · 공유 페이지 커넥터 구현 + fixtures 단위 테스트 · (a)(c) 는 사람 실측 대기
-- [ ] Gate B `gate-b-meet.md` — tabCapture + Offscreen + dHash 변화 감지
-- [~] Gate C `gate-c-intellij.md` — 정찰 완료(IDEA 2025.3.6.1 · 63342 만 열림 · MCP 서버 꺼짐 → BLOCKED) · 사람이 켜면 도구 목록화
-- [~] Gate C2 `gate-c2-provider.md` — CLI 확인(claude --print stream-json · codex app-server) · 측정 스크립트 작성 예정 · Codex 는 한도 복구 후
-- [ ] Gate D `gate-d-recovery.md` — 장애 복구 자동 테스트
-- [ ] DECISIONS.md 에 Tiro 기본 커넥터 · Host · Provider 기본값 기록
+- [x] Gate A `gate-a-tiro.md` — **PASS(부분)**: 공유 페이지 커넥터(`src/tiro/` 파서·MutationObserver 관찰기·content script·MCP 스텁) + fixtures 4종 단위 테스트 36건 · 관찰 하네스 `spikes/tiro-share-observe.mjs` · 검증자 minor 4건 수정 완료(문단별 2겹 판별 · 마지막 문단은 명시적 확정 표시만 · stateSource 4값 · stop() 가드 · 공백 계산은 첫 사건부터)
+- [!] 대기 — Gate A 실측 (a) MCP 녹음 중 문단 반환 (b) 60분 연속 유지 (c) 발화→화면 지연: 사람이 Real-time 공유 링크를 채팅으로 주면 `TIRO_SHARE_URL=… node spikes/tiro-share-observe.mjs --minutes 60`
+- [x] Gate B `gate-b-meet.md` — **PASS(부분)**: `src/capture/`(dHash·FrameStore·pipeline·WebP 인코더) + `SamplingLoop`(겹침 방지·재예약) + offscreen 엔트리 + background 캡처 메시지 + manifest 권한(tabCapture·offscreen) · 실측 dHash 2.75ms · WebP 2.7~607 KiB(실제 인코더 클래스) · capture 테스트 42건 · 검증자 minor 5건 수정 완료
+- [!] 대기 — Gate B 실측: 실제 Meet 탭 tabCapture 5분 · 실제 화면 바이트 · 60분 메모리 곡선 (사람이 `.output/chrome-mv3` 를 압축해제 확장으로 로드해 측정, 절차는 문서 §사람이 할 일)
+- [x] Gate C `gate-c-intellij.md` — **BLOCKED(부분)**: 탐침 `spikes/intellij-mcp-probe.mjs` + 읽기 전용 허용 목록 `spikes/lib/intellij-readonly.mjs` 를 스텁 서버로 검증(21건) · 토큰은 `INTELLIJ_MCP_TOKEN` 만 · 실제 IDE 는 64342 미개방
+- [!] 대기 — IntelliJ Settings → Tools → MCP Server → Enable 후 `node spikes/intellij-mcp-probe.mjs` 재실행 (도구 개수·인증 방식 실측)
+- [x] Gate C2 `gate-c2-provider.md` — Claude **PASS(25자 단문 기준)**: 2세트 10/10 성공 · TTFT p50 6.6~6.8s · 모델 claude-opus-5[1m] · 누적 실측 비용 2.72 USD(그중 1.25 USD 는 검증 중 import 부작용으로 승인 없이 지출 → 모든 스파이크에 진입점 가드) · Windows `.cmd` 래퍼 해제 + `taskkill /T /F` 트리 종료 수정 완료(1.5s 타임아웃에서 1.7~1.8s 정리, 모의 바이너리 테스트 13건 · spikes 62건)
+- [!] 대기 — Gate C2 비용 승인: 골든 컨텍스트(2,893바이트) 기준 5회 재측정 `node spikes/provider-claude.mjs --fixture fixtures/synthetic-class/golden-ioc --runs 5` (단문 5회가 1.25~1.47 USD 였음)
+- [!] 대기 — Codex 한도 복구 후 `spikes/provider-codex.mjs` 작성 + 골든 컨텍스트 5회 측정 (지금은 `provider-codex-probe.mjs` 로 app-server 프로토콜 188 메소드만 확인)
+- [ ] Gate C2 후속(Phase 2 `apps/native-host/providers` 로 이월): `.cmd` 래퍼 미해제 폴백 감지(`spawnedThroughCmdWrapper`) · `taskkill` 가용성 점검 · 비용 보고에 `timeoutCount` 포함 · 골든 재측정은 18:05 이후 빌드로
+- [x] Gate D `gate-d-recovery.md` — **PASS(부분)**: `apps/native-host` 세션 저장소(`src/store/`, rusqlite =0.30.0 `winsqlite3` · SQLite 3.51.1 · WAL) + 호스트 메시지 3종(event.append / session.status / session.export) + 강제 종료 복구 통합 테스트(손실 창 표본 최대 10ms · 중앙값 4ms · 25회) · cargo test 41개 · clippy 0 · 확장 쪽 장애 3개(패널 재열기·공유 페이지 새로고침·캡처 중단)는 Phase 2 통합 테스트로 미측정
+- [x] DECISIONS.md 에 기본값 기록: Tiro 커넥터(2순위)·Host(Rust)·저장소(winsqlite3 WAL)·Gate B 임계값·IntelliJ 읽기 전용 규칙·Provider(Claude, 단문 기준 측정 조건 명시)·스파이크 진입점 가드 공통 규칙·비용 사고 기록 완료 (18:15)
 
 ## Phase 2 — MVP 수직 슬라이스
 
-- [ ] 부채: native-host `serve` 가 JSON 파싱 실패 한 건에 프로세스를 끝냄 → InvalidData 는 error 응답 후 계속, EOF·상한 초과만 종료
+- [!] 대기(예약) — 사용자가 2026-09-02 17:3x 에 `/batch` 1라운드 프롬프트(10단위)를 미리 보냄. 본문은 docs/master-prompt.md A-6 1라운드와 동일. **실행 시점: Phase 1 커밋 + "Phase 2 준비 완료 — contracts 고정 · fixtures · 스켈레톤 · origin(대기)" 보고 직후**, 그때 계획 모드 → 사용자 승인 → worktree 워커 10개. origin 이 없으면 브랜치 `batch-1/<단위>` 만 남김. Phase 1 게이트가 이미 만든 코드(5 tiro-connectors · 6 meet-capture · 7 session-store · 9 transport)는 갈아엎지 않고 완성·정리 단위로 다룸.
+- [x] 부채 해소(Gate D): `protocol::read_frame` 이 본문을 끝까지 읽은 UTF-8·JSON 오류는 `{"type":"error","message":"unreadable message"}` 로 답하고 계속 삶 · 헤더/본문 절단·상한 초과만 종료 (테스트 `serve_survives_a_frame_it_cannot_read`)
+- [ ] 부채: native-host `store::SESSION_EVENT_TYPES` 는 contracts `session-event.schema.json` enum 의 손 사본(테스트가 시험 시점에 대조) → Rust 타입 생성(typify)이 붙으면 생성물로 교체
+- [ ] 부채: rusqlite `=0.30.0` 고정(winsqlite3 기능이 0.31 부터 삭제) → MSVC 전환 시 `bundled` 로 바꾸고 고정 해제
 - [ ] 부채: SessionEvent.payload 를 type 별 oneOf 판별 유니온으로
-- [ ] 부채: rusqlite `bundled` 는 C 컴파일러가 필요(GNU 툴체인에 없음) → 시스템 SQLite 링크 또는 pure-Rust 대안 검토
+- [x] 부채 해소: rusqlite `bundled` 대신 `winsqlite3`(System32 내장 SQLite) 링크로 확정 (DECISIONS 2026-09-02) · MSVC 환경이 생기면 `bundled` 로 교체 검토
 - [ ] 메모: TypeScript 7.0.2 는 `node_modules/@types/*` 전역 타입을 자동 포함하지 않음 → 패키지마다 `/// <reference types="…" />` 한 줄 .d.ts
+- [ ] 메모: Rust 빌드는 짧은 경로에서만 (MAX_PATH 260) — 임시 폴더에서 돌리면 `CARGO_TARGET_DIR` 을 60자 이내로
+- [ ] 메모: 제품 코드에서 `@classmate/contracts` 는 `import type` 만 (Ajv 의 new Function 이 MV3 CSP 에 막힘) · 검증은 테스트에서만
+- [ ] Phase 2 사이드패널에 캡처 시작/중지 버튼 필요(tabCapture 는 사용자 제스처 요구) → 생기면 background.ts 의 `chrome.action.onClicked` 손시험 갈래 제거
+- [ ] Phase 2 background 가 받을 메시지: `tiro.segment` / `tiro.partial` / `tiro.selector_broken` (커넥터) · `capture.start` / `capture.stop` / `capture.frame` (캡처)
+- [ ] 결정 필요: Phase 2 제공자 호출 시 `--model` 을 명시 고정할지 CLI 기본값(현재 claude-opus-5[1m])을 따를지
+- [ ] spikes 에 esbuild 를 넣어 `node:module stripTypeScriptTypes`(ExperimentalWarning) 우회를 안정 도구로 교체할지 검토
+- [ ] contracts `screen-frame.schema.json` 에 bytes·mime 를 넣지 않기로 함(내부 기록 전용) — Phase 2 저장소가 필요로 하면 재검토
+- [ ] Phase 2 세션 저장소: 교시 종료(period.ended) 시 남아 있는 진행 중 문단(partial)을 확정 세그먼트로 마무리하는 처리 (Gate A 후속)
+- [ ] 선택: `spikes/test/tiro-share-observe.test.mjs` 로 관찰 하네스 `summarize()` 공백 계산 5케이스 회귀 테스트화
+- [ ] Gate B 손 시험 때 확인 항목 (d) `skippedWhileBusy` 실측값 기록 (설계상 0)
+- [ ] Phase 2 사이드패널: `PipelineStats` 새 모양(`loop` 포함) 기준으로 SourceFooter 배선 · 완료 시 `chrome.action.onClicked` 갈래와 `globalThis.classmateCapture` 손잡이 제거
+- [ ] 선택: WebP 인코더가 캔버스를 직접 받게 바꿔 getImageData → putImageData 이중 복사 제거 (측정상 압축 시간에 묻혀 우선순위 낮음)
 
 - [ ] packages/tutor-core 상태기계 + ContextSnapshot
 - [ ] apps/native-host session-store · context-builder · provider 연결
@@ -61,7 +82,12 @@
 
 - [!] Tiro MCP OAuth 인증 (`/mcp` → tiro → Authenticate)
 - [!] Tiro Max 결제 (월 무제한)
-- [!] 다음 녹음 때 Real-time 공유 링크로 Gate A (a)(b)(c) 실측
+- [!] 다음 녹음 때 Real-time 공유 링크로 Gate A (a)(b)(c) 실측 (링크·비밀번호는 채팅으로만)
+- [!] IntelliJ MCP Server 켜기 (Settings → Tools → MCP Server → Enable) → Gate C 재측정
+- [!] Meet 탭에서 압축해제 확장으로 Gate B 실측 (tabCapture 5분 · 화면 바이트 · 60분 메모리)
+- [!] Gate C2 골든 컨텍스트 재측정 비용 승인 (약 1.5 USD 이상 예상)
+- [!] Codex 사용 한도 복구 확인 → Gate C2 Codex 측정
 - [!] 선생님께 Drive "뷰어 다운로드 허용" 요청
 - [!] `gh repo create` 허락
 - [!] `design/_to_delete/` 삭제 여부
+- [!] `%TEMP%/ccsq`(스크래치 Rust target 폴더) 삭제 여부
