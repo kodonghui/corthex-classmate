@@ -122,3 +122,8 @@ kickoff.md 와 master-prompt.md 가 충돌하면 kickoff.md 가 우선하고 여
 - 결정: `frame.store` 는 검사(id 형식 `^sf-[A-Za-z0-9_-]{1,60}$` · periodId 형식 · path 는 호스트가 id 로 다시 계산해 대조) → `.part` 파일 쓰기 → `rename` → 한 트랜잭션으로 `frames` 행 + `screen.frame` 기록 순서로 한다. 강제 종료 시 짝 없는 파일은 남을 수 있어도 "표에는 있는데 파일이 없는" 프레임은 생기지 않는다. `fixtures/synthetic-class/golden-ioc` 의 프레임은 파일명·`path` 를 `frames/sf-p3-001.webp`·`frames/sf-p3-002.webp` 로 바꿔(A 안) 계약과 맞췄다. 계약 `packages/contracts` 는 무변경.
 - 근거: Gate D 결정(확장이 준 문자열을 경로로 쓰지 않음)과 고정 계약 (가). 복구 시험 3회 실측: 41~42장 남음 · 손실 창 5·7·9 ms · 어긋난 짝 0. fixture 를 그대로 두면 호스트가 `frame-path-mismatch` 로 거절하므로 fixture 쪽을 고쳤다(report-ui·tutor-core·contracts 시험 모두 통과: 56·54·57).
 - 대안: B(파일명은 두고 path 만 고침) → fixtures 안에서 path 와 실제 파일이 어긋나 버림. C(계약 (가)의 대조를 "frames/ 로 시작하는 .webp" 로 완화) → 단위 6 과 다시 합의해야 하고 경로 검증이 느슨해져 버림.
+
+## 2026-09-02 — 라이브 튜터 제공자는 학생 질문을 argv 가 아니라 stdin 으로만 넘기고, 봉인 본문은 상위 단위가 조립해 넘긴다 (1라운드 단위 8)
+- 결정: `classmate-providers` 의 Claude CLI 제공자는 질문·문맥을 **stdin** 으로만 보낸다(`cmd.exe /c` 폴백 경로에서 셸 해석 지점을 없애기 위해; Gate C2 "argv 주입 경계" 위험 항목). 생성자는 CLI 경로를 필수 인자로 받고 기본값·PATH 탐색이 없으며, 시험은 `tests/fake-claude.mjs` 만 띄운다(`tests/no_real_cli.rs` 가 실행 파일 이름 리터럴 부재를 매번 확인). 깨진 JSON 줄은 `{` 로 시작하면 `Protocol` 오류, 아니면 배너로 무시·계수. Codex 는 `NotImplemented` 스텁 + 프로토콜 메모.
+- 근거: Phase 1 비용 사고(실제 CLI 5회, 1.25 USD)의 재발 방지가 최우선이고, 지시서의 "인자 하나" 보다 Gate C2 문서의 명시 위험이 우선한다. 실측: cargo 41 tests · 실제 CLI 호출 0회.
+- 대안·보류 제안: 계약 `question.snapshot` 은 식별자만 담아 제공자가 보낼 수 있는 것이 "자료 요약 + 질문" 뿐이다. (a) 계약에 봉인 본문 자리를 더한다 → 스냅샷이 커지고 저장·전송 면이 넓어져 비권장. (b) **tutor-core(단위 4)가 봉인 식별자로 본문을 조회해 조립한 문자열을 `AskRequest` 의 본문 칸(materials)으로 넘긴다** → 권장, 2라운드에 확정. 계약은 무변경.
