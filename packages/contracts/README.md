@@ -84,3 +84,13 @@ src/index.ts                 ← 생성물 재수출 + 상수 + createValidator
 Rust 타입은 아직 만들지 않습니다. Phase 2 에서 `apps/native-host` 의 `build.rs` 가
 `typify` 로 같은 `schemas/*.schema.json` 을 읽어 crate 안에 타입을 만드는 방향으로 붙입니다.
 그때도 정본은 이 폴더의 JSON Schema 하나뿐입니다.
+
+## 고정 상태 (2026-09-02 · Phase 2 1라운드)
+
+스키마 8종은 **고정(frozen)** 입니다. `frozen.sha256` 이 스키마 파일의 SHA-256 스냅샷이고
+`test/frozen.test.ts` 가 지금 파일과 맞대어 봅니다. 그래서 스키마를 한 글자라도 고치면
+`pnpm --filter @classmate/contracts test` 가 실패합니다.
+
+- 계약을 바꿔야 하는 단위는 코드를 고치지 말고 `docs/DECISIONS.md` 에 **제안**(무엇을·왜·대안)을 적고 그 단위를 멈춥니다.
+- 사람이 승인하면 스키마 수정 → `pnpm run generate` → `pnpm run freeze` 순서로 스냅샷을 갱신하고 같은 커밋에 담습니다.
+- Git Bash 에서 손으로 확인: `(cd packages/contracts && sha256sum -c frozen.sha256)` — 줄 끝이 CRLF 로 바뀐 체크아웃에서는 시험 쪽(CR 제거 후 해시)만 믿습니다.
