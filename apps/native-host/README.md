@@ -279,9 +279,15 @@ rustup 이 GNU 툴체인에 자체 링커(`rust-mingw`)를 함께 내려 주므�
 | `src/protocol.rs` | 프레이밍 읽기/쓰기(`read_frame` · `read_message` · `write_message`)와 단위 테스트 |
 | `src/store/mod.rs` | 교시별 SQLite(WAL) 저장소 `SessionStore` · `SessionEvent` · 단위 테스트 |
 | `src/store/clock.rs` | `at` 을 적고 읽는 ISO 8601(밀리초) 변환 |
-| `src/main.rs` | stdin 루프 · `Router`(교시 저장소 캐시) · `ping` → `hello` · 모르는 type → `error` |
+| `src/store/base64.rs` | std 만으로 쓴 RFC 4648 디코더(`frame.store` 의 `bytesBase64`) |
+| `src/store/frames.rs` | `frames` 표 + `.webp` 파일 저장(`.part` → rename → 한 트랜잭션) · id/path 대조 |
+| `src/main.rs` | stdin 루프 · `Router`(교시 저장소 캐시) · `ping` → `hello` · `frame.store` → `frame.stored` · 모르는 type → `error` |
 | `tests/recovery.rs` | 강제 종료 → 재시작 손실 창 측정(Gate D) |
 | `scripts/register-host.mjs` | 매니페스트 작성과 HKCU 등록/해제 |
+| `scripts/register-host.test.mjs` | 매니페스트 모양·dry-run 무쓰기·제거 계획 시험(`node --test`) |
+| `scripts/host-roundtrip.mjs` | 실행 파일에 프레이밍된 `ping` 을 보내 `hello` 를 받는 왕복 확인(`--exe` 선택) |
+| `crates/transport/` | `classmate-transport`: 프레이밍 복사본 · 계약 손 검증기 · 봉투 표(§4-7) |
+| `crates/providers/` | `classmate-providers`: `TutorProvider` trait · Claude CLI 제공자 · Codex 스텁(1라운드 단위 8) |
 | `manifest/` | 스크립트가 만드는 자리. 커밋하지 않습니다 |
 
 ## 7. 워크스페이스 (Phase 2 1라운드)
