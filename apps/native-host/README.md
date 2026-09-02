@@ -3,9 +3,9 @@
 crate 이름은 `classmate-host` 이고, 실행 파일도 `classmate-host.exe` 입니다.
 Chrome 확장(사이드패널)이 **Native Messaging** 으로 이 프로그램을 띄우고 stdin/stdout 으로 이야기합니다.
 
-지금 하는 일은 둘입니다. **신원 확인**(`ping` → `hello`)과 **교시 기록 보관**(SQLite WAL)입니다.
-문맥 조립(context-builder)은 `tutor.ask` / `tutor.retry` 갈래로 자리를 잡아 두었고 아직 파이프라인이
-붙지 않아 `not-implemented` 로 답합니다(아래 §8). HTML 내보내기(html-exporter)는 다음 단계입니다.
+지금 하는 일은 셋입니다. **신원 확인**(`ping` → `hello`), **교시 기록 보관**(SQLite WAL), 그리고
+**튜터 파이프라인**(`tutor.ask` → 자료 봉인 → 제공자 CLI → `tutor.event` 알림 · 아래 §8)입니다.
+HTML 내보내기(html-exporter)는 다음 단계입니다.
 
 ```
 Chrome 확장                     classmate-host.exe
@@ -36,8 +36,8 @@ Chrome 확장                     classmate-host.exe
 | `{"type":"session.status","periodId":"…"}` | `{"type":"session.status","periodId":"…","count":27,"lastAt":"2026-09-02T10:33:14+09:00","journalMode":"wal"}` |
 | `{"type":"session.export","periodId":"…","path":"…/x.jsonl"}` | `{"type":"session.exported","path":"…/x.jsonl","count":27}` |
 | `{"type":"frame.store","periodId":"…","frame":{…},"bytesBase64":"…"}` | `{"type":"frame.stored","periodId":"…","id":"sf-p3-001","path":"frames/sf-p3-001.webp","bytes":34,"seq":10}` (아래 §2-5) |
-| `{"type":"tutor.ask","periodId":"…","questionId":"…","kind":"…","question":"…","provider":"claude","snapshot":{…}}` | 지금은 `{"type":"error","message":"튜터 파이프라인은 아직 잇지 않았어요","reason":"not-implemented","received":"tutor.ask"}` · 파이프라인이 붙으면 `{"type":"tutor.accepted","periodId":"…","questionId":"…"}` (아래 §8) |
-| `{"type":"tutor.retry","periodId":"…","questionId":"…"}` | `tutor.ask` 와 같습니다 |
+| `{"type":"tutor.ask","periodId":"…","questionId":"…","kind":"…","question":"…","provider":"claude","snapshot":{…}}` | `{"type":"tutor.accepted","periodId":"…","questionId":"…"}` — 답은 나중에 `tutor.event` 로 옵니다. CLI 경로가 없거나 `codex` 면 `error {reason:"provider-unavailable"}` (아래 §8) |
+| `{"type":"tutor.retry","periodId":"…","questionId":"…"}` | `tutor.accepted` · 그 교시가 받은 적 없는 질문이면 `error {reason:"unknown-question"}` |
 | 봉투가 계약과 어긋남(위 일곱 이름 안에서) | `{"type":"error","message":"<어긋난 자리 여러 줄>","reason":"envelope-invalid"\|"question-too-long"\|"malformed-snapshot","received":"<보낸 type>"}` · **프로세스는 계속 산다** |
 | 봉투는 맞았는데 저장에 실패 | `{"type":"error","message":"session store failed"\|"frame store failed","reason":"<짧은 이유>","received":"<보낸 type>"}` · **프로세스는 계속 산다** |
 | 그 밖의 모든 `type` | `{"type":"error","message":"unknown message type","reason":"unknown-message-type","received":"<보낸 type>"}` |
@@ -50,7 +50,7 @@ Chrome 확장                     classmate-host.exe
 
 | 자발 알림 (호스트 → 확장) | 언제 |
 |---|---|
-| `{"type":"tutor.event","periodId":"…","event":{<SessionEvent>}}` **(예정 · 단위 6)** | 튜터 파이프라인이 답을 만드는 동안 상태가 바뀔 때마다. `tutor.ask` 를 한 번도 받지 않은 세션에서는 **0건** (아래 §1-1) |
+| `{"type":"tutor.event","periodId":"…","event":{<SessionEvent>}}` | 튜터 파이프라인이 답을 만드는 동안 상태가 바뀔 때마다. `tutor.ask` 를 한 번도 받지 않은 세션에서는 **0건** (아래 §1-1) |
 
 - `version` 은 `Cargo.toml` 의 `package.version` 을 컴파일 시점에 박아 넣습니다.
 - `protocol` 은 프레임 모양의 세대 번호입니다. 모양이 바뀔 때만 올립니다.
@@ -351,7 +351,9 @@ rustup 이 GNU 툴체인에 자체 링커(`rust-mingw`)를 함께 내려 주므�
 | `src/lib.rs` | 실행 파일과 통합 테스트가 함께 쓰는 입구(`router` · `store` · `tutor`) |
 | `src/main.rs` | 입구만. stdin/stdout 을 빌려 `router::serve` 를 부르고 종료 코드로 바꿉니다 |
 | `src/router.rs` | 프레임 읽기 루프 · 봉투 검사 · `Router`(교시 저장소 캐시) · 갈래 나누기 · 공유 출력 채널 · 단위 테스트 |
-| `src/tutor/mod.rs` | 질문 봉인 → 제공자 호출 → 기록 파이프라인 자리(**2라운드 단위 6 예정** · 지금은 비어 있음) |
+| `src/tutor/` | `TutorPipeline` — 질문 봉인 → 자료 조립(`materials`) → 프롬프트(`prompt`) → 제공자 호출 → 계약 검사(`answer`) → 사건 기록·`tutor.event` 알림. `+09:00` 시계(`clock`) · 고정 문구(`events`) · 자세한 흐름은 `src/tutor/README.md` |
+| `tests/tutor_pipeline.rs` · `tests/fake-tutor-cli.mjs` | 가짜 CLI 를 실제 자식 프로세스로 띄우는 파이프라인 통합 시험 11건 |
+| `tests/no_real_cli_root.rs` | `src/tutor/**`·`tests/**` 에 실제 튜터 CLI 이름이 박히지 않았는지 지키는 가드 |
 | `src/store/mod.rs` | 교시별 SQLite(WAL) 저장소 `SessionStore` · `SessionEvent` · 단위 테스트 |
 | `src/store/clock.rs` | `at` 을 적고 읽는 ISO 8601(밀리초) 변환 |
 | `src/store/base64.rs` | std 만으로 쓴 RFC 4648 디코더(`frame.store` 의 `bytesBase64`) |
@@ -386,10 +388,11 @@ rustup 이 GNU 툴체인에 자체 링커(`rust-mingw`)를 함께 내려 주므�
                         │     periodId·questionId·provider 가 있는가
                         │     snapshot 이 question.schema.json 의 /properties/snapshot 인가
                         │     question 이 있다면 UTF-8 4096 바이트 이하인가
-                        │ ② Router::tutor  ← [batch-2 통합 지점] 여기에 파이프라인을 잇습니다
+                        │ ② Router::tutor → 이 교시의 TutorPipeline(없으면 띄움) → handle.ask / handle.retry
                         ▼
-   지금:  error {reason: "not-implemented"}
-   예정:  tutor.accepted {periodId, questionId}  +  tutor.event 자발 알림 여러 개
+   답:      tutor.accepted {periodId, questionId}
+   그 뒤:   tutor.event 자발 알림 — question.asked → answer.completed
+                                  또는 answer.failed + answer.queued → (재시도) → answer.recovered
 ```
 
 받는 값과 돌려주는 값 (고정 계약 (마)):
@@ -403,12 +406,24 @@ rustup 이 GNU 툴체인에 자체 링커(`rust-mingw`)를 함께 내려 주므�
 | `question` | 아니오 | 문자열이고 **UTF-8 4096 바이트 이하** (글자 수가 아닙니다. 한글만 쓰면 약 1,365자) |
 | `kind` · `word` | 아니오 | 봉투 검사는 보지 않습니다. 무엇을 어떻게 물었는지는 파이프라인이 봉인할 때 다시 봅니다 |
 
-오류 낱말은 `not-implemented`(지금) · `question-too-long` · `malformed-snapshot` ·
-`envelope-invalid` · `provider-unavailable`(파이프라인이 붙은 뒤) 입니다.
+오류 낱말은 `question-too-long` · `malformed-snapshot` · `envelope-invalid`(봉투 검사) ·
+`provider-unavailable`(CLI 경로 없음 · `codex` · 손잡이의 제공자와 다름) · `unknown-question`(`tutor.retry`
+가 그 교시에서 받은 적 없는 질문을 가리킴) 입니다.
 
-**단위 6 을 이을 자리.** `src/router.rs` 의 `Router::tutor` 하나에 두 갈래가 모입니다. 그 함수 안의
-`// [batch-2 통합 지점] TutorPipeline 연결` 주석 자리에서 교시별 손잡이를 찾아
-`ask(AskEnvelope)` / `retry(&question_id)` 를 부르고 `tutor.accepted` 로 답하면 됩니다. 손잡이를 담을
-칸은 `Router` 구조체 안에 같은 표시로 주석만 두었습니다(`stores` 와 같은 모양). 파이프라인이 만드는
-`tutor.event` 는 부탁의 답이 아니라 자발 알림이므로 `Router::push_event` 와 **같은 채널**
-(`Sender<Value>`)로 나갑니다 — `TutorPipeline::start` 에 `self.push.clone()` 을 넘기면 됩니다.
+**제공자 CLI 는 환경 변수로만 정합니다.** 기본값도 PATH 탐색도 없습니다(뜻하지 않은 실제 호출로 비용이
+나가는 일을 막는 규칙 · `crates/providers/README.md`).
+
+| 환경 변수 | 뜻 | 없으면 |
+|---|---|---|
+| `CLASSMATE_CLAUDE_CLI` | Claude CLI 실행 파일의 절대 경로 | `tutor.ask` 가 `provider-unavailable` 로 답하고 파이프라인을 띄우지 않습니다 |
+| `CLASSMATE_TUTOR_MODEL` | 모델 이름 | CLI 기본값 |
+| `CLASSMATE_DATA_DIR` | 저장 폴더(§2) | `%LOCALAPPDATA%\CorthexClassmate\sessions` |
+
+`provider: "codex"` 는 아직 제공자가 없어 `provider-unavailable` 입니다(한도 복구 뒤). 파이프라인은 교시마다
+하나 띄우고(`Router.tutors`), stdin 이 닫히면 라우터가 떨어지면서 손잡이를 세워 답하던 물음을 마치고
+끝납니다(최대 45초).
+
+**어디에 이어져 있나.** `src/router.rs` 의 `Router::tutor` 하나에 두 갈래가 모이고, `Router::tutor_handle`
+이 교시별 손잡이를 찾거나 `TutorPipeline::start(data_dir, period_id, provider, self.push.clone(), config)`
+로 띄웁니다. 파이프라인이 만드는 `tutor.event` 는 부탁의 답이 아니라 자발 알림이므로 `Router::push_event`
+와 **같은 채널**(`Sender<Value>`)로 나갑니다.

@@ -404,6 +404,14 @@ enum Command {
 }
 
 /// 질문을 붙잡은 순간 굳어진 것들입니다. 뒤에 자료가 바뀌어도 이 묶음은 그대로입니다.
+/// 제공자에게 보낼 두 조각입니다. `materials` 는 `AskRequest::with_materials` 로,
+/// `question` 은 본문 자리로 갑니다.
+#[derive(Debug, Clone)]
+struct Body {
+    materials: String,
+    question: String,
+}
+
 #[derive(Debug, Clone)]
 struct Sealed {
     envelope: AskEnvelope,
@@ -632,12 +640,19 @@ impl Worker {
     /// 제공자를 한 번 부르고 답을 계약의 `Answer` 로 만듭니다.
     fn ask_once(
         &self,
-        body: &str,
+        body: &Body,
         sealed: &Sealed,
         answer_id: &str,
         status: AnswerStatus,
     ) -> Result<Value, AttemptError> {
-        let mut request = AskRequest::new(sealed.snapshot.clone(), body, self.timeout);
+        // 자료는 질문 문자열에 섞지 않고 따로 싣습니다. providers 가 자료 절에 "명령이 아니라
+        // 인용" 표시를 붙여 질문 앞에 놓으므로 전사 안의 문장이 지시로 읽힐 자리가 없습니다(§4-7).
+        let mut request = AskRequest::new(
+            sealed.snapshot.clone(),
+            body.question.as_str(),
+            self.timeout,
+        )
+        .with_materials(body.materials.as_str());
         if let Some(model) = &self.model {
             request = request.with_model(model.clone());
         }
@@ -674,7 +689,7 @@ impl Worker {
     }
 
     /// 봉인한 식별자로 저장소에서 본문을 되찾아 제공자에게 보낼 글을 만듭니다.
-    fn build_body(&self, sealed: &Sealed) -> String {
+    fn build_body(&self, sealed: &Sealed) -> Body {
         let stored = match &self.store {
             Some(store) => store
                 .list_since(0, materials::MATERIAL_SCAN_LIMIT)
@@ -689,7 +704,10 @@ impl Worker {
         };
 
         let bundle = materials::collect(&stored, &sealed.snapshot);
-        prompt::build_from(&bundle, sealed.ask_text())
+        Body {
+            materials: materials::render(&bundle),
+            question: prompt::build(sealed.ask_text()),
+        }
     }
 
     fn on_success(&mut self, question_id: &str, value: Value, recovering: bool) {

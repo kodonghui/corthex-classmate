@@ -37,6 +37,8 @@
 
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
+use std::env;
+use std::ffi::OsString;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
@@ -44,12 +46,14 @@ use std::thread;
 
 use serde_json::{json, Value};
 
+use classmate_providers::{ClaudeCliProvider, TutorProvider};
 use classmate_transport::framing::{self, Frame};
 use classmate_transport::schema::{describe, Violation};
 use classmate_transport::{envelope_reason, rule_for, validate_envelope};
 
 use crate::store::frames::ScreenFrameMeta;
 use crate::store::{self, base64, SessionEvent, SessionStore, StoreError};
+use crate::tutor::{self, AskEnvelope, TutorConfig, TutorError, TutorHandle, TutorPipeline};
 
 /// 확장이 이해하는 프로토콜 세대입니다. 모양이 바뀌면 올립니다.
 pub const PROTOCOL_VERSION: u64 = 1;
@@ -121,6 +125,39 @@ fn read_until_eof<R: Read>(reader: &mut R, out: Sender<Value>) -> io::Result<()>
     }
 }
 
+/// 튜터 파이프라인이 띄울 제공자 CLI 의 위치입니다.
+///
+/// 실행 파일은 [`TutorSources::from_env`] 로 환경 변수를 읽고, 시험은 가짜 CLI 를 직접 넣습니다.
+/// **기본값도 PATH 탐색도 없습니다.** 경로가 없으면 `tutor.ask` 는 `provider-unavailable` 로 답하고
+/// 파이프라인을 띄우지 않습니다 — 실제 CLI 가 뜻하지 않게 불려 비용이 나가는 일을 막는 규칙입니다
+/// (`crates/providers/README.md` 의 비용 안전 규칙).
+#[derive(Debug, Clone, Default)]
+pub struct TutorSources {
+    /// Claude CLI 실행 파일의 절대 경로입니다(`CLASSMATE_CLAUDE_CLI`).
+    pub claude_cli: Option<PathBuf>,
+    /// 실행 파일 뒤에 먼저 붙일 인자입니다. 시험이 `node <가짜 CLI>` 를 만들 때만 씁니다.
+    pub claude_prefix_args: Vec<OsString>,
+    /// 모델 이름입니다(`CLASSMATE_TUTOR_MODEL`). 없으면 CLI 기본값을 그대로 씁니다.
+    pub model: Option<String>,
+}
+
+impl TutorSources {
+    /// Claude CLI 경로를 담는 환경 변수 이름입니다.
+    pub const CLAUDE_CLI_ENV: &'static str = "CLASSMATE_CLAUDE_CLI";
+    /// 모델 이름을 담는 환경 변수 이름입니다.
+    pub const MODEL_ENV: &'static str = "CLASSMATE_TUTOR_MODEL";
+
+    /// 환경 변수에서 읽습니다. 비어 있는 값은 없는 것으로 봅니다.
+    pub fn from_env() -> Self {
+        let read = |name: &str| env::var_os(name).filter(|value| !value.is_empty());
+        Self {
+            claude_cli: read(Self::CLAUDE_CLI_ENV).map(PathBuf::from),
+            claude_prefix_args: Vec::new(),
+            model: read(Self::MODEL_ENV).map(|value| value.to_string_lossy().into_owned()),
+        }
+    }
+}
+
 /// 열어 둔 교시 저장소를 들고 메시지를 나눠 주는 자리입니다.
 ///
 /// 저장소는 `periodId` 마다 하나씩 열어 두고 다시 씁니다. 교시 하나가 파일 하나이므로
@@ -131,10 +168,10 @@ pub struct Router {
     stores: HashMap<String, SessionStore>,
     /// 확장으로 나가는 길입니다. 답도 자발 알림도 이 하나로 나갑니다.
     push: Sender<Value>,
-    // [batch-2 통합 지점] 교시별 튜터 손잡이를 담을 자리입니다.
-    //   tutors: HashMap<String, crate::tutor::TutorHandle>
-    // 단위 6(context-builder)이 TutorPipeline::start(..) -> TutorHandle 을 내놓으면
-    // `stores` 와 같은 모양으로(교시 하나에 손잡이 하나) 이 자리에 붙입니다.
+    /// 교시별 튜터 파이프라인 손잡이입니다. `stores` 와 같은 모양(교시 하나에 하나)입니다.
+    tutors: HashMap<String, TutorHandle>,
+    /// 제공자 CLI 를 어디서 찾을지입니다. 실행 파일은 환경 변수에서 읽고, 시험은 직접 넣습니다.
+    tutor_sources: TutorSources,
 }
 
 impl Router {
@@ -144,6 +181,8 @@ impl Router {
             data_dir: None,
             stores: HashMap::new(),
             push,
+            tutors: HashMap::new(),
+            tutor_sources: TutorSources::from_env(),
         }
     }
 
@@ -153,7 +192,16 @@ impl Router {
             data_dir: Some(data_dir),
             stores: HashMap::new(),
             push,
+            tutors: HashMap::new(),
+            tutor_sources: TutorSources::from_env(),
         }
+    }
+
+    /// 제공자 CLI 위치를 직접 넣습니다. 시험이 가짜 CLI 를 꽂을 때 씁니다.
+    #[must_use]
+    pub fn with_tutor_sources(mut self, sources: TutorSources) -> Self {
+        self.tutor_sources = sources;
+        self
     }
 
     /// 부탁받지 않은 알림 한 개를 확장으로 흘려보냅니다(고정 계약 (마) 의 `tutor.event`).
@@ -203,36 +251,106 @@ impl Router {
     /// `tutor.ask` 와 `tutor.retry` 가 함께 지나는 **하나뿐인** 자리입니다.
     ///
     /// 봉투는 [`Router::handle`] 이 이미 걸렀습니다. 여기 오는 것은 `periodId`·`questionId`·
-    /// `provider`·`snapshot` 이 계약에 맞는 부탁뿐입니다. 지금은 이을 파이프라인이 아직 없어서
-    /// `not-implemented` 로 답합니다.
-    ///
-    /// 단위 6(context-builder)이 병합되면 오케스트레이터가 이 함수 안을 이렇게 채웁니다.
+    /// `provider`·`snapshot` 이 계약에 맞는 부탁뿐입니다.
     ///
     /// ```text
     /// tutor.ask   ─▶ 이 교시 손잡이가 없으면 TutorPipeline::start(
     ///                    data_dir, period_id, provider, self.push.clone(), config)
     ///             ─▶ handle.ask(AskEnvelope)   ─Ok ─▶ tutor.accepted {periodId, questionId}
-    ///                                          ─Err─▶ error {reason: provider-unavailable, ..}
-    /// tutor.retry ─▶ handle.retry(question_id) 로 같은 답
+    ///                                          ─Err─▶ error {reason: provider-unavailable | malformed-snapshot, ..}
+    /// tutor.retry ─▶ handle.retry(question_id) ─Ok ─▶ tutor.accepted
+    ///                                          ─Err─▶ error {reason: unknown-question, ..}
     /// ```
     ///
     /// 파이프라인이 만드는 사건은 부탁의 답이 아니라 **자발 알림**이므로, 답으로 돌려주지 않고
     /// 그때 넘긴 `Sender`(= [`Router::push_event`] 와 같은 채널)로 곧장 나갑니다.
     fn tutor(&mut self, msg: &Value) -> Value {
-        // [batch-2 통합 지점] TutorPipeline 연결
         let kind = msg
             .get("type")
             .and_then(Value::as_str)
             .unwrap_or("tutor.ask");
+        // 봉투 검사가 periodId 를 이미 보았으므로 여기서는 비어 있을 수 없습니다.
+        let period_id = msg
+            .get("periodId")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_string();
 
-        eprintln!("[classmate-host] {kind} 를 받았지만 튜터 파이프라인이 아직 없습니다");
+        let data_dir = match self.data_dir() {
+            Ok(dir) => dir,
+            Err(error) => return store_failure(kind, &error),
+        };
 
-        json!({
-            "type": "error",
-            "message": "튜터 파이프라인은 아직 잇지 않았어요",
-            "reason": "not-implemented",
-            "received": kind,
-        })
+        let outcome = if kind == "tutor.retry" {
+            tutor::retry_question_id(msg).and_then(|question_id| {
+                match self.tutors.get(&period_id) {
+                    Some(handle) => handle.retry(&question_id).map(|()| question_id),
+                    None => Err(TutorError::UnknownQuestion),
+                }
+            })
+        } else {
+            AskEnvelope::from_ask_message(msg).and_then(|envelope| {
+                let question_id = envelope.question_id.clone();
+                let handle = self.tutor_handle(&period_id, &envelope.provider, data_dir)?;
+                handle.ask(envelope).map(|()| question_id)
+            })
+        };
+
+        match outcome {
+            Ok(question_id) => json!({
+                "type": "tutor.accepted",
+                "periodId": period_id,
+                "questionId": question_id,
+            }),
+            Err(error) => {
+                eprintln!(
+                    "[classmate-host] {kind} 를 받지 못했습니다 · {}",
+                    error.reason()
+                );
+                tutor_failure(kind, &error)
+            }
+        }
+    }
+
+    /// 이 교시의 튜터 손잡이를 줍니다. 아직 없으면 제공자를 만들어 파이프라인을 띄웁니다.
+    ///
+    /// 저장소(`stores`)처럼 교시 하나에 하나입니다. 이미 있는 손잡이의 제공자와 봉투의 `provider`
+    /// 가 다르면 손잡이 쪽(`TutorHandle::ask`)이 `provider-unavailable` 로 되돌립니다.
+    fn tutor_handle(
+        &mut self,
+        period_id: &str,
+        provider: &str,
+        data_dir: PathBuf,
+    ) -> Result<&TutorHandle, TutorError> {
+        match self.tutors.entry(period_id.to_string()) {
+            Entry::Occupied(already) => Ok(already.into_mut()),
+            Entry::Vacant(slot) => {
+                let boxed = provider_for(provider, &self.tutor_sources)?;
+                let config = TutorConfig {
+                    provider_name: provider.to_string(),
+                    model: self.tutor_sources.model.clone(),
+                    ..TutorConfig::default()
+                };
+                let handle =
+                    TutorPipeline::start(data_dir, period_id, boxed, self.push.clone(), config);
+                eprintln!(
+                    "[classmate-host] 교시 {period_id} 튜터 파이프라인을 띄웠습니다 · {provider}"
+                );
+                Ok(slot.insert(handle))
+            }
+        }
+    }
+
+    /// 저장 폴더를 줍니다. 아직 정하지 않았으면 환경을 보고 정한 뒤 기억합니다.
+    fn data_dir(&mut self) -> store::Result<PathBuf> {
+        match &self.data_dir {
+            Some(existing) => Ok(existing.clone()),
+            None => {
+                let resolved = store::default_data_dir()?;
+                self.data_dir = Some(resolved.clone());
+                Ok(resolved)
+            }
+        }
     }
 
     /// 이 교시의 저장소를 줍니다. 아직 없으면 그때 엽니다.
@@ -240,14 +358,7 @@ impl Router {
     /// 넣자마자 다시 꺼내며 `expect` 로 "반드시 있다" 고 적어 두는 대신, `entry` 로 넣은 자리를
     /// 그대로 돌려줍니다. 이 자리에는 확장이 보낸 값이 오가므로 죽을 수 있는 문장을 두지 않습니다.
     fn store(&mut self, period_id: &str) -> store::Result<&SessionStore> {
-        let data_dir = match &self.data_dir {
-            Some(existing) => existing.clone(),
-            None => {
-                let resolved = store::default_data_dir()?;
-                self.data_dir = Some(resolved.clone());
-                resolved
-            }
-        };
+        let data_dir = self.data_dir()?;
 
         match self.stores.entry(period_id.to_string()) {
             Entry::Occupied(already) => Ok(already.into_mut()),
@@ -408,6 +519,54 @@ fn unknown_message_type(message: &Value) -> Value {
 /// 저장이 실패했을 때의 응답입니다. 프로세스는 죽지 않습니다.
 ///
 /// `reason` 에는 우리가 직접 쓴 짧은 이유만 담습니다. 파일 경로와 본문 원문은 담지 않습니다.
+impl Drop for Router {
+    /// 교시 손잡이를 세워 파이프라인 스레드가 답하던 물음을 마치고 끝나게 합니다.
+    ///
+    /// stdin 이 닫히면 [`read_until_eof`] 가 라우터를 떨어뜨리고, 그때 이 자리가 손잡이마다
+    /// `shutdown` 을 불러 스레드를 기다립니다. 파이프라인이 든 `Sender` 가 그제야 떨어져
+    /// 내보내는 스레드도 채널이 닫힌 것을 보고 끝납니다(위 §1-1 의 순서).
+    fn drop(&mut self) {
+        for (period_id, handle) in self.tutors.drain() {
+            eprintln!("[classmate-host] 교시 {period_id} 튜터 파이프라인을 세웁니다");
+            handle.shutdown();
+        }
+    }
+}
+
+/// 봉투의 `provider` 이름으로 제공자를 만듭니다. CLI 경로가 없으면 띄우지 않습니다.
+fn provider_for(
+    name: &str,
+    sources: &TutorSources,
+) -> Result<Box<dyn TutorProvider + Send>, TutorError> {
+    // 제공자 이름을 match 갈래(따옴표 이름 뒤 화살표)로 쓰지 않습니다. transport 의 대조 시험이
+    // 이 파일의 그런 줄을 메시지 갈래로 세므로 제공자 이름이 봉투 표와 섞입니다.
+    if name != "claude" {
+        eprintln!("[classmate-host] 제공자 {name} 는 아직 없습니다(Codex 는 한도 복구 뒤)");
+        return Err(TutorError::ProviderUnavailable);
+    }
+    let Some(cli) = &sources.claude_cli else {
+        eprintln!(
+            "[classmate-host] {} 가 비어 있어 튜터를 띄우지 않습니다",
+            TutorSources::CLAUDE_CLI_ENV
+        );
+        return Err(TutorError::ProviderUnavailable);
+    };
+    Ok(Box::new(ClaudeCliProvider::with_prefix_args(
+        cli.clone(),
+        sources.claude_prefix_args.clone(),
+    )))
+}
+
+/// 튜터 갈래의 실패를 확장 모양의 오류 네 칸으로 만듭니다.
+fn tutor_failure(kind: &str, error: &TutorError) -> Value {
+    json!({
+        "type": "error",
+        "message": error.to_string(),
+        "reason": error.reason(),
+        "received": kind,
+    })
+}
+
 fn store_failure(kind: &str, error: &StoreError) -> Value {
     eprintln!("[classmate-host] {kind} 를 처리하지 못했습니다 · {error}");
 
@@ -468,6 +627,7 @@ mod tests {
     use std::fs;
     use std::path::Path;
     use std::sync::atomic::{AtomicU32, Ordering};
+    use std::time::{Duration, Instant};
 
     /// 시험이 끝나면 스스로 지워지는 임시 폴더. 라우터보다 먼저 선언해야 한다
     /// (Rust 는 선언의 역순으로 떨어뜨리므로 라우터가 파일을 놓은 뒤에 지워진다).
@@ -1137,24 +1297,128 @@ mod tests {
         assert_eq!(next["seq"], 2);
     }
 
+    /// PATH 에서 node 런타임을 찾는다. 자바스크립트 런타임이지 튜터 CLI 가 아니다.
+    fn node_runtime() -> PathBuf {
+        let names: &[&str] = if cfg!(windows) {
+            &["node.exe", "node"]
+        } else {
+            &["node"]
+        };
+        let path = env::var_os("PATH").expect("PATH 환경변수");
+        for dir in env::split_paths(&path) {
+            for name in names {
+                let candidate = dir.join(name);
+                if candidate.is_file() {
+                    return candidate;
+                }
+            }
+        }
+        panic!("node 를 PATH 에서 찾지 못했다. 이 시험은 가짜 CLI 를 node 로 띄운다.");
+    }
+
+    /// 저장소 안 가짜 튜터 CLI(`tests/fake-tutor-cli.mjs`)를 node 로 띄우는 위치.
+    fn fake_tutor_sources(extra: &[&str]) -> TutorSources {
+        let script = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fake-tutor-cli.mjs");
+        let mut prefix = vec![script.into_os_string()];
+        prefix.extend(extra.iter().map(OsString::from));
+        TutorSources {
+            claude_cli: Some(node_runtime()),
+            claude_prefix_args: prefix,
+            model: None,
+        }
+    }
+
+    /// 자발 알림 가운데 원하는 사건이 올 때까지 기다린다. 자식 프로세스 기동까지 넉넉히 잡는다.
+    fn wait_for_event(sink: &Receiver<Value>, event_type: &str) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(60);
+        loop {
+            let remaining = deadline.saturating_duration_since(Instant::now());
+            let pushed = sink
+                .recv_timeout(remaining)
+                .unwrap_or_else(|_| panic!("{event_type} 알림이 60초 안에 오지 않았다"));
+            assert_eq!(pushed["type"], "tutor.event", "{pushed}");
+            if pushed["event"]["type"] == event_type {
+                return pushed;
+            }
+        }
+    }
+
     #[test]
-    fn tutor_ask_passes_the_envelope_and_answers_not_implemented_for_now() {
-        let dir = temp_dir("tutor-ask");
-        let (mut router, sink) = router_with(&dir);
+    fn tutor_ask_without_a_cli_path_answers_provider_unavailable() {
+        let dir = temp_dir("tutor-no-cli");
+        let (router, sink) = router_with(&dir);
+        let mut router = router.with_tutor_sources(TutorSources::default());
 
         let reply = router.handle(tutor_ask_request());
 
         assert_eq!(reply["type"], "error", "{reply}");
-        assert_eq!(reply["reason"], "not-implemented");
-        assert_eq!(reply["message"], "튜터 파이프라인은 아직 잇지 않았어요");
+        assert_eq!(reply["reason"], "provider-unavailable");
         assert_eq!(reply["received"], "tutor.ask");
         assert!(is_extension_shaped_error(&reply), "{reply}");
-        // 이을 파이프라인이 없으므로 자발 알림도 없다.
+        // 파이프라인을 띄우지 않았으므로 자발 알림도 없다.
         assert!(drain(&sink).is_empty());
     }
 
     #[test]
-    fn tutor_retry_takes_the_same_road() {
+    fn a_codex_ask_is_provider_unavailable_until_that_provider_exists() {
+        let dir = temp_dir("tutor-codex");
+        let (router, sink) = router_with(&dir);
+        let mut router = router.with_tutor_sources(fake_tutor_sources(&[]));
+
+        let mut ask = tutor_ask_request();
+        ask["provider"] = json!("codex");
+        let reply = router.handle(ask);
+
+        assert_eq!(reply["reason"], "provider-unavailable", "{reply}");
+        assert_eq!(reply["received"], "tutor.ask");
+        assert!(drain(&sink).is_empty());
+    }
+
+    #[test]
+    fn tutor_ask_with_a_fake_cli_is_accepted_and_the_events_flow_out_of_the_push_channel() {
+        let dir = temp_dir("tutor-fake");
+        let (router, sink) = router_with(&dir);
+        let mut router = router.with_tutor_sources(fake_tutor_sources(&[]));
+
+        let ask = tutor_ask_request();
+        let reply = router.handle(ask.clone());
+        assert_eq!(reply["type"], "tutor.accepted", "{reply}");
+        assert_eq!(reply["periodId"], ask["periodId"]);
+        assert_eq!(reply["questionId"], ask["questionId"]);
+
+        // 파이프라인이 만든 사건은 답이 아니라 push 채널로 나온다(고정 계약 (마)).
+        let asked = wait_for_event(&sink, "question.asked");
+        assert_eq!(asked["periodId"], ask["periodId"]);
+        assert_eq!(asked["event"]["payload"]["questionId"], ask["questionId"]);
+
+        let completed = wait_for_event(&sink, "answer.completed");
+        let at = completed["event"]["at"].as_str().expect("at");
+        assert!(
+            at.ends_with("+09:00"),
+            "호스트가 만든 at 은 +09:00 표기다 · {at}"
+        );
+        assert_eq!(
+            completed["event"]["payload"]["questionId"],
+            ask["questionId"]
+        );
+        assert_eq!(
+            completed["event"]["payload"]["answer"]["status"], "answered",
+            "{completed}"
+        );
+
+        // 같은 교시의 retry 는 같은 손잡이로 가고, 받은 적 있는 질문이면 받아 준다.
+        let retry = router.handle(json!({
+            "type": "tutor.retry",
+            "periodId": ask["periodId"],
+            "questionId": ask["questionId"],
+        }));
+        assert_eq!(retry["type"], "tutor.accepted", "{retry}");
+    }
+
+    #[test]
+    fn tutor_retry_of_a_question_this_period_never_saw_is_refused() {
         let dir = temp_dir("tutor-retry");
         let (mut router, _sink) = router_with(&dir);
 
@@ -1164,8 +1428,10 @@ mod tests {
             "questionId": "q-p3-001",
         }));
 
-        assert_eq!(reply["reason"], "not-implemented", "{reply}");
+        assert_eq!(reply["type"], "error", "{reply}");
+        assert_eq!(reply["reason"], "unknown-question");
         assert_eq!(reply["received"], "tutor.retry");
+        assert!(is_extension_shaped_error(&reply), "{reply}");
 
         // questionId 가 없으면 파이프라인 자리까지 가지도 않는다.
         let short = router.handle(json!({ "type": "tutor.retry", "periodId": "2026-09-02-p3" }));
