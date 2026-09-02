@@ -472,7 +472,7 @@ describe('커넥터 인터페이스', () => {
   });
 
   it('MCP 커넥터는 아직 스텁이라 start 하면 이유를 말하며 멈춥니다', () => {
-    const connector = createApiConnector();
+    const connector = createMcpConnector();
     expect(connector.kind).toBe('tiro-api');
     expect(connector.implemented).toBe(false);
     expect(() => connector.start()).toThrow(/구현되지 않았어요/);
@@ -481,6 +481,9 @@ describe('커넥터 인터페이스', () => {
 
   it('MCP·REST 스텁 둘 다 not-implemented 표시를 달고 멈춥니다', () => {
     for (const connector of [createMcpConnector(), createApiConnector()]) {
+      // 계약(transcript-segment.schema.json)의 source 열거는 tiro-share·tiro-api·fixture 로
+      // 고정입니다. MCP 도 REST 도 실어 나르는 길만 다르고 계약상 출처는 tiro-api 입니다.
+      expect(connector.kind).toBe('tiro-api');
       expect(connector.implemented).toBe(false);
       expect(() => connector.start()).toThrow(new RegExp(NOT_IMPLEMENTED_CODE));
       // 교시 종료 정리가 스텁 때문에 끊기면 안 되므로 flush·stop 은 조용히 넘어갑니다.
@@ -532,6 +535,50 @@ describe('커넥터 인터페이스', () => {
     connector.start();
 
     expect(segments[0]?.periodId).toBe('2026-09-02-p1');
+
+    connector.stop();
+  });
+
+  it('stop 뒤에 다시 start 하면 구독이 살아 있어 세그먼트를 다시 받습니다', () => {
+    // SPA 안에서 공유 페이지를 나갔다 돌아오면 실제로 이 길을 지납니다
+    // (`lifecycle.decideNavigationAction` 이 stop → start 를 내줍니다).
+    // 예전에는 stop() 이 리스너 묶음까지 비워, 다시 start 하면 관찰기는 도는데 받는 사람이
+    // 없어 전사가 조용히 사라졌습니다.
+    document.body.innerHTML = recordingHtml;
+    const seen: TranscriptSegment[] = [];
+
+    const connector = createShareConnector({ root: document.body, periodId: PERIOD_ID });
+    connector.onSegment((segment) => seen.push(segment));
+
+    connector.start();
+    expect(seen).toHaveLength(4);
+
+    connector.stop();
+    // 멈춘 사이에 화면이 바뀌어도 아무것도 오지 않습니다.
+    document.body.innerHTML = recordingHtml;
+    expect(seen).toHaveLength(4);
+
+    connector.start();
+    expect(seen.length).toBeGreaterThan(4);
+
+    connector.stop();
+  });
+
+  it('구독을 직접 떼면 stop 뒤 재시작해도 오지 않습니다', () => {
+    // 구독을 정말 끊는 방법은 stop() 이 아니라 onSegment() 가 돌려준 해제 함수입니다.
+    document.body.innerHTML = recordingHtml;
+    const seen: TranscriptSegment[] = [];
+
+    const connector = createShareConnector({ root: document.body, periodId: PERIOD_ID });
+    const off = connector.onSegment((segment) => seen.push(segment));
+
+    connector.start();
+    expect(seen).toHaveLength(4);
+
+    connector.stop();
+    off();
+    connector.start();
+    expect(seen).toHaveLength(4);
 
     connector.stop();
   });

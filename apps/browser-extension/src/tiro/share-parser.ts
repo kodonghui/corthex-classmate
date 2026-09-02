@@ -52,6 +52,21 @@ function hasFinalClass(classes: string[]): boolean {
 }
 
 /**
+ * 같은 선택자에 함께 잡힌 조상을 빼고 **가장 안쪽**만 남깁니다.
+ *
+ * 왜 필요한가: 선택자가 조상과 자손을 동시에 잡으면 조상의 `textContent` 는 그 아래 문단
+ * 전체를 이어 붙인 글자가 됩니다. 그 조상은 목록에서 마지막이 아니므로 구조 폴백에서 곧바로
+ * `final` 이 되고, 교시 전사 전체가 세그먼트 **한 건**으로 나갑니다. 확정은 취소가 안 되므로
+ * 되돌릴 수도 없습니다. 넓은 폴백 선택자(`[class*="whitespace-pre-wrap"]`)에서 특히 위험합니다.
+ */
+function innermostOnly(found: Element[]): Element[] {
+  if (found.length < 2) return found;
+  return found.filter(
+    (element) => !found.some((other) => other !== element && element.contains(other)),
+  );
+}
+
+/**
  * 루트 아래에서 문단 요소를 찾습니다. `PARAGRAPH_SELECTORS` 를 위에서부터 시도합니다.
  *
  * @returns 잡힌 요소들과 그때 쓴 선택자. 하나도 못 잡으면 요소 0개 · 선택자 null.
@@ -65,7 +80,8 @@ export function findParagraphElements(root: ParentNode): {
       (element) => readableText(element).length > 0,
     );
     if (found.length > 0) {
-      return { elements: found, matchedSelector: selector };
+      // 문서 순서는 querySelectorAll 이 이미 지켜 주고, 조상만 빠지므로 순서는 그대로입니다.
+      return { elements: innermostOnly(found), matchedSelector: selector };
     }
   }
   return { elements: [], matchedSelector: null };

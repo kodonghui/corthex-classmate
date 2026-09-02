@@ -23,41 +23,10 @@ import type {
 
 export type * from './types';
 export * from './period';
+export * from './share-url';
 export * from './share-parser';
 export * from './share-observer';
 export * from './lifecycle';
-
-/**
- * 공유 페이지 호스트입니다.
- *
- * 실측 경로 모양은 `tiro.ooo/<로케일>/s/<공유 id>` 입니다(docs/master-prompt.md §2-3).
- * **특정 공유 id 와 비밀번호는 코드에 넣지 않습니다** — 호스트와 경로 모양만 둡니다.
- */
-export const TIRO_SHARE_HOST = 'tiro.ooo';
-
-/** content script 가 붙을 곳입니다. 실제 활성화 여부는 `isSharePageUrl` 이 다시 거릅니다. */
-export const TIRO_SHARE_MATCHES = ['https://tiro.ooo/*'] as const;
-
-/**
- * 이 주소가 Tiro 공유 페이지인지입니다.
- *
- * 경로 조각에 `s` 가 있고 그 뒤에 조각이 하나 더 있으면 공유 페이지로 봅니다
- * (`/ko/s/<id>` · `/s/<id>` 둘 다). 로그인·설정 같은 다른 페이지에서는 붙지 않습니다.
- */
-export function isSharePageUrl(rawUrl: string): boolean {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    return false;
-  }
-  if (url.protocol !== 'https:') return false;
-  if (url.hostname !== TIRO_SHARE_HOST) return false;
-
-  const parts = url.pathname.split('/').filter((part) => part.length > 0);
-  const shareAt = parts.indexOf('s');
-  return shareAt !== -1 && parts.length > shareAt + 1;
-}
 
 /** 리스너 묶음 하나를 다루는 작은 도우미입니다. */
 function listenerSet<T>() {
@@ -68,9 +37,6 @@ function listenerSet<T>() {
       return () => {
         listeners.delete(listener);
       };
-    },
-    clear() {
-      listeners.clear();
     },
     emit(value: T) {
       for (const listener of listeners) listener(value);
@@ -134,12 +100,16 @@ export function createShareConnector(options: ShareConnectorOptions): TiroConnec
       });
     },
     stop() {
+      // 관찰만 멈추고 **구독은 남깁니다.**
+      //
+      // 예전에는 여기서 리스너 묶음 넷을 비웠는데, `start()` 는 `handle` 이 null 이면 다시
+      // 시작하도록 열려 있습니다. 그래서 stop → start 를 하면 관찰기는 도는데 받는 사람이
+      // 아무도 없어 전사가 조용히 사라졌습니다. SPA 안에서 공유 페이지를 나갔다 돌아오면
+      // 실제로 이 길을 지납니다(`lifecycle.ts` 의 `decideNavigationAction`).
+      //
+      // 구독을 정말 끊고 싶으면 `onSegment()` 가 돌려준 해제 함수를 부르면 됩니다.
       handle?.stop();
       handle = null;
-      segments.clear();
-      partials.clear();
-      degraded.clear();
-      broken.clear();
     },
     flush() {
       // 시작한 적이 없으면 마무리할 것도 없습니다.
