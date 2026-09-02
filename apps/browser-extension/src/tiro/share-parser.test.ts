@@ -37,6 +37,26 @@ describe('findParagraphElements', () => {
     const { elements } = findParagraphElements(root);
     expect(elements).toHaveLength(1);
   });
+
+  it('감싸는 div 가 같은 선택자에 걸려도 가장 안쪽 문단만 셉니다', () => {
+    // 조상까지 세면 그 textContent 가 전사 전체를 이어 붙인 글자가 되고, 조상은 마지막이
+    // 아니므로 구조 폴백에서 곧바로 final 이 되어 교시 전사 전체가 세그먼트 한 건으로
+    // 나갑니다(확정은 취소가 안 됩니다).
+    const root = mount(
+      '<main><div class="whitespace-pre-wrap">' +
+        '<div class="whitespace-pre-wrap font-medium">확정된 문장입니다.</div>' +
+        '<div class="whitespace-pre-wrap font-semibold">쓰이는 중인 문장</div>' +
+        '</div></main>',
+    );
+    const { elements, matchedSelector } = findParagraphElements(root);
+
+    expect(matchedSelector).toBe('main div.whitespace-pre-wrap');
+    expect(elements).toHaveLength(2);
+    expect(elements.map((element) => element.textContent?.trim())).toEqual([
+      '확정된 문장입니다.',
+      '쓰이는 중인 문장',
+    ]);
+  });
 });
 
 describe('parseSharePage — 확정과 진행 중 구분', () => {
@@ -164,6 +184,22 @@ describe('parseSharePage — 폴백', () => {
     const result = parseSharePage(root);
 
     expect(result.matchedSelector).toBe('div.whitespace-pre-wrap');
+    expect(result.paragraphs.map((p) => p.state)).toEqual(['final', 'in_progress']);
+  });
+
+  it('넓은 폴백 선택자에서도 감싸는 요소를 문단으로 세지 않습니다', () => {
+    // `[class*="whitespace-pre-wrap"]` 는 가장 넓은 4번 선택자라 감싸는 껍데기가 함께
+    // 걸리기 쉽습니다. 여기서 조상을 세면 전사 전체가 한 문단이 됩니다.
+    const root = mount(
+      '<section class="whitespace-pre-wrap-container">' +
+        '<p class="whitespace-pre-wrap-line">확정된 문장입니다.</p>' +
+        '<p class="whitespace-pre-wrap-line">쓰이는 중인 문장</p>' +
+        '</section>',
+    );
+    const result = parseSharePage(root);
+
+    expect(result.matchedSelector).toBe('[class*="whitespace-pre-wrap"]');
+    expect(result.paragraphs.map((p) => p.text)).toEqual(['확정된 문장입니다.', '쓰이는 중인 문장']);
     expect(result.paragraphs.map((p) => p.state)).toEqual(['final', 'in_progress']);
   });
 });

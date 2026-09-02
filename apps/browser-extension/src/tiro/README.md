@@ -12,10 +12,11 @@
 | 파일 | 무엇 |
 |---|---|
 | `types.ts` | `TiroConnector` 인터페이스와 신호 타입들. 계약 타입은 `import type` 으로만 빌려 옵니다 |
+| `share-url.ts` | 이 주소가 공유 페이지인지(`isSharePageUrl`)와 매치 목록. `index.ts` 가 그대로 다시 내보냅니다 |
 | `share-parser.ts` | 순수 함수. DOM → 문단 목록. 클래스 힌트 + 구조 폴백 + 선택자 깨짐 판정 |
 | `share-observer.ts` | `MutationObserver` 관찰기. 확정 → 세그먼트, 진행 → partial, `flush()`, 등급 전이 신호 |
 | `period.ts` | 교시 식별자(`YYYY-MM-DD-p<n>`) 만들기와 교시 번호 읽기 |
-| `lifecycle.ts` | 탭이 숨겨지거나 사라질 때 `flush()` 를 부르는 배선 |
+| `lifecycle.ts` | 탭이 숨겨지거나 사라질 때 `flush()` 를 부르는 배선과 주소가 바뀔 때의 시작·정지 판정 |
 | `index.ts` | 커넥터 조립. `createShareConnector`(구현) · `createMcpConnector` · `createApiConnector`(스텁) |
 
 ## 내보내는 것 네 가지
@@ -88,21 +89,63 @@
 pagehide                 → flush() 하고 stop()   탭이 닫히거나 뒤로 감
 visibilitychange(hidden) → flush() 만            다른 탭으로 옮긴 것뿐 · 관찰은 이어 감
 tiro.stop 요청            → flush() 하고 stop()   사람이 교시를 끝냄
+주소만 바뀜(SPA)          → 아래 표대로            decideNavigationAction 이 정함
 ```
 
 `beforeunload` 는 쓰지 않습니다. bfcache 에서 불리지 않는 경우가 있고 `pagehide` 가 그 자리를 대신합니다.
+
+## 언제 시작하고 언제 멈추나 (SPA 이동 포함)
+
+content script 는 `document_idle` 에 **한 번** 뜨고 그 뒤로는 다시 뜨지 않습니다. 매치가
+`https://tiro.ooo/*` 라 홈·설정 페이지에서도 뜨는데, 그 자리에서 곧바로 돌아가고 주소를 다시
+보지 않으면 두 가지가 깨집니다 — tiro.ooo 안에서 클릭으로 노트를 열었을 때 관찰이 아예 시작되지
+않고, 반대로 공유 페이지에서 나갔을 때 관찰기가 그 화면에 남아 없는 `selector_broken` 을 냅니다.
+
+그래서 content script 가 WXT 의 `ctx.addEventListener(window, 'wxt:locationchange', …)` 를 듣고
+`decideNavigationAction(이전 주소, 새 주소)` 의 답을 따릅니다.
+
+| 이전 | 새 | 결과 | 왜 |
+|---|---|---|---|
+| 공유 아님 | 공유 | `start` | 이제부터 읽을 것이 있습니다 |
+| 공유 | 공유 아님 | `stop` | flush 하고 멈춥니다(순서는 언제나 flush → stop) |
+| 공유 | 공유 | `none` | 노트만 바뀐 것이라 관찰을 이어 갑니다 |
+| 공유 아님 | 공유 아님 | `none` | 처음부터 볼 것이 없었습니다 |
+
+tiro.ooo 가 실제로 클라이언트 라우팅으로 노트를 여는지는 아직 재어 보지 않았습니다(Gate A 관찰에
+기록이 없습니다). **양쪽 다 안전합니다** — 라우팅을 쓰면 이 배선이 놓치던 시작·정지를 살리고,
+쓰지 않아 매번 전체 새로고침이면 `wxt:locationchange` 자체가 오지 않아 지금까지와 똑같이 돕니다.
+
+멈출 때는 생명주기 배선(`pagehide` · `visibilitychange`)도 **함께 뗍니다.** `attachLifecycleFlush`
+가 돌려준 해제 함수를 버리면 멈춘 커넥터의 `flush()` 를 부르는 리스너가 페이지에 남습니다.
+
+커넥터의 `stop()` 은 관찰만 멈추고 **구독은 남깁니다.** stop → start 로 되살렸을 때 받는 사람이
+없어 전사가 조용히 사라지는 것을 막기 위해서입니다. 구독을 정말 끊으려면 `onSegment()` 가
+돌려준 해제 함수를 부릅니다.
 
 ## 교시 번호 규칙
 
 교시 식별자는 계약이 `YYYY-MM-DD-p<n>` 로 못 박아 두었습니다(`common.schema.json` 의 `PeriodId`).
 
-1. `createShareConnector({ periodId })` 로 식별자를 통째로 넣으면 그것을 씁니다.
+1. `createShareConnector({ periodId })` 로 식별자를 통째로 넣으면 그것을 씁니다. 단,
+   **계약 모양을 검사하고 어긋나면 `RangeError` 로 막습니다.** 교시 번호와 달리 되돌릴 안전한
+   값이 없고, 이 값은 손대지 않은 채 모든 세그먼트에 실려 나가 받는 쪽 스키마 검증에 걸립니다.
+   정규식은 `period.ts` 의 `PERIOD_ID_PATTERN` 하나이고, 계약 원본과 같은지는 시험이 지킵니다.
 2. 없으면 `periodNumber` 와 `now()` 의 **로컬 날짜**로 만듭니다.
 3. `periodNumber` 도 없으면 1 입니다.
 4. 확장 안에서는 content script 가 `readPeriodNumber()` 로 `chrome.storage.local` 의
    `classmate.periodNumber` 를 먼저 읽어 `periodNumber` 로 넣어 줍니다.
 5. 값이 정수 1~8 이 아니면 **막지 않고 1 로 되돌립니다.** 교시 번호 하나 때문에 전사가
    통째로 멈추는 것보다 낫습니다.
+
+`readPeriodNumber()` 는 숫자만 주지 않고 `{ value, source }` 를 줍니다. `source` 가 없으면
+"값이 없어 1" 과 "읽다 실패해서 1" 이 똑같이 보여, 3교시 수업이 저장소 오류로 조용히 `…-p1` 에
+섞여도 아무도 알아채지 못합니다.
+
+| `source` | 뜻 |
+|---|---|
+| `storage` | 저장소 값을 그대로 썼습니다 |
+| `default` | 값이 없거나 쓸 수 없는 값이라 1 로 되돌렸습니다 |
+| `error` | 읽다가 실패해 1 로 때웠습니다 (content script 가 콘솔에 한 줄 남깁니다) |
 
 저장소 읽기는 커넥터 안에서 하지 않습니다. 비동기 읽기가 커넥터를 만드는 자리까지 비동기로
 물들이고, 시험이 `chrome.storage` 를 흉내 내야 하기 때문입니다. 그래서 값을 **주입**받습니다.
@@ -118,6 +161,44 @@ tiro.stop 요청            → flush() 하고 stop()   사람이 교시를 끝�
 Tiro 사이트에는 접속하지 않습니다. `fixtures/tiro/**` 의 합성 스냅샷을 happy-dom 에 넣고
 `MutationObserver` 로 문단을 자라게 만드는 것이 이 단위의 e2e 입니다
 (`share-observer.test.ts` 의 「스냅샷 재생 시나리오」).
+
+## 알려진 한계
+
+### `seq` 는 문단 순서가 아니라 **내보낸 순서**입니다
+
+`seq` 는 문단이 **확정될 때** 1씩 떼어 붙입니다(`share-observer.ts` 의 `takeSeqAndId`).
+문단은 하나씩 따로 판정하므로, 앞 문단이 아직 진행 중인데 뒤 문단이 먼저 확정되는 배포에서는
+뒤 문단이 작은 `seq` 를, 앞 문단이 큰 `seq` 를 받습니다. `seq` 로만 정렬하면 두 문장이 뒤집힙니다.
+
+```
+화면 순서   문단 A (in_progress)   문단 B (final)     ← 앞이 아직 자라는 중
+확정 순서   B 먼저 → seq 1          A 나중 → seq 2
+seq 정렬    B, A                                     ← 화면과 반대
+```
+
+고치지 않고 적어 두는 이유:
+
+- 계약(`transcript-segment.schema.json`)에 문단 위치를 담을 `index` 칸이 없어, 위치 순서를
+  그대로 실어 보낼 자리가 없습니다. 계약은 이번 라운드에서 고치지 않기로 했습니다.
+- 실측 DOM(`docs/spikes/gate-a-tiro.md`)에서는 마지막 문단만 `font-semibold` 라 정상 배포에서는
+  이 상태가 나오지 않습니다. 클래스 이름이 바뀐 배포에서만 열립니다.
+- 받는 쪽인 세션 스토어가 **자체 순번(도착 순)** 으로 정렬합니다(`apps/native-host` 의
+  `events` 표는 `seq INTEGER PRIMARY KEY AUTOINCREMENT` 입니다). 전사가 도착한 순서는
+  화면 순서와 같으므로 저장·복원 경로에서는 이 뒤집힘이 드러나지 않습니다.
+
+`seq` 로 직접 정렬하는 새 소비자를 붙일 때는 이 줄을 먼저 읽어야 합니다.
+
+### 다시 시작하면 `seq` 가 1부터 다시 셉니다
+
+`stop()` → `start()` 를 하면 새 관찰기가 만들어져 순번이 1 로 돌아갑니다(SPA 안에서 공유
+페이지를 나갔다 돌아오는 경우). 새로고침과 같은 상황이고, 교시 전체를 아는 세션 스토어가
+이어 붙이는 것으로 이미 넘겨 두었습니다(아래 「2라운드에 넘기는 일」).
+
+### 문단 신원이 위치(`index`)입니다
+
+문단 목록이 앞에서 잘려 번호가 밀리면 이미 낸 문단을 다시 내거나 새 문단을 건너뜁니다.
+실측에서 60분 교시도 문단 60개 남짓이라 가상 스크롤로 잘릴 규모가 아니고, 지속 신원은
+세션 스토어 몫으로 넘겨 두었습니다.
 
 ## 2라운드에 넘기는 일
 

@@ -3,16 +3,19 @@ import { defineContentScript } from '#imports';
 import {
   attachLifecycleFlush,
   createShareConnector,
+  decideNavigationAction,
   isSharePageUrl,
   readPeriodNumber,
   stopWithFlush,
   TIRO_SHARE_MATCHES,
 } from '../src/tiro';
 import type {
+  FlushableConnector,
   HintDegradedSignal,
   SelectorBrokenSignal,
   TiroPartial,
   TranscriptSegment,
+  Unsubscribe,
 } from '../src/tiro';
 
 /**
@@ -75,17 +78,22 @@ export default defineContentScript({
   matches: [...TIRO_SHARE_MATCHES],
   runAt: 'document_idle',
 
-  async main() {
-    // 로그인·설정 같은 다른 tiro.ooo 페이지에서는 아무것도 하지 않습니다.
-    if (!isSharePageUrl(location.href)) return;
-
+  async main(ctx) {
     // 교시 번호는 chrome.storage.local 의 `classmate.periodNumber` 에서 읽습니다.
     // 값이 없거나 1~8 밖이면 1 이 됩니다. 저장소에 값을 넣는 쪽(설정 화면·세션 관리)은
     // 다른 단위 소유라 여기서 쓰지 않고 읽기만 합니다.
-    const periodNumber = await readPeriodNumber();
+    const period = await readPeriodNumber();
+    if (period.source === 'error') {
+      // 3교시 수업이 저장소 오류로 조용히 1교시에 섞이면 아무도 모릅니다. 숫자만 남깁니다.
+      console.warn(`[classmate] 교시 번호를 읽지 못해 ${period.value}교시로 답니다`);
+    }
+
+    // 커넥터는 **한 번만** 만듭니다. 교시 식별자는 만들 때 정해지므로, SPA 안에서 페이지를
+    // 오갈 때마다 다시 만들면 같은 교시가 도중에 다른 식별자로 갈립니다.
+    // 만들기만 하고 `start()` 를 부를 때까지 아무것도 하지 않습니다.
     const connector = createShareConnector({
       root: document.body,
-      periodNumber,
+      periodNumber: period.value,
     });
 
     connector.onSegment((segment) => {
@@ -109,22 +117,68 @@ export default defineContentScript({
       send({ type: TIRO_MESSAGE_TYPES.selectorBroken, signal });
     });
 
-    connector.start();
+    /** 지금 관찰 중인지입니다. 시작·정지를 두 번 불러도 한 번만 듣게 합니다. */
+    let observing = false;
+    /** 생명주기 배선을 뗄 함수입니다. 버리면 멈춘 커넥터의 flush 를 부르는 리스너가 남습니다. */
+    let detachLifecycle: Unsubscribe | null = null;
 
-    // 탭이 사라지거나 숨겨질 때 아직 확정 안 된 마지막 문단을 partial 세그먼트로 건집니다.
-    // 이것이 없으면 교시 마지막 한 문단이 통째로 버려집니다.
-    attachLifecycleFlush({
-      connector,
-      pageTarget: window,
-      visibilityTarget: document,
-      isHidden: () => document.visibilityState === 'hidden',
+    /**
+     * 생명주기 배선에게 보여 주는 얼굴입니다.
+     *
+     * `stop` 을 커넥터가 아니라 `stopObserving` 으로 돌려, 정리(리스너 떼기 포함)가
+     * 어느 길로 들어오든 한 곳에서 끝나게 합니다.
+     */
+    const lifecycleFace: FlushableConnector = {
+      flush: () => connector.flush(),
+      stop: () => {
+        stopObserving();
+      },
+    };
+
+    function startObserving(): void {
+      if (observing) return;
+      observing = true;
+      connector.start();
+
+      // 탭이 사라지거나 숨겨질 때 아직 확정 안 된 마지막 문단을 partial 세그먼트로 건집니다.
+      // 이것이 없으면 교시 마지막 한 문단이 통째로 버려집니다.
+      detachLifecycle = attachLifecycleFlush({
+        connector: lifecycleFace,
+        pageTarget: window,
+        visibilityTarget: document,
+        isHidden: () => document.visibilityState === 'hidden',
+      });
+    }
+
+    function stopObserving(): void {
+      if (!observing) return;
+      observing = false;
+      // 먼저 떼고 나서 멈춥니다. 순서가 반대여도 결과는 같지만, "멈춘 뒤에는 아무 리스너도
+      // 남지 않는다"를 한 줄로 읽히게 둡니다.
+      detachLifecycle?.();
+      detachLifecycle = null;
+      stopWithFlush(connector);
+    }
+
+    // 로그인·설정 같은 다른 tiro.ooo 페이지에서는 아직 시작하지 않습니다.
+    let lastUrl = location.href;
+    if (isSharePageUrl(lastUrl)) startObserving();
+
+    // SPA 안에서 주소만 바뀌는 이동(전체 새로고침 없음)을 따라갑니다. 판정은
+    // `src/tiro/lifecycle.ts` 의 `decideNavigationAction` 이 하고 여기서는 그 결과만 따릅니다.
+    // tiro.ooo 가 클라이언트 라우팅을 쓰지 않으면 이 이벤트가 오지 않아 아무 일도 없습니다.
+    ctx.addEventListener(window, 'wxt:locationchange', (event) => {
+      const action = decideNavigationAction(lastUrl, event.newUrl.href);
+      lastUrl = event.newUrl.href;
+      if (action === 'start') startObserving();
+      if (action === 'stop') stopObserving();
     });
 
     // 사람이 교시를 끝내면 background 가 `tiro.stop` 을 보냅니다. 받는 쪽이 아직 없어도
     // 듣는 것은 공짜라 미리 붙여 둡니다(보내는 쪽은 다음 라운드의 다른 단위 소유입니다).
     chrome.runtime.onMessage.addListener((message: unknown) => {
       if (!isStopRequest(message)) return;
-      stopWithFlush(connector);
+      stopObserving();
     });
   },
 });

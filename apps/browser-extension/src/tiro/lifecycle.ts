@@ -12,10 +12,12 @@
  *   visibilitychange
  *     └ hidden 이면      → flush() 만            (탭을 다른 데로 옮긴 것뿐이라 관찰은 이어 갑니다)
  *   tiro.stop 요청       → flush() 하고 stop()   (교시를 사람이 끝냈습니다)
+ *   주소만 바뀜(SPA)     → decideNavigationAction 이 정합니다 (아래)
  *
  * `beforeunload` 를 쓰지 않는 이유: 최신 Chrome 의 bfcache 에서는 불리지 않는 경우가 있고,
  * `pagehide` 가 그 자리를 대신하도록 표준이 정해져 있습니다.
  */
+import { isSharePageUrl } from './share-url';
 import type { TiroConnector, Unsubscribe } from './types';
 
 /** 이 배선이 쓰는 만큼만 적은 이벤트 대상입니다. `window` 와 `document` 가 이 모양을 만족합니다. */
@@ -82,4 +84,45 @@ export function attachLifecycleFlush(options: LifecycleFlushOptions): Unsubscrib
 export function stopWithFlush(connector: FlushableConnector): void {
   connector.flush();
   connector.stop();
+}
+
+/** 주소가 바뀌었을 때 관찰을 어떻게 할지입니다. */
+export type NavigationAction = 'start' | 'stop' | 'none';
+
+/**
+ * 주소가 바뀌었을 때 관찰을 시작할지 멈출지 정합니다.
+ *
+ * 왜 필요한가: content script 는 `document_idle` 에 **한 번** 뜨고 그 뒤로는 다시 뜨지
+ * 않습니다. 매치가 `https://tiro.ooo/*` 라 홈·설정 페이지에서도 뜨는데, 예전에는 그 자리에서
+ * 곧바로 return 하고 주소를 다시는 보지 않았습니다. 그래서
+ *
+ *  - tiro.ooo 안에서 클릭으로 `/s/<id>` 에 들어가면(전체 새로고침이 없으면) 관찰이 아예
+ *    시작되지 않고,
+ *  - 반대로 공유 페이지에서 다른 경로로 나가면 멈추지 않은 관찰기가 그 화면에 남아
+ *    문단 0개를 재다가 없는 `selector_broken` 을 냅니다.
+ *
+ * 판정표(이전 주소 · 새 주소 → 무엇):
+ *
+ *   이전        새          결과     왜
+ *   ─────────────────────────────────────────────────────────────
+ *   공유 아님   공유        start    이제부터 읽을 것이 있습니다
+ *   공유       공유 아님    stop     부르는 쪽이 flush 부터 하고 멈춥니다
+ *   공유       공유        none     노트만 바뀐 것이라 관찰을 이어 갑니다
+ *   공유 아님   공유 아님    none     처음부터 볼 것이 없었습니다
+ *
+ * `previousUrl` 이 null 이면 "아직 아무 데도 안 있었다"로 봅니다(첫 판정).
+ *
+ * tiro.ooo 가 실제로 클라이언트 라우팅으로 노트를 여는지는 아직 재어 보지 않았습니다.
+ * **양쪽 다 안전합니다** — 라우팅을 쓰면 이 규칙이 놓치던 시작·정지를 살리고, 쓰지 않아
+ * 매번 전체 새로고침이면 `wxt:locationchange` 자체가 오지 않아 지금까지와 똑같이 돕니다.
+ */
+export function decideNavigationAction(
+  previousUrl: string | null,
+  nextUrl: string,
+): NavigationAction {
+  const wasShare = previousUrl !== null && isSharePageUrl(previousUrl);
+  const isShare = isSharePageUrl(nextUrl);
+  if (isShare && !wasShare) return 'start';
+  if (!isShare && wasShare) return 'stop';
+  return 'none';
 }

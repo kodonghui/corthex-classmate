@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { attachLifecycleFlush, stopWithFlush } from './lifecycle';
+import { attachLifecycleFlush, decideNavigationAction, stopWithFlush } from './lifecycle';
 import type { FlushableConnector, LifecycleTarget } from './lifecycle';
+
+const SHARE = 'https://tiro.ooo/ko/s/abcdef';
+const OTHER_SHARE = 'https://tiro.ooo/ko/s/zzzzzz';
+const SETTINGS = 'https://tiro.ooo/ko/settings';
 
 /** 아주 작은 이벤트 대상입니다. happy-dom 없이도 돌게 손으로 만듭니다. */
 function fakeTarget(): LifecycleTarget & { fire(type: string): void; count(type: string): number } {
@@ -109,5 +113,40 @@ describe('stopWithFlush', () => {
     const connector = fakeConnector();
     stopWithFlush(connector);
     expect(connector.calls).toEqual(['flush', 'stop']);
+  });
+});
+
+describe('decideNavigationAction', () => {
+  it('다른 페이지에서 공유 페이지로 들어오면 시작합니다', () => {
+    // content script 는 document_idle 에 한 번만 뜹니다. 이 판정이 없으면 tiro.ooo 안에서
+    // 클릭으로 노트를 열었을 때 관찰이 아예 시작되지 않습니다.
+    expect(decideNavigationAction(SETTINGS, SHARE)).toBe('start');
+    expect(decideNavigationAction('https://tiro.ooo/ko', SHARE)).toBe('start');
+  });
+
+  it('공유 페이지에서 나가면 멈춥니다', () => {
+    // 멈추지 않으면 관찰기가 다른 화면에 남아 문단 0개를 재다가 없는 selector_broken 을 냅니다.
+    expect(decideNavigationAction(SHARE, SETTINGS)).toBe('stop');
+    expect(decideNavigationAction(SHARE, 'https://tiro.ooo/ko')).toBe('stop');
+  });
+
+  it('공유 페이지끼리 옮겨 다니면 관찰을 이어 갑니다', () => {
+    expect(decideNavigationAction(SHARE, OTHER_SHARE)).toBe('none');
+    expect(decideNavigationAction(SHARE, SHARE)).toBe('none');
+  });
+
+  it('공유 페이지가 아닌 곳끼리는 아무것도 하지 않습니다', () => {
+    expect(decideNavigationAction(SETTINGS, 'https://tiro.ooo/ko/login')).toBe('none');
+  });
+
+  it('이전 주소가 없으면(첫 판정) 새 주소만 봅니다', () => {
+    expect(decideNavigationAction(null, SHARE)).toBe('start');
+    expect(decideNavigationAction(null, SETTINGS)).toBe('none');
+  });
+
+  it('주소가 아니거나 다른 호스트면 공유 페이지로 치지 않습니다', () => {
+    expect(decideNavigationAction(SHARE, 'https://evil.example/ko/s/abcdef')).toBe('stop');
+    expect(decideNavigationAction('주소가 아님', SHARE)).toBe('start');
+    expect(decideNavigationAction('주소가 아님', '주소도 아님')).toBe('none');
   });
 });
