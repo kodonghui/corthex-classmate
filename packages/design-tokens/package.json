@@ -1,0 +1,11 @@
+{
+  "name": "@classmate/design-tokens",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Corthex Classmate 디자인 토큰 — design-system/tokens/*.css·styles.css 를 그대로 담고 TS 상수로도 내놓습니다",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
+  "devDependencies": { "@types/node": "^26.4.1", "typescript": "^7.0.2", "vitest": "^4.1.11" }
+}

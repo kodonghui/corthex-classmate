@@ -1,0 +1,12 @@
+{
+  "name": "@classmate/tutor-core",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Corthex Classmate 튜터 상태기계와 ContextSnapshot 봉인 — 순수 TS, 브라우저 API 없음",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
+  "dependencies": { "@classmate/contracts": "workspace:*" },
+  "devDependencies": { "@types/node": "^26.4.1", "typescript": "^7.0.2", "vitest": "^4.1.11" }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "@classmate/ui-base",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Corthex Classmate 기본 UI 컴포넌트(core·forms·feedback·surfaces·navigation·overlay) — 디자인 내보내기 JSX 의 TS React 포팅",
+  "types": "./src/index.ts",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
+  "dependencies": { "react": "^19.2.8", "react-dom": "^19.2.8" },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "happy-dom": "^20.12.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}
