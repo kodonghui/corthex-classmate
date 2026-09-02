@@ -1,0 +1,7 @@
+/* 웹폰트. 정본(design-system/tokens/fonts.css)은 CDN @import 였지만, 이 패키지는 CDN 을 쓰지 않고
+   npm 으로 받은 폰트 패키지를 가리킵니다. 실제 woff2 파일은 각 패키지가 상대 경로로 들고 있으므로
+   소비자 번들러(Vite 등)가 해석해 번들에 넣습니다.
+   UI·한글: Pretendard Variable(동적 서브셋) · 코드: IBM Plex Mono 400/500. */
+@import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
+@import "@fontsource/ibm-plex-mono/400.css";
+@import "@fontsource/ibm-plex-mono/500.css";

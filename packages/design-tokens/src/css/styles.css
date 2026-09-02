@@ -1,0 +1,10 @@
+/* 토큰 CSS 한 벌. 소비자는 이 파일 하나만 import 합니다:
+   @import "@classmate/design-tokens/styles.css";
+   순서는 정본 design-system/styles.css 와 같습니다. */
+@import "./fonts.css";
+@import "./colors.css";
+@import "./typography.css";
+@import "./spacing.css";
+@import "./elevation.css";
+@import "./motion.css";
+@import "./base.css";

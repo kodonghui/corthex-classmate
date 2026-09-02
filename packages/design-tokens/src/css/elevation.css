@@ -1,0 +1,9 @@
+/* Elevation. Hairline borders carry hierarchy; shadows appear only for things that float (dialog, toast, tooltip, menu). */
+:root{
+  --shadow-none: none;
+  --shadow-sm: 0 1px 2px rgba(20,22,31,0.05);
+  --shadow-md: 0 1px 2px rgba(20,22,31,0.06), 0 6px 16px rgba(20,22,31,0.08);
+  --shadow-lg: 0 2px 4px rgba(20,22,31,0.06), 0 12px 32px rgba(20,22,31,0.12);
+  --shadow-inverse: 0 4px 16px rgba(20,22,31,0.24);
+  --blur-scrim: 2px;
+}

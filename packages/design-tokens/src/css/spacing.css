@@ -1,0 +1,48 @@
+/* Spacing, sizing, radius, borders, z-index. 4px base; the panel inset scales with panel width (320–520px). */
+:root{
+  --space-0: 0;
+  --space-1: 2px;
+  --space-2: 4px;
+  --space-3: 6px;
+  --space-4: 8px;
+  --space-5: 12px;
+  --space-6: 16px;
+  --space-7: 20px;
+  --space-8: 24px;
+  --space-9: 32px;
+  --space-10: 40px;
+
+  /* Panel geometry */
+  --panel-width: 380px;
+  --panel-min-width: 320px;
+  --panel-max-width: 520px;
+  --panel-inset: clamp(12px, calc(4vw + 0.8px), 20px); /* 16px at 380 */
+  --panel-header-h: 44px;
+
+  /* Control heights */
+  --control-h-sm: 28px;
+  --control-h-md: 36px;
+  --control-h-lg: 44px;
+  --control-h-hero: 56px; /* the one primary action per screen */
+  --hit-target-min: 32px;
+
+  /* Radii — tight: a tool, not a toy */
+  --radius-xs: 3px;
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+  --radius-full: 999px;
+
+  /* Borders */
+  --border-w: 1px;
+  --border-w-focus: 2px;
+  --focus-ring: 0 0 0 2px var(--surface-canvas), 0 0 0 4px var(--border-focus);
+
+  /* Layers */
+  --z-sticky: 10; /* @kind other */
+  --z-banner: 20; /* @kind other */
+  --z-toast: 30; /* @kind other */
+  --z-dialog: 40; /* @kind other */
+  --z-tooltip: 50; /* @kind other */
+}
