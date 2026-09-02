@@ -44,7 +44,11 @@ const STEPS: readonly Step[] = [
       await expect(page.getByText('IoC 컨테이너와 의존성 주입')).toBeVisible();
       await expect(page.getByText('객체를 직접', { exact: false })).toBeVisible();
       await expect(page.locator('.cm-note')).toHaveCount(0);
-      await expect(page.locator('button')).toHaveCount(0);
+      // 정본이 말하는 "이 화면에 버튼은 없습니다"(prompt §2 A)는 **채도 있는 행동 블록(.cm-btn)** 이 없다는 뜻입니다.
+      // 헤더의 설정 아이콘 하나(prompt §4 "듣는 중 화면엔 설정 아이콘 하나" · dc.html:392 settingsAction)와
+      // 바닥줄의 "기록 N"(dc.html:398 onCount)은 정본에도 있는 <button> 이라 여기서 세지 않습니다.
+      await expect(page.locator('.cm-btn')).toHaveCount(0);
+      await expect(page.getByRole('button', { name: '설정' })).toBeVisible();
     },
   },
   {
@@ -171,6 +175,122 @@ for (const [index, step] of STEPS.entries()) {
     await page.screenshot({ path: path.join(SCREENSHOT_DIR, step.file), fullPage: false, animations: 'disabled' });
   });
 }
+
+/*
+  여기부터는 화면을 손으로 눌러 가는 장면입니다(기록·설정은 `window.classmateReplay` 가 아니라
+  정본대로 바닥줄 "기록 N" 과 헤더 설정 아이콘으로만 들어갑니다). 앞 장면이 얹어 둔 화면이 남아 있지
+  않도록 매번 문서를 다시 엽니다.
+*/
+async function reopen(): Promise<void> {
+  await page.reload();
+  await page.waitForFunction(() => typeof window.classmateReplay === 'object');
+}
+
+/** 지금 폭에서 실제로 적용된 `--panel-inset` 입니다. 헤더의 왼쪽 여백이 곧 그 값입니다. */
+async function panelInset(): Promise<string> {
+  return page.evaluate(() => {
+    const header = document.querySelector('.cm-ph');
+    return header === null ? '' : getComputedStyle(header).paddingLeft;
+  });
+}
+
+/** 가로 스크롤이 생기지 않았는지입니다. */
+async function noHorizontalScroll(): Promise<boolean> {
+  return page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth);
+}
+
+async function goto(checkpoint: Checkpoint): Promise<void> {
+  await page.evaluate((name) => {
+    window.classmateReplay?.goto(name);
+  }, checkpoint);
+}
+
+test('10 G 기록 — 바닥줄 "기록 1" 로 들어가 교시 묶음과 붙잡은 순간 한 줄', async () => {
+  await reopen();
+  await goto('answer');
+  await page.locator('.cm-sf__r').click();
+  await expect(page.locator('[data-screen-label="기록"]')).toBeVisible();
+  // PanelHeader 는 제목과 부제를 한 줄로 잇습니다(`기록 · 오늘 1개`).
+  await expect(page.locator('.cm-ph__t')).toHaveText('기록 · 오늘 1개');
+  await expect(page.locator('.cm-group__label')).toHaveText('3교시');
+  await expect(page.locator('.cm-mo')).toHaveCount(1);
+  await expect(page.locator('.cm-mo__time')).toHaveText('10:32:18');
+  await expect(page.getByText('new 자체는 괜찮지만 바꾸기 어려워서 생성 책임을 나눠요', { exact: true })).toBeVisible();
+  await expect(page.getByText('붙잡은 순간은 수업이 끝나도 남아요. 지우기는 설정에서.', { exact: true })).toBeVisible();
+  await expect(page.getByText('전사 기록 중 · Meet 기록 중 · IntelliJ 기록 중', { exact: true })).toBeVisible();
+  await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'golden-10-history.png'), fullPage: false, animations: 'disabled' });
+
+  // 줄을 누르면 그 순간의 자세히로 가고, "수업으로 돌아가기" 는 기록이 아니라 듣는 중으로 돌아갑니다(정본 goHome).
+  await page.locator('.cm-mo').click();
+  await expect(page.locator('[data-screen-label="자세히"]')).toBeVisible();
+  await expect(page.locator('.cm-ph__t')).toHaveText('new · 10:32:18 붙잡음');
+  await page.getByRole('button', { name: /수업으로 돌아가기/ }).click();
+  await expect(page.locator('[data-screen-label="듣는 중"]')).toBeVisible();
+});
+
+test('11 설정 — 네 절과 개인정보 세 칸', async () => {
+  await reopen();
+  await goto('answer');
+  await page.getByRole('button', { name: '설정' }).click();
+  await expect(page.locator('[data-screen-label="설정"]')).toBeVisible();
+  await expect(page.locator('.cm-ph__t')).toHaveText('설정');
+  await expect(page.getByText('한 줄만 먼저', { exact: true })).toBeVisible();
+  await expect(page.getByText('18초 뒤 자동으로 접기', { exact: true })).toBeVisible();
+  await expect(page.getByText('붙잡을 때 함께 저장', { exact: true })).toBeVisible();
+  // 불변 원칙 §5 의 개인정보 세 칸이 글자 그대로 보여야 합니다.
+  await expect(page.getByText('로컬 보관', { exact: true })).toBeVisible();
+  await expect(page.getByText('선택한 AI 제공자로 전송될 수 있음', { exact: true })).toBeVisible();
+  await expect(page.getByText('Corthex 서버 기본 전송 없음', { exact: true })).toBeVisible();
+  await expect(page.getByText('단축키 Alt+S', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /오늘 기록 지우기/ })).toBeVisible();
+  await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'golden-11-settings.png'), fullPage: false, animations: 'disabled' });
+});
+
+test('12 H-1 전사 멈춤 — 호박색 바닥줄과 다시 연결', async () => {
+  await reopen();
+  await goto('listening');
+  // 골든 fixture 의 connector.status 세 줄은 전부 connected 라 멈춘 형편은 사건 하나를 더 넣어 만듭니다
+  // (`?replay=manual` 에서만 붙는 손잡이 — PanelApp 의 window.classmateConnector).
+  await page.evaluate(() => {
+    window.classmateConnector?.('tiro-share', 'paused');
+  });
+  await expect(page.locator('.cm-sf--paused')).toBeVisible();
+  await expect(page.locator('.cm-ph__d--paused')).toBeVisible();
+  await expect(page.getByText('전사가 잠시 멈췄어요.', { exact: true })).toBeVisible();
+  // 안내 뒷문장은 요소로 감싸이지 않은 글월이라 안내 한 덩어리에서 봅니다.
+  await expect(page.locator('.cm-sf__w')).toContainText('화면과 코드는 계속 기록하고 있어요.');
+  await expect(page.getByRole('button', { name: '다시 연결' })).toBeVisible();
+  await expect(page.locator('.cm-tf__tip')).toContainText('전사가 멈춘 동안에도');
+  await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'golden-12-tiro-paused.png'), fullPage: false, animations: 'disabled' });
+});
+
+test('13 폭 360 — 여백 14px, 가로 스크롤 없음', async () => {
+  await page.setViewportSize({ width: 360, height: VIEWPORT.height });
+  await reopen();
+  await goto('listening');
+  await expect(page.locator('[data-screen-label="듣는 중"]')).toBeVisible();
+  expect(await panelInset()).toBe('14px');
+  expect(await noHorizontalScroll()).toBe(true);
+  await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'golden-w360-listening.png'), fullPage: false, animations: 'disabled' });
+});
+
+test('14 폭 520 — 여백 20px, 가로 스크롤 없음', async () => {
+  await page.setViewportSize({ width: 520, height: VIEWPORT.height });
+  await reopen();
+  await goto('answer');
+  await expect(page.locator('[data-note="minimal"]')).toBeVisible();
+  expect(await panelInset()).toBe('20px');
+  expect(await noHorizontalScroll()).toBe(true);
+  await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'golden-w520-answer.png'), fullPage: false, animations: 'disabled' });
+});
+
+test('15 폭 380 — 기본 폭의 여백은 16px', async () => {
+  await page.setViewportSize(VIEWPORT);
+  await reopen();
+  await goto('listening');
+  expect(await panelInset()).toBe('16px');
+  expect(await noHorizontalScroll()).toBe(true);
+});
 
 test('콘솔 오류와 페이지 오류가 없다', async () => {
   expect(pageErrors).toEqual([]);

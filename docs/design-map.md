@@ -183,12 +183,33 @@ Evidence 4종(`Evidence.jsx:17-23`): `verified 확인됨 circle-check "자료에
 | G | 기록 | SourceFooter "기록 N" 으로 진입. 교시별 묶음, 헤어라인만. 카드·화살표 없음 | `dc.html:78-99, 379-381`. 카운트는 term 있는 순간만(`:362, 398`) |
 | H | 연결 문제 2종 | (1) 전사 멈춤: SourceFooter 호박색 "전사가 잠시 멈췄어요. 화면과 코드는 계속 기록하고 있어요. 다시 연결" (2) 튜터 멈춤: 메모 호박색 대기 "튜터가 돌아오면 여기에 한 줄이 나타나요 · 순간은 저장됐어요", SourceFooter 빨간색 "튜터 답변이 잠시 멈췄어요. 수업 기록과 질문 지점은 계속 저장하고 있어요." 모달·배너 금지 | `dc.html:399-400, 332, 206, 383-385, 291` |
 
+### 4-2-1. 구현이 이 상태를 어디서 만드는가 (2라운드 · `apps/browser-extension`)
+
+정본 상태 ↔ 코드 자리 ↔ 그것을 지키는 시험을 한 줄로 잇습니다. 화면 파일은 값을 만들지 않고 그리기만 합니다.
+
+| 정본 | 값을 만드는 곳 | 그리는 곳 | 장면·시험 |
+|---|---|---|---|
+| G 기록 | `src/panel/history-view.ts` `historyView()` — `state.moments` + **도착한** `answer.completed`/`answer.recovered` 만 봅니다(`bundle.events` 는 라이브 모드에서 비어 있어 쓰지 않습니다) | `src/panel/screens/HistoryScreen.tsx` (`.cm-group` · `.cm-rows` · `MomentRow` · `.cm-foot-note`) | `docs/screenshots/golden-10-history.png` · `history-view.test.ts` · `screens.test.tsx` "기록 화면" |
+| G 진입 | `listeningView().footer.count` → `SourceFooter onCount` | `ListeningScreen` → `PanelApp` 의 `overlay="history"` | E2E 10번이 바닥줄 "기록 1" 을 실제로 누릅니다 |
+| G 행 → F | `lesson-view.ts` `detailViewFor(bundle, state, lines, questionId)` (`detailView` 는 지금 질문으로 부르는 얇은 껍데기) | `DetailScreen` — 지난 순간에는 후속 칩을 붙이지 않습니다(칩 답은 상태기계가 든 `answerId` 로 꺼내므로) | `screens.test.tsx` "기록에서 연 지난 순간…" |
+| H-1 전사 멈춤 | `lesson-view.ts` `footerOf()` — `connectors["tiro-share"]` 가 **보고된 뒤** connected 가 아니면 호박색 + `action: "다시 연결"` + `reconnect: "tiro-share"` | `ListeningScreen` 이 `reconnect` 를 `onReconnect(target)` 으로 묶습니다. `ReconnectTarget` 은 `src/panel/ports.ts` 정본 | `golden-12-tiro-paused.png` · `screens.test.tsx` "H-1 전사 멈춤" |
+| H-1 로컬 도우미 | 같은 `footerOf()` — `connectors["native-host"] === "off"` → 호박색 "로컬 도우미와 잠시 끊겼어요. 붙잡은 순간은 패널에 남아요." + 다시 연결(`native-host`) | 같음 | 정본에 없는 자리. 계약 `connector.status` 의 커넥터 축을 그대로 씁니다 |
+| H-2 튜터 멈춤 | 같은 `footerOf()` — `machine.provider` 가 `failed`/`queued` 면 빨간 계열, **다시 연결 없음**(되살리는 쪽이 사람이 아닙니다) | 같음 | `golden-08-waiting.png` |
+| 설정 | `src/panel/settings-store.ts` — 키 9개(`classmate.*`) · 기본값 · 저장소 주입 | `src/panel/screens/SettingsScreen.tsx` (`.cm-set`) | `golden-11-settings.png` · `settings-store.test.ts` · `screens.test.tsx` "설정 화면" |
+
+정본과 다른 곳(둘 다 의도한 것):
+
+1. **설정에 제공자 고르기를 더했습니다** — `답변` 절 안 `답변을 만드는 곳`(claude · codex). 정본에는 없고 2라운드 고정 계약이 정한 값(`classmate.provider`)이라 화면에 자리가 있어야 합니다. codex 는 한도가 돌아오기 전까지 잠가 둡니다.
+2. **개인정보 세 칸**(`로컬 보관 / 선택한 AI 제공자로 전송될 수 있음 / Corthex 서버 기본 전송 없음`)을 "붙잡을 때 함께 저장" 아래에 답니다. §6 의 ⚠️ 대로 정본에 없는 문구이고 불변 원칙 §5 가 정본입니다.
+3. **기록의 지난 교시 3줄을 옮기지 않았습니다** — `HistoryScreen.jsx` 의 `EARLIER` 는 kit 의 시연 자료입니다. 지어낸 줄을 "붙잡은 순간" 에 섞지 않습니다. 오늘 교시 묶음 하나만 그립니다.
+4. **MomentRow 의 `unread` 를 쓰지 않습니다** — 정본은 "열어 봤는지" 를 들고 있지만 스토어에 그 축이 없습니다. 답이 오기 전은 `preparing`(정리 중), 온 뒤는 `ready` 둘뿐입니다.
+
 ### 4-3. 동작 규칙
 
 | 규칙 | 값 | 근거 |
 |---|---|---|
 | 폭 360/380/520 → panel-inset | 14 / 16 / 20 px | `dc.html:389`, `readme.md:70`, `index.html:46` |
-| 실제 사이드패널 | `clamp(12px, calc(4vw + .8px), 20px)` 가 처리 | `spacing.css:19` |
+| 실제 사이드패널 | ⚠️ `spacing.css:19` 의 `clamp(12px, calc(4vw + .8px), 20px)` 는 **360 에서 15.2px** 이라 정본과 1.2px 어긋납니다(380·520 은 맞음). 사이드패널은 `entrypoints/sidepanel/style.css` 에서 `clamp(12px, calc(10vw - 22px), 20px)` 로 덮어 세 지점을 정확히 지나게 했습니다(토큰 파일은 다른 단위가 써서 건드리지 않음) | `spacing.css:19` · E2E 13·14·15번이 `.cm-ph` 의 왼쪽 여백으로 14/20/16px 을 확인 |
 | 전사 최대 줄 길이 | `max-width: 440px` | `dc.html:37`, `prompt:50` |
 | 헤더 아래 NowLine 고정 | `now` 줄이 하나라도 오면 헤더 바로 아래 `padding:8px var(--panel-inset) 0` 에 `NowLine variant="plain"` 붙박이 | `dc.html:33-35, 412`, `readme.md:20` (⚠️`_ds/…/readme.md` 구버전엔 없음) |
 | Alt+S | `altKey && e.code === 'KeyS' && screen === 'home' && altS` → 마지막 문장 catchSentence, `preventDefault()`, window 리스너. **`e.code` 채택**(kit 의 `e.key==='s'` 는 한글 IME 에서 다름) | `dc.html:250-255` vs `index.html:97` |

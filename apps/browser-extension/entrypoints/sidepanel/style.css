@@ -1,10 +1,10 @@
 /*
   사이드패널 레이아웃 — 정본 design-system/ui_kits/sidepanel/index.html 의 kit 전용 클래스
-  (.cm-screen · .cm-screen__body · .cm-screen__bar · .cm-kbd · .cm-reply)를 실제 패널에 맞게 옮긴 것입니다.
+  (.cm-screen · .cm-screen__body(--flow/--flush) · .cm-screen__bar · .cm-group · .cm-rows ·
+  .cm-foot-note · .cm-set · .cm-kbd · .cm-reply)를 실제 패널에 맞게 옮긴 것입니다.
 
   kit 은 데스크톱 페이지 안에 900px 카드로 그렸지만, 실제 사이드패널은 뷰포트 전체가 패널입니다.
   색·간격·글꼴·모션 값은 전부 @classmate/design-tokens 의 변수입니다. 여기서 새 색을 들이지 않습니다.
-  --panel-inset 은 spacing.css 의 clamp(12px, calc(4vw + 0.8px), 20px) 가 폭에 따라 14/16/20px 로 정합니다.
 */
 
 html,
@@ -15,6 +15,24 @@ body,
 
 body {
   min-width: 320px;
+}
+
+/*
+  여백(--panel-inset) 은 정본이 폭 360/380/520 에서 14/16/20px 로 못 박은 값입니다
+  (dc.html:389 의 { 360:'14px', 380:'16px', 520:'20px' } · docs/design-map.md §4-3).
+
+  design-tokens 의 spacing.css 는 clamp(12px, calc(4vw + 0.8px), 20px) 인데, 이 식은
+  360px 에서 15.2px 이 나와 정본과 1.2px 어긋납니다(380 은 16, 520 은 20 으로 맞습니다).
+  세 지점을 정확히 지나는 직선은 calc(10vw - 22px) 입니다.
+
+      360 → 36  - 22 = 14      380 → 38 - 22 = 16      520 → 52 - 22 = 30 → 위 20 으로 잘림
+      320 → 32  - 22 = 10 → 아래 12 로 올라감
+
+  토큰 파일(다른 단위가 씁니다)을 건드리지 않고 패널에서만 덮습니다. style.css 가 토큰 뒤에
+  실리므로(main.tsx 의 적재 순서) 같은 :root 라도 이 선언이 이깁니다.
+*/
+:root {
+  --panel-inset: clamp(12px, calc(10vw - 22px), 20px);
 }
 
 /* 패널은 세로 한 줄. 화면(.cm-screen)이 전부를 채웁니다. */
@@ -62,6 +80,99 @@ body {
 
 .cm-screen__body--flow > .cm-tf {
   margin-top: auto;
+}
+
+/* 기록·설정: 줄이 화면 끝까지 닿고 여백은 줄 안쪽(var(--panel-inset))이 냅니다. */
+.cm-screen__body--flush {
+  padding-left: 0;
+  padding-right: 0;
+  gap: 0;
+}
+
+/* 기록: 교시 묶음 하나 */
+.cm-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.cm-group__label {
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+  padding: 14px var(--panel-inset) 4px;
+  position: sticky;
+  top: 0;
+  background: var(--surface-canvas);
+  z-index: 1;
+}
+
+.cm-group__empty {
+  margin: 0;
+  padding: 8px var(--panel-inset) 12px;
+  font: var(--type-body);
+  color: var(--text-tertiary);
+}
+
+/* 붙잡은 순간 줄들 — 헤어라인만으로 나눕니다. 카드도 화살표도 없습니다. */
+.cm-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.cm-rows > * + * {
+  border-top: 1px solid var(--border-hairline);
+}
+
+.cm-foot-note {
+  margin: 0;
+  padding: 20px var(--panel-inset) 8px;
+  font: var(--type-caption);
+  color: var(--text-4);
+  text-align: center;
+}
+
+/* 설정: 절 하나 */
+.cm-set {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px var(--panel-inset);
+}
+
+.cm-set + .cm-set {
+  border-top: 1px solid var(--border-hairline);
+}
+
+.cm-set__h {
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+}
+
+/* 절 안에서 묶음 하나를 더 나눌 때의 작은 이름표입니다(정본에 없는 자리 — 제공자 고르기). */
+.cm-set__sub {
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+/*
+  개인정보 세 칸 — 불변 원칙 §5 의 문구를 그대로 씁니다. 정본 디자인에는 없는 자리라
+  색·글꼴은 캡션 토큰만 씁니다(docs/design-map.md §6 의 ⚠️ 항목).
+*/
+.cm-set__privacy {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+}
+
+.cm-set__privacy-cell {
+  padding: 2px 6px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  white-space: nowrap;
 }
 
 /* 자세히 하단 고정바: NowLine + "수업으로 돌아가기" */
