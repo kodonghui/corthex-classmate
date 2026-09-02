@@ -1,4 +1,5 @@
-//! Claude CLI 제공자 — `claude -p --output-format stream-json --verbose` 를 자식 프로세스로 띄웁니다.
+//! Claude CLI 제공자 — 호출자가 준 CLI 를
+//! `-p --output-format stream-json --verbose --include-partial-messages` 로 띄웁니다.
 //!
 //! # 비용 안전 규칙 (이 파일에서 가장 중요한 것)
 //!
@@ -32,10 +33,21 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::provider::{AskOutcome, AskRequest, ProviderError, ProviderEvent, TutorProvider};
-use crate::stream_json::{StreamItem, StreamJsonParser};
+use crate::stream_json::{ResultMetrics, StreamItem, StreamJsonParser};
 
 /// 언제나 붙는 고정 인자입니다. 사람이 만든 문자열은 여기에 실리지 않습니다(§4-7).
-pub const CLI_ARGS: [&str; 4] = ["-p", "--output-format", "stream-json", "--verbose"];
+///
+/// `--include-partial-messages` 는 답이 다 만들어지기 전에 조각을 먼저 받으려고 붙입니다.
+/// Gate C2 실측에서 첫 글자까지 p50 6.6초였으므로(`docs/spikes/gate-c2-provider-latency.md`)
+/// 이 옵션 없이는 화면이 그 시간 내내 비어 있습니다. 옵션을 모르는 CLI 를 만나도 회차는
+/// 성립합니다 — 청크가 하나도 오지 않으면 파서가 예전처럼 `assistant` 본문을 씁니다.
+pub const CLI_ARGS: [&str; 5] = [
+    "-p",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--include-partial-messages",
+];
 
 /// 트리를 끊은 뒤 자식이 사라지기를 기다려 주는 최대 시간입니다. spike 의 `TIMEOUT_GRACE_MS` 와 같습니다.
 const TIMEOUT_GRACE: Duration = Duration::from_millis(250);
@@ -523,11 +535,7 @@ impl TutorProvider for ClaudeCliProvider {
             ));
         }
 
-        let text = if parser.text().is_empty() {
-            metrics.result_text.clone().unwrap_or_default()
-        } else {
-            parser.text().to_string()
-        };
+        let text = final_text(&parser, &metrics);
 
         Ok(AskOutcome {
             text,
@@ -554,6 +562,29 @@ fn emit_all(
             }),
         }
     }
+}
+
+/// 회차의 최종 답변 본문을 고릅니다.
+///
+/// | 이 회차 | 고르는 순서 | 왜 |
+/// |---|---|---|
+/// | 부분 청크를 봤음 | `result` 줄의 본문 → 없으면 모아 둔 청크 | 청크는 CLI 가 쪼개 보낸 조각이고, `result` 는 CLI 가 스스로 확정한 정본입니다. 둘이 다르면 정본을 믿습니다 |
+/// | 청크가 없었음 | `assistant` 본문 → 비었으면 `result` 본문 | 1라운드와 같은 순서입니다. 옵션을 모르는 CLI 에서도 회차가 그대로 성립합니다 |
+///
+/// 청크만 오고 `result` 줄이 없는 회차는 여기까지 오지 않습니다 — 그 앞에서
+/// `Protocol("result 이벤트 없이 …")` 로 끝납니다. 그래도 "없으면 청크 합침" 갈래를 남겨 둔 것은,
+/// `result` 줄이 본문 칸을 비운 채 올 수 있기 때문입니다.
+fn final_text(parser: &StreamJsonParser, metrics: &ResultMetrics) -> String {
+    if parser.saw_partial_chunks() {
+        return match metrics.result_text.as_deref() {
+            Some(text) if !text.is_empty() => text.to_string(),
+            _ => parser.text().to_string(),
+        };
+    }
+    if parser.text().is_empty() {
+        return metrics.result_text.clone().unwrap_or_default();
+    }
+    parser.text().to_string()
 }
 
 /// stdin 쓰기 스레드가 남긴 오류를 회차 실패의 **원인**으로 덧붙입니다.
@@ -833,6 +864,67 @@ mod tests {
         let provider = ClaudeCliProvider::new(PathBuf::from("C:/nowhere/does-not-exist"));
         assert_eq!(provider.name(), "claude");
         assert_eq!(provider.cli_path(), Path::new("C:/nowhere/does-not-exist"));
+    }
+
+    #[test]
+    fn the_fixed_arguments_ask_for_partial_messages() {
+        // 고정 인자는 리터럴뿐이고, 부분 스트리밍 옵션이 그 안에 있습니다.
+        assert_eq!(
+            CLI_ARGS,
+            [
+                "-p",
+                "--output-format",
+                "stream-json",
+                "--verbose",
+                "--include-partial-messages",
+            ]
+        );
+    }
+
+    /// 부분 스트리밍 청크 한 줄을 만듭니다.
+    fn chunk(text: &str) -> String {
+        format!(
+            r#"{{"type":"stream_event","event":{{"type":"content_block_delta","delta":{{"type":"text_delta","text":"{text}"}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn a_run_with_chunks_takes_the_result_body_as_the_final_text() {
+        let mut parser = StreamJsonParser::new();
+        parser
+            .push(&format!("{}\n{}\n", chunk("앞"), chunk("뒤")))
+            .expect("청크");
+        let metrics = ResultMetrics {
+            result_text: Some("앞뒤".to_string()),
+            ..ResultMetrics::default()
+        };
+        assert_eq!(final_text(&parser, &metrics), "앞뒤");
+
+        // `result` 가 본문 칸을 비운 채 오면 모아 둔 청크로 대신합니다.
+        let empty = ResultMetrics::default();
+        assert_eq!(final_text(&parser, &empty), "앞뒤");
+    }
+
+    #[test]
+    fn a_run_without_chunks_keeps_the_first_round_order() {
+        let mut parser = StreamJsonParser::new();
+        parser
+            .push("{\"type\":\"assistant\",\"message\":{\"content\":\"본문\"}}\n")
+            .expect("assistant");
+        let metrics = ResultMetrics {
+            result_text: Some("결과 칸".to_string()),
+            ..ResultMetrics::default()
+        };
+        // 청크가 없으면 예전처럼 assistant 본문이 이깁니다.
+        assert_eq!(final_text(&parser, &metrics), "본문");
+
+        // assistant 가 아예 없었으면 result 본문이 대비책입니다.
+        let empty_parser = StreamJsonParser::new();
+        assert_eq!(final_text(&empty_parser, &metrics), "결과 칸");
+        assert_eq!(
+            final_text(&empty_parser, &ResultMetrics::default()),
+            String::new()
+        );
     }
 
     #[test]

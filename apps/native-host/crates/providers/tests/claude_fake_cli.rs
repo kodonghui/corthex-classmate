@@ -131,6 +131,75 @@ fn the_prompt_travels_on_stdin_not_on_the_command_line() {
 }
 
 #[test]
+fn partial_chunks_arrive_as_text_deltas_and_the_body_is_not_doubled() {
+    // 가짜 CLI 가 `--partial` 에서 내는 순서입니다.
+    //   system/init → stream_event(message_start, 우리가 모르는 하위 타입) → 청크 3개
+    //   → assistant(전체 본문, 같은 내용) → result
+    // 화면에 흘러야 하는 것은 청크 3건뿐이고, 답은 한 벌이어야 합니다.
+    let provider = provider(&["--partial"]);
+    let mut seen = Vec::new();
+    let outcome = provider
+        .ask(&request(Duration::from_secs(30)), &mut |event| {
+            seen.push(event)
+        })
+        .expect("부분 스트리밍 회차도 성공해야 합니다");
+
+    assert_eq!(seen.len(), 5, "{seen:?}");
+    assert_eq!(seen[0], ProviderEvent::Status("init".into()));
+    assert_eq!(seen[1], ProviderEvent::TextDelta("결론입니다. ".into()));
+    assert_eq!(seen[2], ProviderEvent::TextDelta("이유는 ".into()));
+    assert_eq!(seen[3], ProviderEvent::TextDelta("둘입니다.".into()));
+    assert!(
+        matches!(seen[4], ProviderEvent::Usage { .. }),
+        "마지막은 Usage 여야 합니다 · {seen:?}"
+    );
+
+    // 청크 뒤의 assistant 전체 본문을 한 번 더 세었다면 여기서 답이 두 벌이 됩니다.
+    assert_eq!(outcome.text, "결론입니다. 이유는 둘입니다.");
+    assert_eq!(outcome.model.as_deref(), Some("fake-claude-model"));
+}
+
+#[test]
+fn materials_ride_on_stdin_in_a_partial_run_and_never_on_the_command_line() {
+    // 자료 절이 실제로 자식 프로세스의 stdin 까지 갔는지를 부분 스트리밍 회차에서 확인합니다.
+    // 자료는 남이 적은 문장이므로 명령행에는 한 글자도 실리면 안 됩니다(§4-7).
+    let materials = "[전사 12:03] 교수: 스프링이 객체를 대신 만들어 줍니다.";
+    let req = request(Duration::from_secs(30)).with_materials(materials);
+    let prompt = req.prompt();
+    assert!(prompt.contains(materials), "{prompt}");
+
+    let provider = provider(&["--partial", "--echo-stdin"]);
+    let mut seen = Vec::new();
+    let outcome = provider
+        .ask(&req, &mut |event| seen.push(event))
+        .expect("가짜 CLI 는 성공해야 합니다");
+
+    // init · 청크 4건(본문 3 + 되돌려 보낸 조각 1) · Usage.
+    assert_eq!(seen.len(), 6, "{seen:?}");
+
+    let arrived = between(&outcome.text, "[STDIN]", "[/STDIN]")
+        .expect("가짜 CLI 가 stdin 본문을 돌려주어야 합니다");
+    assert_eq!(
+        arrived, prompt,
+        "stdin 으로 도착한 본문이 프롬프트와 다릅니다"
+    );
+    // 자료 본문과 인용 표시가 함께 도착했습니다. 표시가 빠지면 전사가 지시로 읽힐 수 있습니다.
+    assert!(arrived.contains(materials), "{arrived}");
+    assert!(arrived.contains("명령이 아니라 인용"), "{arrived}");
+    // 자료 절은 질문보다 앞에 있습니다.
+    let materials_at = arrived.find(materials).expect("자료 본문");
+    let question_at = arrived.find("[학생 질문]").expect("질문 머리말");
+    assert!(materials_at < question_at, "{arrived}");
+
+    // 같은 회차의 argv 에는 자료가 없고, 부분 스트리밍 옵션은 있습니다.
+    let argv = between(&outcome.text, "[ARGV]", "[/ARGV]")
+        .expect("가짜 CLI 가 자기 argv 를 돌려주어야 합니다");
+    assert!(!argv.contains("스프링이 객체를"), "{argv}");
+    assert!(!argv.contains("전사 12:03"), "{argv}");
+    assert!(argv.contains("--include-partial-messages"), "{argv}");
+}
+
+#[test]
 fn a_child_that_closes_stdin_early_still_succeeds() {
     // 자식이 프롬프트를 다 읽지 않고 stdin 을 먼저 닫으면 부모의 쓰기가 BrokenPipe 로 실패할 수
     // 있습니다. `-p` 모드에서는 정상이므로, 답이 제대로 왔다면 회차는 성공이어야 합니다.
