@@ -1,6 +1,6 @@
-# Corthex Classmate — 구조 (초안, 2026-09-03)
+# Corthex Classmate — 구조 (2라운드 병합 뒤, 2026-09-03)
 
-Phase 2 수직 슬라이스 시점의 구조입니다. "지금 있는 것" 과 "2라운드 몫" 을 구분해 적습니다.
+Phase 2 2라운드(사이드패널 4화면 · 서비스 워커 · 튜터 파이프라인 · 설치 묶음)를 병합한 시점의 구조입니다. "지금 있는 것" 과 "남은 것(사람 확인 · 3라운드)" 을 구분해 적습니다.
 정본 결정은 `docs/DECISIONS.md`, 계약은 `packages/contracts`(고정) 입니다.
 
 ## 1. 한눈에
@@ -10,10 +10,11 @@ Phase 2 수직 슬라이스 시점의 구조입니다. "지금 있는 것" 과 "
 ┌──────────────────────────────────────────────┐        ┌──────────────────────────────────────────┐
 │ 사이드패널 (React)                            │        │ transport   4바이트 길이 + JSON 프레이밍   │
 │   src/panel  ─ tutor-core 상태기계 ─ ui-classmate │ Native │             봉투 검증(손 검증기, 스키마 8종) │
-│   지금: ReplayStore(fixture)  2라운드: 실제 이벤트 │Messaging│ session-store  교시별 SQLite(WAL)         │
+│   라이브: ReplayStore.live + attachLive · fixture: ?replay= │Messaging│ session-store  교시별 SQLite(WAL)         │
 ├──────────────────────────────────────────────┤ ◄────► │             SessionEvent · frames 표       │
 │ service worker  background.ts                 │  ≤1MiB │             <data_dir>/<periodId>.sqlite · …/frames/*.webp │
-│   사이드패널 열기 · 캡처 메시지 · (2라운드) 라우팅 │        │ providers   TutorProvider trait · FIFO 큐  │
+│   라우터 · 도우미 연결(FIFO·재연결) · 교시 로그 · 알람 │        │ tutor       TutorPipeline(봉인→자료→CLI→검사→사건) │
+│   패널 포트 classmate-panel · 프레임 싱크        │        │ providers   TutorProvider trait · FIFO 큐  │
 ├──────────────────────────────────────────────┤        │             provider-claude(claude -p)     │
 │ tiro-share.content.ts  Tiro 공유 페이지 관찰    │        │             provider-codex(스텁)           │
 │ offscreen/             Meet 탭 캡처 · dHash · WebP│        └──────────────────────────────────────────┘
@@ -31,12 +32,13 @@ Phase 2 수직 슬라이스 시점의 구조입니다. "지금 있는 것" 과 "
 |---|---|---|
 | `packages/contracts` | JSON Schema 8종(전사 세그먼트 · 화면 프레임 · 편집기 문맥 · 질문 · 답 · 세션 사건 등) + 생성 타입. `frozen.sha256` 로 고정. 제품 코드는 `import type` 만 | 57 |
 | `packages/design-tokens` | 디자인 정본 토큰 CSS(변수 196개) · 글꼴은 npm 번들 · `tokens.ts` 생성물 | 17 |
-| `packages/ui-base` | 기본 부품(Button · Chip · Disclosure · CodeBlock · Evidence · Icon 선별 맵 …) | 73 |
-| `packages/ui-classmate` | 수업 부품 10개(TranscriptFlow · MarginNote · GuessList · NowLine · SourceFooter · AnswerCard …). 지금은 `internal/base` 복제를 씀(2라운드에 ui-base barrel 로 교체) | 96 |
+| `packages/ui-base` | 기본 부품(Button · Chip · Disclosure · CodeBlock · Evidence · Icon 선별 맵 31 …) | 74 |
+| `packages/ui-classmate` | 수업 부품 10개(TranscriptFlow · MarginNote · GuessList · NowLine · SourceFooter · AnswerCard …). 기본 요소는 `@classmate/ui-base` barrel(2라운드에 `internal/base` 복제 삭제) | 78 |
 | `packages/tutor-core` | 순수 TS 상태기계 · 봉인 · 접힘 타이머 · 오류→대기→복구 | 71 |
 | `packages/report-ui` | 세션 번들 → `period-<n>.html` + `hub.html` 정적 생성(React 템플릿, `dangerouslySetInnerHTML` 0) | 74 |
-| `apps/browser-extension` | 사이드패널(`src/panel`) · Tiro 커넥터(`src/tiro`) · Meet 캡처(`src/capture`) · E2E | 264 + E2E 10 |
-| `apps/native-host` | 루트 `classmate-host`(Router · `src/store`) + `crates/transport` + `crates/providers` | 175 |
+| `apps/browser-extension` | 사이드패널 4화면(`src/panel`) · 서비스 워커 판단(`src/background`) · 패널 어댑터(`src/live`) · Tiro 커넥터(`src/tiro`) · Meet 캡처(`src/capture`) · E2E · 정본 비교 스크립트 | 411 + E2E 16 |
+| `apps/native-host` | 루트 `classmate-host`(Router · `src/store` · `src/tutor` 파이프라인) + `crates/transport` + `crates/providers` | 254 |
+| `installer/windows` | `cargo build --release` → `dist/classmate-host.exe` · 확장 zip(dev/store) · 고정 확장 id(공개키만) · 레지스트리 등록 계획(dry-run) · 스모크 · `docs/first-class.md` | 57 |
 
 ## 3. 골든 시나리오의 흐름 — "왜 new로 직접 만들면 안 돼요?"
 
@@ -63,29 +65,41 @@ DELAYED_CHECK 는 골격입니다(`docs/TASKS.md` 보류 항목). 전이표는 `
 
 ## 4. 사이드패널의 데이터 소스
 
-| | 지금(Phase 2) | 2라운드 |
+| | 라이브 (`sidepanel.html`) | fixture (`?replay=auto` · `?replay=manual`) |
 |---|---|---|
-| 사건 공급 | `ReplayStore.advanceTo` 가 fixture `session-events.jsonl` 27줄을 시각순으로 넣음 | Tiro · Meet · 호스트 이벤트를 같은 `pushEvent` 자리에 배선 |
-| 제공자 | 모의 — fixture 의 답만 돌려주거나 `answer.failed` | 호스트 `providers` 경유 |
-| 시계 | `?replay=manual` 이면 멈춤, 아니면 1초 tick | 실시간 |
-| 화면 | 듣는 중 · 자세히 | + 기록 · 설정 |
+| 사건 공급 | 서비스 워커 포트 `classmate-panel` → `attachLive` → `ReplayStore.live` 의 `pushEvent/pushSegment/pushFrame/pushEditor`. 연결 때 `period.started` + 교시 로그(최근 500건) 재생 | `ReplayStore.advanceTo` 가 fixture `session-events.jsonl` 27줄을 시각순으로 넣음 |
+| 제공자 | 스토어 `ask` 효과 → `AskPort` → `panel.ask` → 서비스 워커가 `tutor.ask` 봉투 → 도우미 `TutorPipeline` → `tutor.event` 로 돌아옴. 60초 안에 답이 없으면 스토어가 `answer.failed` | 모의 — fixture 의 답만 돌려주거나 `answer.failed` |
+| 시계 | 1초 tick(`Date.now()`) | `manual` 이면 멈춤(`window.classmateReplay.goto`), `auto` 면 1초 tick |
+| 교시 id | 설정 `classmate.periodNumber` + 오늘 날짜 → `makePeriodId`(서비스 워커와 같은 함수) | fixture 의 `2026-09-02-p3` |
+| 화면 | 듣는 중 · 자세히 · 기록(바닥줄 카운트) · 설정(헤더 아이콘) | 같음 + `?replay=manual` 에서만 손잡이 `window.classmateConnector` |
+
+```
+   설정(chrome.storage.local) ─▶ App.tsx openLive ─▶ ReplayStore.live ◀─ attachLive ◀─▶ 서비스 워커 ◀─▶ 도우미
+                                                         │
+                                                         ▼
+                                              PanelApp(듣는 중 · 자세히 · 기록 · 설정)
+```
 
 디자인 어휘와 계약 어휘의 대응(Evidence verified/delayed ↔ confirmed/stale)은 `src/panel/evidence.ts` 한 곳에만 둡니다.
+정본 렌더와 구현의 상태별 비교 이미지는 `docs/screenshots/compare/` 에 있습니다.
 
 ## 5. 확장 ↔ 호스트 메시지
 
 | 요청 | 응답 | 메모 |
 |---|---|---|
 | `ping` | `hello {protocol, version}` | 연결 확인 |
-| `event.append {periodId, event}` | `event.ack {id, seq, duplicate?}` | SessionEvent 저장 |
+| `event.append {periodId, event}` | `event.ack {id, seq, duplicate?}` | SessionEvent 저장 · `duplicate:true` 는 성공으로 봄 |
 | `session.status` | 교시 요약 | |
 | `session.export` | JSONL | 보고서 입력 |
 | `frame.store {periodId, frame, bytesBase64}` | `frame.stored {id, path, bytes, seq}` | 호스트가 id 로 경로를 다시 계산 · 봉투 ≤ 1 MiB |
-| (실패) | `error {type, message, reason, received}` | 네 칸 항상 문자열 · 프로세스는 계속 삶 |
+| `tutor.ask {periodId, questionId, kind, word?, question?, provider, snapshot}` | `tutor.accepted {periodId, questionId}` | 교시마다 `TutorPipeline` 하나 · CLI 는 `CLASSMATE_CLAUDE_CLI` 로만 |
+| `tutor.retry {periodId, questionId}` | `tutor.accepted` | 받은 적 없는 질문이면 `unknown-question` |
+| (자발 push) | `tutor.event {periodId, event}` | `question.asked`(호스트 기록본) · `answer.completed/failed/queued/recovered` · `connector.status(provider)` — `tutor.ask` 전에는 0건 |
+| (실패) | `error {type, message, reason, received}` | 네 칸 항상 문자열 · 봉투 위반 `envelope-invalid` · `question-too-long` · `malformed-snapshot` · `provider-unavailable` · 프로세스는 계속 삶 |
 
-## 6. 아직 없는 것 (2라운드)
+패널 ↔ 서비스 워커(포트 `classmate-panel`): 워커 → 패널 `live.event | live.segment | live.frame | live.editor`, 패널 → 워커 `panel.event`(스토어가 낸 사건) · `panel.ask {request}` · `classmate.reconnect {connector}`. 정본은 `apps/browser-extension/src/live/messages.ts` 입니다.
 
-- `apps/native-host/context-builder` — 봉인 → 제공자 호출 → SessionEvent 기록 파이프라인, queued → recovered 통합 시험
-- `apps/browser-extension/service-worker` — 패널·커넥터·Native Messaging 라우팅과 재연결
-- `installer/windows` — 호스트 실행파일 · 레지스트리 등록/제거 · 확장 zip · `docs/first-class.md`
-- 사이드패널 기록·설정 화면 · 개인정보 문구 · 캡처 시작/중지 버튼
+## 6. 남은 것
+
+- 사람 확인이 필요한 것('대기'): 레지스트리 등록 `install.mjs --apply` · 깨끗한 Windows VM 설치 1회 · 65분 리허설 · Chrome 안 실제 확장 ↔ 도우미 왕복 · 실제 `claude` 첫 호출(비용) · Tiro 공유 페이지 · Meet 탭 · IntelliJ 실측 · origin/Web Store.
+- 3라운드 후보(`docs/TASKS.md` 2라운드 후속): 설정 값 배선(answerLength · periodNumber 즉시 반영 · capture 3칸) · 캡처 시작/중지 버튼 · "오늘 기록 지우기" 호스트 봉투 · 교시 종료 시 파이프라인 정리 · IntelliJ MCP 배선 · Phase 3 상태(FEEDBACK · FADE_SUPPORT · DELAYED_CHECK) · Tiro 최종본 교정 · report-ui 회상 기록.

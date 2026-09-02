@@ -565,7 +565,7 @@ Phase 2 1라운드 단위 (8) 이 이 게이트의 결론을 Rust 크레이트 `
 |---|---|
 | `TutorProvider { ask(context, question) → stream }` | `src/provider.rs` — 동기 trait + `AskRequest`·`ProviderEvent`·`AskOutcome`·`ProviderError` |
 | `spikes/lib/stream-json.mjs` 의 줄 파서 규칙 | `src/stream_json.rs` — 청크 버퍼링 · 비JSON 줄 무시·계수 · `assistant` content 두 모양 · `isSuccessResult` |
-| `-p --output-format stream-json --verbose` | `src/claude.rs` 의 `CLI_ARGS` (고정 리터럴 4개) |
+| `-p --output-format stream-json --verbose --include-partial-messages` | `src/claude.rs` 의 `CLI_ARGS` (고정 리터럴 5개 · 2라운드에 `--include-partial-messages` 추가, `text_delta` 를 보면 전체 본문은 중복 계수 안 함) |
 | `resolveCmdWrapper()` — `%dp0%` 표식 · `.js` → node · `.exe` 직접 · 모르는 배치는 폴백 | `src/claude.rs` 의 `resolve_cmd_wrapper()` · `plan_launch()` |
 | 타임아웃 시 `taskkill /PID <pid> /T /F` 트리 종료 + 유예 250ms | `src/claude.rs` 의 `kill_tree()` · `TIMEOUT_GRACE` |
 | 성공 회차에도 stderr 를 버리지 않는다 | 오류에 stderr **마지막 200자**를 실어 준다(`NonZeroExit::stderr_tail`) |

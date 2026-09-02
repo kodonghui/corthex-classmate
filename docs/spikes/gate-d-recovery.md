@@ -222,6 +222,8 @@ test store::tests::the_system_sqlite_is_new_enough ... ok
   같은 한계(전원 차단 시 마지막 몇 장 소실)를 함께 진다.
 - **오류 이유는 고정 낱말이다.** `StoreError::reason_code()` 가 `duplicate-frame` ·
   `frame-path-mismatch` · `invalid-frame-id` · `invalid-base64` 처럼 기계가 분기할 값을 준다.
+  (2라운드 뒤: 봉투 검사가 모든 갈래 앞에 서서 `path` 위조·빠진 `bytesBase64`·깨진 `capturedAt` 은
+  `envelope-invalid` 로 먼저 잡히고, `invalid-frame-id` · `duplicate-frame` · `invalid-base64` 는 저장소 가드에 남는다.)
   사람이 읽는 문구는 stderr 로만 나가고, 어느 쪽에도 파일 경로와 확장이 보낸 본문이 섞이지 않는다.
 
 ### 남은 위험 (덧붙임)
