@@ -1,9 +1,9 @@
 # @classmate/browser-extension
 
 Corthex Classmate 의 Chrome 확장입니다. WXT · React 19 · TypeScript · Manifest V3 · Side Panel API 를 씁니다.
-지금 단계(Phase 2 수직 슬라이스)에는 **듣는 중 · 자세히 두 화면**이 있고, 데이터는 fixtures 재생기가 채웁니다.
-실제 커넥터(Tiro 공유 페이지 · Meet 캡처 · 로컬 도우미)는 `src/tiro/` · `src/capture/` 에 있지만 아직 패널에
-배선되지 않았습니다(2라운드).
+지금 단계(Phase 2 · 2라운드)에는 **듣는 중 · 자세히 · 기록 · 설정 네 화면**이 있고, 데이터는 두 갈래 중 하나가
+채웁니다 — 주소에 `?replay=` 가 없으면 **라이브**(서비스 워커 → Tiro 공유 페이지 · Meet 캡처 · 로컬 도우미),
+있으면 **fixtures 재생기**(E2E · 스크린샷 · 손으로 얹어 보기). 조립은 `entrypoints/sidepanel/App.tsx` 한 곳입니다.
 
 경로·명령은 모두 **Windows 로컬 · Git Bash · 저장소 루트 기준**입니다.
 
@@ -21,7 +21,7 @@ apps/browser-extension/
 │  └─ sidepanel/
 │     ├─ index.html               사이드패널 진입 문서
 │     ├─ main.tsx                 CSS 적재 순서 고정 → React 루트 붙이기
-│     ├─ App.tsx                  `?replay=` 읽고 ReplayStore + PanelApp 조립
+│     ├─ App.tsx                  `?replay=` 로 라이브(ReplayStore.live + attachLive) / fixture 스토어를 고름
 │     └─ style.css                패널 레이아웃(키트 클래스를 전체 창에 맞춤) · reduced-motion
 ├─ src/panel/                     사이드패널 화면과 재생기 (아래 절)
 ├─ src/background/                서비스 워커의 판단 — 라우터 · 도우미 연결 · 교시 로그 (아래 절)
@@ -65,10 +65,11 @@ PanelApp.tsx         useSyncExternalStore · 1초 tick · Alt+S(e.code === "KeyS
 
 ### 재생 모드
 
-| 주소 | 시계 | 쓰임 |
-|---|---|---|
-| `sidepanel.html` | 1초마다 `tick` — fixture 를 실시간처럼 흘림 | 손으로 얹어 볼 때 |
-| `sidepanel.html?replay=manual` | 멈춤 — `window.classmateReplay.goto('answer')` 처럼 장면을 고름 | E2E · 스크린샷 |
+| 주소 | 데이터 | 시계 | 쓰임 |
+|---|---|---|---|
+| `sidepanel.html` | **라이브** — 서비스 워커 포트(`classmate-panel`)로 전사·화면·편집기·튜터 사건이 들어옴 | 1초마다 `tick`(`Date.now()`) | 실제 수업 |
+| `sidepanel.html?replay=auto` | fixture | 1초마다 `tick` — fixture 를 실시간처럼 흘림 | 손으로 얹어 볼 때 |
+| `sidepanel.html?replay=manual` | fixture | 멈춤 — `window.classmateReplay.goto('answer')` 처럼 장면을 고름 | E2E · 스크린샷 · 정본 비교 |
 
 ---
 
@@ -304,28 +305,31 @@ E2E 는 `chromium.launchPersistentContext` 에 `--load-extension` 으로 빌드�
 
 ## 라이브 모드 배선 (`entrypoints/sidepanel/App.tsx`)
 
-fixture 재생기 대신 실제 커넥터를 붙일 때는 `attachLive` 를 씁니다. 스토어의 두 문
-(`PanelInbox` · `PanelOutbox`)만 넘기면 되고, 돌려받는 손잡이에서 `AskPort` 와 `reconnect` 를
-꺼내 씁니다.
+주소에 `?replay=` 가 없으면 `App.tsx` 의 `openLive(settings, chrome.runtime)` 가 이 순서로 조립합니다.
 
-```tsx
-import { useEffect, useMemo } from 'react';
-import { attachLive } from '../../src/live/attach';
-
-const store = useMemo(() => new LiveStore(), []);          // 단위 1b 의 스토어
-const live = useMemo(
-  () => attachLive({ inbox: store, outbox: store }, chrome.runtime),
-  [store],
-);
-useEffect(() => () => live.detach(), [live]);              // 패널이 닫힐 때 뗍니다
-
-// live.ask                      → AskPort  (스토어의 `ask` 효과가 부릅니다)
-// live.reconnect('native-host') → 「다시 연결」 버튼
-// live.connected                → 포트가 붙어 있는지 (끊기면 스스로 다시 붙습니다)
+```text
+readSettings(chrome.storage.local)    교시 번호 · 주제 · 제공자 · 자동 접기 (src/panel/settings-store.ts)
+        │
+        ▼
+ReplayStore.live({ periodId: makePeriodId(오늘, 교시), startMs, subject, env: { provider, autoFold }, askPort })
+        │                    ▲
+        │                    └─ 스토어와 손잡이가 서로를 먼저 요구하므로 askPort 는 "나중에 생길 손잡이로
+        │                       넘겨주는" 얇은 어댑터입니다(사람이 붙잡기 전에는 불리지 않습니다)
+        ▼
+attachLive({ inbox: store, outbox: store }, chrome.runtime) ──▶ { ask, reconnect, connected, detach }
+        │
+        ▼
+<PanelApp store autoClock onReconnect={live.reconnect} />      패널이 닫히면 detach()
 ```
 
-`inbox` 와 `outbox` 로 같은 스토어 객체를 넘겨도 됩니다 — 두 인터페이스는 서로 겹치지
-않습니다. 세 번째 인자로 타이머와 `warn` 을 넣을 수 있습니다(시험에서 씁니다).
+교시 id 는 서비스 워커와 **같은 함수**(`src/tiro/period.ts` 의 `makePeriodId`)와 같은 저장 키로
+만듭니다. 패널이 만드는 사건·질문 id 가 서비스 워커의 교시 로그와 같은 교시를 가리켜야 하기 때문입니다.
+`inbox` 와 `outbox` 로 같은 스토어 객체를 넘겨도 됩니다 — 두 인터페이스는 서로 겹치지 않습니다.
+`attachLive` 의 세 번째 인자로 타이머와 `warn` 을 넣을 수 있습니다(시험에서 씁니다).
+
+아직 배선하지 않은 것: 설정의 "오늘 기록 지우기"(`onClearToday`)는 도우미 쪽 삭제 봉투가 없어
+패널 안에서만 닫힙니다. 교시 번호를 설정에서 바꾸면 서비스 워커는 새 교시를 열지만 패널의 스토어는
+연 시점의 교시 id 를 그대로 쓰므로 패널을 닫았다 열어야 합니다(`docs/TASKS.md`).
 
 ---
 
@@ -333,11 +337,11 @@ useEffect(() => () => live.detach(), [live]);              // 패널이 닫힐 �
 
 | 지금 | 상태 |
 |---|---|
-| `ReplayStore` 가 fixture 사건을 흘림 | 서비스 워커 쪽 배선 **완료** — `attachLive` 로 같은 `pushEvent` 자리에 꽂습니다. 패널 쪽 조립(`App.tsx`)은 오케스트레이터 몫 |
+| `ReplayStore` 가 fixture 사건을 흘림 | **완료** — `?replay=` 없는 주소는 `ReplayStore.live` + `attachLive` 로 서비스 워커에 붙습니다(위 「라이브 모드 배선」) |
 | `background.ts` 의 `MemoryFrameSink` | **교체 완료** — `NativeHostFrameSink`(도우미로 봉투 · 꺼져 있으면 60장 폴백) |
 | 로컬 도우미 연결 없음 | **완료** — `connectNative("com.corthex.classmate")` · 백오프 1·2·4…≤30초 |
-| 듣는 중 · 자세히 두 화면 | 남음 — 기록 · 설정 화면(상태 G) · 개인정보 문구 |
-| 모의 제공자(fixture 답만 돌려줌) | 남음 — 확장은 `tutor.ask` 를 보낼 준비가 됐고, 도우미 쪽 제공자 배선이 붙으면 이어집니다. 그전까지는 도우미가 `not-implemented` 로 답하고 패널은 `connector.status {provider, off}` 를 봅니다 |
+| 듣는 중 · 자세히 두 화면 | **완료** — 기록(G) · 설정 화면 · 개인정보 세 칸 · H-1 전사 멈춤 바닥줄(`docs/screenshots/README.md`) |
+| 모의 제공자(fixture 답만 돌려줌) | **완료(도우미까지)** — 라이브에서는 `panel.ask` → `tutor.ask` → 도우미의 `TutorPipeline` → `tutor.event` 로 답이 옵니다. 도우미에 `CLASSMATE_CLAUDE_CLI` 가 없으면 `provider-unavailable` 로 답하고 패널은 `connector.status {provider, off}` 를 봅니다 |
 | `background.ts` 의 캡처 손시험 갈래 | 남음 — 패널의 캡처 시작/중지 버튼이 생기면 지웁니다(위 「손 시험 갈래를 언제 지우나」) |
 | IntelliJ MCP 연결 | 남음 — `router.pushEditor(context)` 와 `live.editor` 자리만 열어 두었습니다 |
 | ui-classmate 의 `internal/base` 복제 | 남음 — `@classmate/ui-base` barrel 로 교체 |

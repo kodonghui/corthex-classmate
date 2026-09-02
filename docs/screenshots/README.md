@@ -47,4 +47,6 @@ pnpm --filter @classmate/browser-extension e2e
 각 장면이 확인하는 문구·셀렉터는 E2E 파일의 `STEPS` 와 10~15번 시험 본문에 있습니다.
 
 `design-combined-preview-2026-09-02.png` 는 디자인 정본(`Classmate Side Panel.dc.html`)의 렌더 미리보기입니다.
-구현 스크린샷과 나란히 놓은 비교 이미지는 2라운드 뒤쪽에서 만듭니다.
+정본 렌더와 구현을 상태별(A~H · H-1)로 나란히 놓은 비교 이미지는 `compare/` 에 있고, 표와 "차이 있음(의도)"
+목록은 `compare/README.md` 에 있습니다. 다시 만드는 명령은 저장소 루트에서
+`pnpm --filter @classmate/browser-extension build && node apps/browser-extension/scripts/compare-design.mjs` 입니다.
