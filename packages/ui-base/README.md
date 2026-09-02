@@ -1,11 +1,76 @@
 # @classmate/ui-base
 
-디자인 내보내기의 기본 컴포넌트(`core`·`forms`·`feedback`·`surfaces`·`navigation`·`overlay`, JSX 22개)를
-TS React 로 포팅하는 패키지입니다. 지금은 스켈레톤이며 Phase 2 1라운드 단위 (2) 가 채웁니다.
+디자인 정본(`design/claude-design-export/design-system/components/`)의 기본 컴포넌트 22개 파일을
+TS React 로 옮긴 패키지입니다. `.d.ts` 의 props 계약(이름·필드·기본값)을 그대로 지키고, 클래스 이름과
+화면 문구도 정본과 같습니다. 색·간격·모션 값은 하나도 직접 적지 않고 전부 `var(--토큰)` 으로만 씁니다.
+스타일은 더 이상 실행 중에 `<style>` 을 꽂지 않고 `src/styles.css` 한 장으로 나갑니다.
 
-- 정본: `design/claude-design-export/design-system/components/<폴더>/*.jsx` + `.d.ts`(props 계약 유지) + `*.prompt.md`. 지도는 `docs/design-map.md` §2·§8.
-- 바꾸는 것: 런타임 CSS 주입 → 빌드타임 CSS, `Icon` 의 CDN → `lucide-react`. 색만으로 상태를 구분하지 않습니다(문구 병기).
-- 시험: 컴포넌트마다 Vitest 렌더 시험 1개 이상(환경 happy-dom).
-- 공유 규칙(1라운드): 다른 classmate 패키지를 import 하지 않습니다. 계약은 `import type` 만, design-tokens 는 CSS 변수 이름만.
-- 완료 조건: `pnpm --filter @classmate/ui-base test` exit 0 · README 한 단락 · 비밀정보·Tiro URL 없음.
-- 함정: happy-dom 환경은 전역 `URL` 을 자기 것으로 바꿔 두므로 `fileURLToPath(new URL("..", import.meta.url))` 이 "The URL must be of scheme file" 로 실패합니다. `dirname(fileURLToPath(import.meta.url))` 을 쓰세요.
+## 컴포넌트 25개
+
+| 폴더         | 내보내는 것                                                                 |
+| ------------ | --------------------------------------------------------------------------- |
+| `core`       | `Button` · `Icon` · `IconButton`                                            |
+| `forms`      | `Input` · `Select` · `Checkbox` · `Radio` + `RadioGroup` · `Switch` · `Chip` + `ChipGroup` |
+| `feedback`   | `Badge` · `Tag` · `Evidence` · `StatusDot` · `Banner` · `Toast` + `ToastHost` · `Tooltip` |
+| `surfaces`   | `Card` · `Disclosure` · `CodeBlock` (+ 유틸 `tokenizeJava`)                  |
+| `navigation` | `Tabs` · `PanelHeader`                                                      |
+| `overlay`    | `Dialog`                                                                    |
+
+props 타입(`ButtonProps` 등)과 도우미 `cx` 도 함께 내보냅니다.
+
+## 쓰는 법
+
+```tsx
+import { Banner, Button, PanelHeader } from "@classmate/ui-base";
+import "@classmate/ui-base/styles.css"; // 앱에서 딱 한 번
+```
+
+CSS 는 토큰 위에 얹힙니다. `@classmate/design-tokens` 의 변수들을 **먼저** 실어야 합니다.
+`src/styles.css` 는 컴포넌트 옆 `.css` 21개를 의존 순서대로 `@import` 합니다
+(`Input.css` 가 `.cm-field` 를 정의하므로 `Select.css` 보다 앞, `Badge.css` 는 `Tabs.css` 보다 앞).
+
+## Icon 맵 규칙
+
+`src/icons.ts` 에 **kebab 이름 → lucide-react 컴포넌트** 를 손으로 적습니다.
+
+- `import { icons } from "lucide-react"` 같은 전체 조회는 쓰지 않습니다(MV3 번들이 커집니다).
+- 맵에 없는 이름을 주면 개발 모드에서 한 번 경고하고, 빈 `<svg>` 대신 `aria-hidden` 인 빈 `span` 을 그립니다.
+- `sparkles` · `bot` · `brain` 은 넣지 않습니다(`docs/DECISIONS.md`).
+- 새 아이콘이 필요하면 맵에 한 줄 더합니다. 시험이 정본 사용처와 `readme.md` 어휘를 대조합니다.
+
+## 정본과 다른 점
+
+| 자리                 | 정본                                              | 여기                                                                 |
+| -------------------- | ------------------------------------------------- | -------------------------------------------------------------------- |
+| 아이콘               | unpkg 의 lucide UMD 를 `<script>` 로 실어 `window.lucide` 조회 | `lucide-react` 선별 맵(`src/icons.ts`). 로딩 상태가 없어 첫 렌더부터 그려집니다 |
+| 스타일               | `css(id, …)` 가 import 될 때 `document.head` 에 `<style>` 주입 | 빌드타임 CSS. 같은 텍스트를 `<Name>.css` 로 옮기고 `styles.css` 로 모음 |
+| 반환 타입            | `JSX.Element`                                     | `React.JSX.Element` (React 19 에는 전역 `JSX` 가 없습니다)            |
+| `InputProps.size`    | `extends InputHTMLAttributes` + `size?: 'md'\|'lg'` | HTML 의 `size` 는 number 라 부딪힙니다 → `Omit<…, "size">` 로 물려받음 |
+| `SelectProps.size`   | `extends SelectHTMLAttributes` + `size?: 'sm'\|'md'` | 같은 이유로 `Omit<…, "size">`                                        |
+| `RadioGroup`         | `description={o.description}`                     | `exactOptionalPropertyTypes` 라 없으면 아예 넘기지 않음(조건부 스프레드) |
+| `Card`               | `const Tag = interactive ? 'button' : 'div'`      | 두 태그의 속성 집합이 달라 두 갈래로 나눠 그림(DOM 결과는 같음)        |
+| `Input` · `PanelHeader` | `trailing && …` · `onBack && …` · `actions && …` | `cx` 가 문자열만 받으므로 `!!` 로 boolean 을 만들어 넘김              |
+| `tokenizeJava`       | `let m;` + 배열 구조분해                          | `let m: RegExpExecArray \| null`, `noUncheckedIndexedAccess` 에 맞게 truthy 로 좁힘 |
+
+`Toast` 의 `tone="dark"` 는 어두운 토스트 한 종류일 뿐 다크 모드가 아닙니다.
+`PanelHeader` 의 높이는 CSS 에 `44px` 로 박혀 있습니다(`--panel-header-h` 를 쓰지 않습니다).
+
+## 시험
+
+```
+pnpm --filter @classmate/ui-base test        # vitest run (happy-dom)
+pnpm --filter @classmate/ui-base typecheck   # tsc --noEmit
+```
+
+- `test/render.test.tsx` — 컴포넌트마다 렌더 시험 1개 이상(주요 props·상태·접근성 속성·문구)
+- `test/interaction.test.tsx` — Disclosure 열림/닫힘 · Tabs 고르기 · Dialog 초점/Escape/스크림 · Toast 자동 닫힘
+- `test/css-parity.test.ts` — 정본 `css('cm-…', \`…\`)` 블록과 `<Name>.css` 가 공백만 빼고 같은지 21건, `styles.css` 가 21개를 다 모으는지
+- `test/icons.test.ts` — 정본이 쓰는 이름 + `readme.md` 어휘가 맵에 다 있는지, 금지 3개가 없는지
+- `test/source-hygiene.test.ts` — 런타임 주입 0건 · 외부 주소 0건 · 다른 `@classmate/*` import 0건 · 색 직접 지정 0건
+
+화면 앱은 2라운드 사이드패널에서 붙습니다. 이 라운드에서는 위 렌더 시험이 눈으로 보는 확인을 대신합니다.
+
+## 이 패키지의 경계
+
+- 다른 잎 패키지(`@classmate/ui-classmate`, `@classmate/design-tokens`)를 import 하지 않습니다. 토큰은 `var(--이름)` 으로만 씁니다.
+- 정본 `design/claude-design-export/**` 는 읽기 전용입니다. 고칠 곳이 보이면 여기서 고치고 표에 적습니다.
