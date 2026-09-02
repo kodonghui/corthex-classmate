@@ -432,9 +432,12 @@ fn check_type(spec: &Value, value: &Value, path: &str, out: &mut Vec<Violation>)
         }
     };
 
+    // 이름을 **전부** 먼저 훑습니다. 앞 이름이 맞았다고 바로 돌아가면 `["integer", "bogus"]`
+    // 처럼 뒤에 숨은 모르는 이름을 조용히 통과시키게 되어 이 모듈의 간판과 어긋납니다.
+    let mut matched = false;
     for name in &names {
         match type_matches(name, value) {
-            Some(true) => return,
+            Some(true) => matched = true,
             Some(false) => {}
             None => {
                 out.push(Violation::unsupported(
@@ -444,6 +447,10 @@ fn check_type(spec: &Value, value: &Value, path: &str, out: &mut Vec<Violation>)
                 return;
             }
         }
+    }
+
+    if matched {
+        return;
     }
 
     out.push(Violation::value(
@@ -990,9 +997,8 @@ pub fn is_rfc3339_date_time(text: &str) -> bool {
     if bytes[13] != b':' || bytes[16] != b':' {
         return false;
     }
-    // 윤초(23:59:60)만 60 초를 허용합니다.
-    let leap_second = second == 60 && hour == 23 && minute == 59;
-    if hour > 23 || minute > 59 || (second > 59 && !leap_second) {
+    // 60 초는 윤초 자리에서만 받습니다. 어느 자리가 윤초인지는 시간대까지 읽은 뒤에 정합니다.
+    if hour > 23 || minute > 59 || second > 60 {
         return false;
     }
 
@@ -1008,30 +1014,63 @@ pub fn is_rfc3339_date_time(text: &str) -> bool {
         }
     }
 
-    match bytes.get(index) {
-        Some(b'Z') | Some(b'z') => index + 1 == bytes.len(),
-        Some(b'+') | Some(b'-') => {
-            let Some(offset_hour) = digits(index + 1, 2) else {
-                return false;
-            };
-            if offset_hour > 23 {
-                return false;
-            }
-            match bytes.len() - (index + 3) {
-                // ±HH
-                0 => true,
-                // ±HHMM
-                2 => digits(index + 3, 2).is_some_and(|minute| minute <= 59),
-                // ±HH:MM
-                3 => {
-                    bytes[index + 3] == b':'
-                        && digits(index + 4, 2).is_some_and(|minute| minute <= 59)
-                }
-                _ => false,
-            }
+    let Some(offset_minutes) = read_offset(bytes, index) else {
+        return false;
+    };
+
+    // 윤초는 **UTC 기준** 23:59:60 자리에만 있습니다. 시간대를 빼서 그 자리로 옮겨 봅니다.
+    // TypeScript 쪽 정본 검증기(ajv-formats)도 오프셋을 뺀 뒤에 윤초를 보므로 답이 갈리지
+    // 않습니다. 보기: `2016-12-31T18:59:60-05:00` 은 UTC 로 23:59:60 이라 둘 다 받습니다.
+    if second == 60 {
+        let local = hour as i32 * 60 + minute as i32;
+        if (local - offset_minutes).rem_euclid(24 * 60) != 23 * 60 + 59 {
+            return false;
         }
-        _ => false,
     }
+
+    true
+}
+
+/// 끝에 붙은 시간대를 분으로 읽습니다. `Z` 는 0, `+09:00` 은 540, `-05:00` 은 -300 입니다.
+///
+/// 뒤에 군더더기가 한 글자라도 남으면 `None` 입니다. 시간대가 아예 없어도 `None` 입니다
+/// (계약의 `IsoDateTime` 은 오프셋을 반드시 적게 되어 있습니다).
+fn read_offset(bytes: &[u8], index: usize) -> Option<i32> {
+    let two_digits = |from: usize| -> Option<i32> {
+        let slice = bytes.get(from..from + 2)?;
+        if !slice.iter().all(u8::is_ascii_digit) {
+            return None;
+        }
+        std::str::from_utf8(slice).ok()?.parse::<i32>().ok()
+    };
+
+    let sign = match bytes.get(index) {
+        Some(b'Z') | Some(b'z') => return (index + 1 == bytes.len()).then_some(0),
+        Some(b'+') => 1,
+        Some(b'-') => -1,
+        _ => return None,
+    };
+
+    let offset_hour = two_digits(index + 1)?;
+    if offset_hour > 23 {
+        return None;
+    }
+
+    // 여기까지 왔으면 길이가 적어도 index + 3 이라 아래 뺄셈은 넘치지 않습니다.
+    let offset_minute = match bytes.len() - (index + 3) {
+        // ±HH
+        0 => 0,
+        // ±HHMM
+        2 => two_digits(index + 3)?,
+        // ±HH:MM
+        3 if bytes[index + 3] == b':' => two_digits(index + 4)?,
+        _ => return None,
+    };
+    if offset_minute > 59 {
+        return None;
+    }
+
+    Some(sign * (offset_hour * 60 + offset_minute))
 }
 
 fn days_in_month(year: u32, month: u32) -> u32 {
@@ -1244,6 +1283,42 @@ mod tests {
             "{}",
             violations[0]
         );
+    }
+
+    #[test]
+    fn an_unknown_type_name_behind_a_matching_one_is_still_reported() {
+        // 앞 이름(integer)이 맞아도 뒤의 모르는 이름(bogus)을 보고 세웁니다.
+        let schema = json!({ "type": ["integer", "bogus"] });
+
+        let violations =
+            validate_against(&schema, &json!(7)).expect_err("모르는 type 이름이 뒤에 있습니다");
+        assert_eq!(violations.len(), 1, "{}", describe(&violations));
+        assert_eq!(violations[0].kind, ViolationKind::UnsupportedSchema);
+        assert!(violations[0].message.contains("bogus"), "{}", violations[0]);
+
+        // 값이 어느 이름과도 안 맞을 때도 모르는 이름 쪽을 먼저 알립니다.
+        let violations =
+            validate_against(&schema, &json!("7")).expect_err("모르는 type 이름이 뒤에 있습니다");
+        assert_eq!(violations[0].kind, ViolationKind::UnsupportedSchema);
+
+        // 아는 이름만 있으면 그대로 통과합니다.
+        let known = json!({ "type": ["integer", "null"] });
+        assert!(validate_against(&known, &json!(7)).is_ok());
+        assert!(validate_against(&known, &json!(null)).is_ok());
+        assert!(validate_against(&known, &json!("7")).is_err());
+    }
+
+    #[test]
+    fn leap_seconds_are_read_in_utc_like_the_typescript_validator() {
+        // 윤초는 UTC 23:59:60 자리에만 있습니다. 시간대를 빼서 그 자리에 놓이면 받습니다.
+        assert!(is_rfc3339_date_time("2016-12-31T23:59:60Z"));
+        assert!(is_rfc3339_date_time("2016-12-31T18:59:60-05:00"));
+        assert!(is_rfc3339_date_time("2017-01-01T08:59:60+09:00"));
+
+        // 그 자리가 아니면 60 초를 받지 않습니다.
+        assert!(!is_rfc3339_date_time("2016-12-31T23:59:60+09:00"));
+        assert!(!is_rfc3339_date_time("2026-09-02T10:32:60+09:00"));
+        assert!(!is_rfc3339_date_time("2026-09-02T10:32:61Z"));
     }
 
     #[test]

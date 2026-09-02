@@ -1,8 +1,11 @@
-// host-roundtrip.mjs 의 프레이밍 함수 시험.
+// host-roundtrip.mjs 의 프레이밍 함수와 왕복 갈래 시험입니다.
 //
-// 여기서는 **실행 파일을 띄우지 않는다.** 자식 프로세스를 띄우는 왕복은
-// `node apps/native-host/scripts/host-roundtrip.mjs` 로 사람이 직접 돌린다.
-// 이 파일이 보는 것은 encodeFrame/decodeFrames 가 Rust 쪽 framing.rs 와 같은 규칙인지다.
+// 여기서는 **로컬 도우미(classmate-host)를 띄우지 않습니다.** 진짜 실행 파일을 쓰는 왕복은
+// `node apps/native-host/scripts/host-roundtrip.mjs` 로 사람이 직접 돌립니다.
+// 이 파일이 보는 것은 두 가지입니다.
+//   ① encodeFrame/decodeFrames 가 Rust 쪽 framing.rs 와 같은 규칙인지
+//   ② roundTrip() 의 실패 갈래가 실제로 실패로 서는지 — 이때는 node 로 만든
+//      **가짜 호스트**(-e 한 줄)를 띄웁니다. 빌드가 없어도 돌아갑니다.
 //
 // 실행: node --test apps/native-host/scripts/host-roundtrip.test.mjs
 
@@ -13,10 +16,12 @@ import {
   HEADER_BYTES,
   MAX_MESSAGE_BYTES,
   PING_REPLY_TYPE,
+  ROUNDTRIP_TIMEOUT_MS,
   decodeFrames,
   encodeFrame,
   executableCandidates,
   parseArgs,
+  roundTrip,
 } from './host-roundtrip.mjs';
 
 describe('프레이밍', () => {
@@ -46,7 +51,7 @@ describe('프레이밍', () => {
   });
 
   it('한글도 바이트 수로 세어 담는다', () => {
-    // "가" 는 UTF-8 로 3바이트다. 글자 수로 세면 길이가 어긋난다.
+    // "가" 는 UTF-8 로 3바이트입니다. 글자 수로 세면 길이가 어긋납니다.
     const frame = encodeFrame({ t: '가나다' });
     const declared = frame.readUInt32LE(0);
 
@@ -91,7 +96,7 @@ describe('프레이밍', () => {
   });
 
   it('상한과 꼭 같은 본문은 통과한다', () => {
-    // {"text":""} 이 11바이트다. 나머지를 ASCII 로 채워 정확히 상한을 맞춘다.
+    // {"text":""} 이 11바이트입니다. 나머지를 ASCII 로 채워 정확히 상한을 맞춥니다.
     const filler = 'a'.repeat(MAX_MESSAGE_BYTES - JSON.stringify({ text: '' }).length);
     const frame = encodeFrame({ text: filler });
 
@@ -124,7 +129,87 @@ describe('인자와 실행 파일 찾기', () => {
 
 describe('계약과 맞추기', () => {
   it('ping 에 대한 응답 이름은 hello 다', () => {
-    // src/main.rs 의 respond() 가 이 이름으로 답한다. 바뀌면 여기도 같이 바꾼다.
+    // src/main.rs 의 respond() 가 이 이름으로 답합니다. 바뀌면 여기도 같이 바꿉니다.
     assert.equal(PING_REPLY_TYPE, 'hello');
+  });
+});
+
+/**
+ * node 로 만드는 가짜 호스트 한 줄입니다. 준 값을 프레임 하나로 stdout 에 씁니다.
+ *
+ * 여기 들어가는 문자열은 **이 시험 파일이 직접 쓴 것**이고 밖에서 받은 값이 아닙니다.
+ */
+function fakeHostWriting(literal) {
+  return (
+    `const b=Buffer.from(JSON.stringify(${literal}),'utf8');` +
+    'const h=Buffer.alloc(4);h.writeUInt32LE(b.length,0);' +
+    'process.stdout.write(Buffer.concat([h,b]));'
+  );
+}
+
+/** 가짜 호스트를 띄워 한 번 왕복합니다. 진짜 실행 파일은 건드리지 않습니다. */
+function roundTripWithFakeHost(code, options = {}) {
+  return roundTrip(process.execPath, { args: ['-e', code], ...options });
+}
+
+describe('왕복 갈래', () => {
+  it('프레임 하나로 hello 를 돌려주면 성공이다', () => {
+    const result = roundTripWithFakeHost(fakeHostWriting("{type:'hello',host:'fake'}"));
+
+    assert.equal(result.ok, true, result.reason ?? '');
+    assert.equal(result.reply.type, PING_REPLY_TYPE);
+    assert.equal(result.reason, null);
+  });
+
+  it('아무것도 안 쓰고 끝나면 프레임 개수로 세운다', () => {
+    const result = roundTripWithFakeHost('process.exit(0);');
+
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /응답 프레임이 0 개/);
+  });
+
+  it('0 이 아닌 종료 코드로 끝나면 그 코드를 알려 준다', () => {
+    const result = roundTripWithFakeHost('process.exit(3);');
+
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /3 로 끝났어요/);
+  });
+
+  it('프레임 뒤에 바이트가 남으면 세운다', () => {
+    const code = `${fakeHostWriting("{type:'hello'}")}process.stdout.write(Buffer.from([1,2,3]));`;
+    const result = roundTripWithFakeHost(code);
+
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /3 바이트가 남았어요/);
+  });
+
+  it('type 이 hello 가 아니면 받은 응답과 함께 세운다', () => {
+    const result = roundTripWithFakeHost(fakeHostWriting("{type:'goodbye'}"));
+
+    assert.equal(result.ok, false);
+    assert.equal(result.reply.type, 'goodbye');
+    assert.match(result.reason, /hello/);
+  });
+
+  it('없는 실행 파일이면 실행 실패로 세운다', () => {
+    const result = roundTrip('C:\\없는폴더\\classmate-host.exe');
+
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /실행하지 못했어요/);
+  });
+
+  it('끝나지 않는 호스트는 상한에서 멈춰 세운다', () => {
+    // 60 초를 자는 가짜 호스트입니다. 상한을 넘기면 죽이고 실패로 돌려줘야 합니다.
+    const code = 'const a=new Int32Array(new SharedArrayBuffer(4));Atomics.wait(a,0,0,60000);';
+    const started = Date.now();
+    const result = roundTripWithFakeHost(code, { timeoutMs: 700 });
+
+    assert.equal(result.ok, false);
+    assert.match(result.reason, /700 ms 안에 끝나지 않아/);
+    assert.ok(Date.now() - started < 30_000, '상한에서 돌아와야 합니다');
+  });
+
+  it('기본 상한은 15 초다', () => {
+    assert.equal(ROUNDTRIP_TIMEOUT_MS, 15_000);
   });
 });
