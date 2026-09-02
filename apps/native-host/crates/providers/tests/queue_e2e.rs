@@ -1,7 +1,7 @@
-//! e2e — 큐를 통해 세 시나리오를 순서대로 넣는다: 정상 응답 → 타임아웃 → 비정상 종료.
+//! e2e — 큐를 통해 세 시나리오를 순서대로 넣습니다: 정상 응답 → 타임아웃 → 비정상 종료.
 //!
-//! 자식 프로세스로 뜨는 것은 `node <크레이트>/tests/fake-claude.mjs` 뿐이다.
-//! 실제 `claude`·`codex` 는 0회 실행된다.
+//! 자식 프로세스로 뜨는 것은 `node <크레이트>/tests/fake-claude.mjs` 뿐입니다.
+//! 실제 `claude`·`codex` 는 0회 실행됩니다.
 
 mod support;
 
@@ -16,10 +16,10 @@ use classmate_providers::{
 
 use support::{fake_cli_args, node_runtime, temp_dir, wait_until_dead};
 
-/// 질문 문장에 따라 가짜 CLI 를 다른 옵션으로 띄우는 제공자.
+/// 질문 문장에 따라 가짜 CLI 를 다른 옵션으로 띄우는 제공자입니다.
 ///
-/// 한 큐 안에서 세 시나리오를 순서대로 흘려보내려고 시험에서만 쓴다.
-/// 어떤 갈래에서도 실제 CLI 경로를 만들지 않는다.
+/// 한 큐 안에서 세 시나리오를 순서대로 흘려보내려고 시험에서만 씁니다.
+/// 어떤 갈래에서도 실제 CLI 경로를 만들지 않습니다.
 struct ScenarioProvider {
     node: std::path::PathBuf,
     pid_file: OsString,
@@ -34,7 +34,7 @@ impl ScenarioProvider {
                 args
             }
             "비정상 종료" => fake_cli_args(&["--exit", "3"]),
-            _ => fake_cli_args(&["--echo-stdin"]),
+            _ => fake_cli_args(&[]),
         };
         ClaudeCliProvider::with_prefix_args(self.node.clone(), args)
     }
@@ -101,12 +101,12 @@ fn three_scenarios_run_through_one_queue_in_order() {
         "{seen:?}"
     );
 
-    // 2) 타임아웃 — 앞 작업이 성공했든 말든 다음 작업은 제 시간에 끝난다.
+    // 2) 타임아웃 — 앞 작업이 성공했든 말든 다음 작업은 제 시간에 끝납니다.
     let err = timeout
         .recv()
         .expect("결과")
         .expect_err("타임아웃이어야 합니다");
-    assert!(matches!(err, ProviderError::Timeout), "{err:?}");
+    assert!(matches!(err, ProviderError::Timeout { .. }), "{err:?}");
     if cfg!(windows) {
         let text = std::fs::read_to_string(&pid_file).expect("PID 파일");
         for pid in text.lines().filter_map(|l| l.trim().parse::<u32>().ok()) {
@@ -117,7 +117,7 @@ fn three_scenarios_run_through_one_queue_in_order() {
         }
     }
 
-    // 3) 비정상 종료 — 앞 작업이 타임아웃이어도 큐는 막히지 않는다.
+    // 3) 비정상 종료 — 앞 작업이 타임아웃이어도 큐는 막히지 않습니다.
     let err = failed.recv().expect("결과").expect_err("실패해야 합니다");
     match err {
         ProviderError::NonZeroExit { code, stderr_tail } => {

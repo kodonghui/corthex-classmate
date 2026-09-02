@@ -1,6 +1,6 @@
-//! 튜터 제공자 어댑터 크레이트 — Phase 2 1라운드 단위 (8).
+//! 튜터 제공자 어댑터 크레이트입니다 — Phase 2 1라운드 단위 (8).
 //!
-//! 맡는 것: [`TutorProvider`] trait · Claude CLI 제공자([`ClaudeCliProvider`]) ·
+//! 맡는 것은 넷입니다. [`TutorProvider`] trait · Claude CLI 제공자([`ClaudeCliProvider`]) ·
 //! FIFO 큐([`ProviderQueue`]) · Codex 스텁([`CodexAppServerProvider`]).
 //!
 //! ```text
@@ -15,13 +15,13 @@
 //!
 //! # 지키는 규칙
 //!
-//! - **자격증명을 저장·전송하지 않는다**(불변 원칙 §4-2). 값 어디에도 토큰 칸이 없고,
-//!   로그인은 각 CLI 가 이미 해 둔 것을 그대로 쓴다.
-//! - **사람이 만든 문자열을 명령행에 싣지 않는다**(§4-7). 질문·문맥은 자식 프로세스의
-//!   **stdin** 으로만 흐르고, 명령행에는 고정 리터럴 인자만 실린다. 셸 해석 지점이 없다.
-//! - **시험은 실제 CLI 를 부르지 않는다.** 제공자 생성자는 CLI 경로를 필수 인자로 받고
-//!   기본값·PATH 탐색이 없으며, 시험은 언제나 `node` + 저장소 안 가짜 CLI 를 넘긴다.
-//!   `tests/no_real_cli.rs` 가 그 사실을 시험으로 못 박는다.
+//! - **자격증명을 저장·전송하지 않습니다**(불변 원칙 §4-2). 값 어디에도 토큰 칸이 없고,
+//!   로그인은 각 CLI 가 이미 해 둔 것을 그대로 씁니다.
+//! - **사람이 만든 문자열을 명령행에 싣지 않습니다**(§4-7). 질문·문맥은 자식 프로세스의
+//!   **stdin** 으로만 흐르고, 명령행에는 고정 리터럴 인자만 실립니다. 셸 해석 지점이 없습니다.
+//! - **시험은 실제 CLI 를 부르지 않습니다.** 제공자 생성자는 CLI 경로를 필수 인자로 받고
+//!   기본값·PATH 탐색이 없으며, 시험은 언제나 `node` + 저장소 안 가짜 CLI 를 넘깁니다.
+//!   `tests/no_real_cli.rs` 가 그 사실을 시험으로 못 박습니다.
 
 pub mod claude;
 pub mod codex;
@@ -38,7 +38,7 @@ pub use provider::{
 pub use queue::{OutcomeReceiver, ProviderQueue, DEFAULT_CAPACITY};
 pub use stream_json::{ResultMetrics, StreamItem, StreamJsonParser};
 
-/// 이 크레이트가 맡는 단위 이름. 워크스페이스에 붙었는지 확인하는 용도다.
+/// 이 크레이트가 맡는 단위 이름입니다. 워크스페이스에 붙었는지 확인하는 용도입니다.
 pub const UNIT: &str = "providers";
 
 #[cfg(test)]
