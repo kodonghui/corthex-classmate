@@ -26,6 +26,10 @@ serde_json = "^1"
 # `winsqlite3` 기능은 rusqlite 0.30 / libsqlite3-sys 0.27 이 마지막으로 제공한다.
 # 0.31 이후(및 libsqlite3-sys 0.28 이후)에는 이 기능 이름이 없어서 올릴 수 없다.
 rusqlite = { version = "=0.30.0", default-features = false, features = ["winsqlite3"] }
+# 2라운드: 루트 크레이트가 transport(프레이밍·봉투 검증)와 providers(튜터 CLI 호출)를 직접 쓴다.
+# 단위 5(host-core)·6(context-builder)이 같은 의존을 전제로 병렬 작업하므로 미리 적어 둔다.
+classmate-transport = { path = "crates/transport" }
+classmate-providers = { path = "crates/providers" }
 
 [lib]
 # 통합 테스트(tests/recovery.rs)가 store 모듈을 쓸 수 있게 라이브러리도 함께 만든다.
