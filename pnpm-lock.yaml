@@ -13,6 +13,18 @@ importers:
       '@classmate/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@classmate/design-tokens':
+        specifier: workspace:*
+        version: link:../../packages/design-tokens
+      '@classmate/tutor-core':
+        specifier: workspace:*
+        version: link:../../packages/tutor-core
+      '@classmate/ui-base':
+        specifier: workspace:*
+        version: link:../../packages/ui-base
+      '@classmate/ui-classmate':
+        specifier: workspace:*
+        version: link:../../packages/ui-classmate
       react:
         specifier: ^19.2.8
         version: 19.2.8

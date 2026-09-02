@@ -1,42 +1,21 @@
-import { formatAgo } from '../../src/lib/format-time';
+import { useMemo } from 'react';
 
-// 듣는 중 화면의 빈 상태 하나만 그립니다 (master-prompt §3-7).
-// 규칙: 버튼 0개 · 채도 있는 블록 0개 · 이모지 없음 · 스피너 없음.
-// 전사 흐름(TranscriptFlow)·MarginNote·NowLine 은 Phase 2 에서 붙입니다.
+import { GOLDEN_BUNDLE } from '../../src/panel/golden-bundle';
+import { PanelApp } from '../../src/panel/PanelApp';
+import { ReplayStore } from '../../src/panel/replay-store';
 
-/** SourceFooter 에 한 줄로 늘어놓을 자료 세 가지. 순서는 고정입니다. */
-const SOURCES = [
-  { key: 'tiro', label: '전사' },
-  { key: 'meet', label: 'Meet' },
-  { key: 'intellij', label: 'IntelliJ' },
-] as const;
+// 사이드패널의 뿌리. 지금 데이터 소스는 골든 시나리오 fixture 재생기 하나입니다.
+// 2라운드에 실제 커넥터(전사·화면·IntelliJ)와 세션 스토어가 붙으면 `ReplayStore.pushEvent` 가 그 입구입니다.
+
+export type ReplayMode = 'auto' | 'manual';
+
+/** 주소에 `?replay=manual` 이 있으면 시계를 스스로 밀지 않습니다(E2E 가 체크포인트로 조종). */
+export function replayModeFromSearch(search: string): ReplayMode {
+  return new URLSearchParams(search).get('replay') === 'manual' ? 'manual' : 'auto';
+}
 
 export function App() {
-  // 아직 어떤 커넥터도 붙지 않았으므로 세 자료의 나이는 전부 없음(null)입니다.
-  // formatAgo(null) 이 "—" 를 돌려주므로 문구가 한 곳에서만 정해집니다.
-  const ages: readonly (number | null)[] = [null, null, null];
-  const momentCount = 0;
-
-  const footerText = [
-    ...SOURCES.map((source, index) => `${source.label} ${formatAgo(ages[index] ?? null)}`),
-    `기록 ${momentCount}`,
-  ].join(' · ');
-
-  return (
-    <div className="cm-panel">
-      <header className="cm-panel__header">
-        {/* 상태 점 하나. 붙은 자료가 없으므로 조용한 상태(idle)입니다. */}
-        <span className="cm-status-dot cm-status-dot--idle" aria-hidden="true" />
-        <h1 className="cm-panel__title">Corthex Classmate</h1>
-      </header>
-
-      <main className="cm-panel__body">
-        <p className="cm-empty">아직 붙잡은 순간이 없어요</p>
-      </main>
-
-      <footer className="cm-panel__footer">
-        <p className="cm-source-footer">{footerText}</p>
-      </footer>
-    </div>
-  );
+  const store = useMemo(() => new ReplayStore(GOLDEN_BUNDLE), []);
+  const mode = replayModeFromSearch(window.location.search);
+  return <PanelApp store={store} autoClock={mode === 'auto'} />;
 }

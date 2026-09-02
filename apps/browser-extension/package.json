@@ -15,6 +15,10 @@
   },
   "dependencies": {
     "@classmate/contracts": "workspace:*",
+    "@classmate/design-tokens": "workspace:*",
+    "@classmate/tutor-core": "workspace:*",
+    "@classmate/ui-base": "workspace:*",
+    "@classmate/ui-classmate": "workspace:*",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

@@ -69,10 +69,12 @@
   - [x] 검토 2파(단위 5·6·7·8·9, 에이전트 26 · 반박 검증) 실재 13(high 2) · 반박 8 · 낮음 28 → 수정 브랜치 5개 병합: tiro `75db8b6`(`wxt:locationchange` 로 SPA 이동 추적 · stop 이 구독을 남겨 재시작 가능 · periodId 계약 패턴 검사 · 가장 안쪽 문단만) · capture `46da1d1`(스트림 열기 전 검증 + 실패 시 트랙·video 정리 · 5연속 실패 예산 리듀서 · 프레임 id `sf-p<n>-<hhmmss>-<seq>` · 봉투 크기 산술 1회 · FrameStore 검사 호스트와 동일) · session-store `c37a148`(`clock.rs` 바이트 슬라이스 패닉 13곳 제거 + `Router::store` expect 제거 · 이벤트 id `ev-<periodId>-<seq>` + 0행이면 롤백 · 오류 응답 네 칸 통일 · `.part` 정리 · ack `duplicate` · `deny_unknown_fields` · 76) · providers `2af101b`(stdin 도착 실측 · 실행 모양 자리 검사 · 프롬프트 쓰기 실패 보고 · Timeout stderr_tail · `.cmd` 런타임 거절 · 49) · transport `15527f0`(`ENVELOPE_RULES` 에 `frame.store` + `ExtraCheck` · main.rs 원문 대조 · type 배열 전수 검사 · roundTrip 15초 timeout + 실패 갈래 8건 · `--exe` 존재 검사 · 윤초 UTC · cargo 50 · node 42)
   - [x] 최종 검증(main `83957e3`): `pnpm test` 664(design-tokens 17 · contracts 57 · ui-base 73 · tutor-core 71 · browser-extension 214 · report-ui 74 · ui-classmate 96 · spikes 62) · `pnpm typecheck` 0 · `cargo test --workspace` 175 · clippy 0 · fmt ok · `node --test scripts` 42 · `host-roundtrip` hello · `report-ui generate` ok · `meet-capture-measure` ok · 비밀값 grep 0 · `git diff --check` 0
 - [ ] 1라운드 후속(워커 메모 이월)
-  - [ ] 사이드패널(2라운드): CSS 적재 순서 = design-tokens → `@classmate/ui-base/styles.css` → `@classmate/ui-classmate/styles.css` · fonts.css 의 bare specifier `@import` 가 WXT/Vite 빌드에서 해석되는지 확인
-  - [ ] 사이드패널(2라운드): Alt+S 는 화면이 `e.code === "KeyS"` 로 듣기(StuckButton 은 kbd 안내만) · 접힘 타이머는 tutor-core FoldTimer · SourceFooter count 는 term 있을 때만 화면이 셈 · 대기 문구 3종은 tutor-core 상수 재사용 · 화면 분기는 TutorState 가 아니라 note 축
+  - [x] 사이드패널(2026-09-03 `entrypoints/sidepanel/main.tsx` · fonts.css 의 bare specifier `@import` 는 WXT/Vite 빌드에서 번들됨): CSS 적재 순서 = design-tokens → `@classmate/ui-base/styles.css` → `@classmate/ui-classmate/styles.css` · fonts.css 의 bare specifier `@import` 가 WXT/Vite 빌드에서 해석되는지 확인
+  - [x] 사이드패널(2026-09-03 `src/panel/PanelApp.tsx` · `lesson-view.ts`): Alt+S 는 화면이 `e.code === "KeyS"` 로 듣기(StuckButton 은 kbd 안내만) · 접힘 타이머는 tutor-core FoldTimer · SourceFooter count 는 term 있을 때만 화면이 셈 · 대기 문구 3종은 tutor-core 상수 재사용 · 화면 분기는 TutorState 가 아니라 note 축
   - [ ] ui-classmate internal/base → `@classmate/ui-base` 교체(index.ts 한 줄 + tsx 8개·base.css 삭제 + styles.css 첫 줄 + structure.test.ts 기대값) — 두 포팅의 어긋남은 검토 결과 참고
-  - [ ] Evidence 이름 대응표(디자인 verified/delayed ↔ 계약 confirmed/stale)를 2라운드에서 한 곳에 두기
+  - [x] Evidence 이름 대응표(디자인 verified/delayed ↔ 계약 confirmed/stale)를 한 곳에 두기 — `apps/browser-extension/src/panel/evidence.ts` (2026-09-03)
+  - [ ] 사이드패널 후속: fixture `session-events.jsonl` 27번째 `state.changed` 시각(10:33:09)을 기계 답(`period.ended` 10:33:14 에서 접힘)으로 맞출지 결정 — contracts·fixtures 고정 상태라 지금은 시험이 from·to 만 대조하고 앞 3건만 시각까지 본다
+  - [ ] 사이드패널 2라운드: 실제 커넥터(Tiro·Meet·로컬 도우미)를 `ReplayStore.pushEvent` 자리에 배선 · ui-classmate `internal/base` → `@classmate/ui-base` barrel 교체 · 기록·설정 화면(상태 G) · 개인정보 문구(`docs/privacy.md`) · `Classmate Side Panel.dc.html` 렌더와 나란히 비교 이미지 · 강조 줄 계산(`"= new "` 문자열 검색)을 편집기 발췌 일반형으로
   - [ ] design-tokens 에 실제로 정의돼 있는지 확인: --transcript-1/2/3 · --term-* · --evidence-*-{bg,text,border} · --code-* · --panel-inset · --control-h-hero · 키프레임 cm-sweep/cm-breathe/cm-fade-in/cm-spin (컴포넌트 CSS 가 참조)
   - [ ] report-ui: 토큰을 정본 파일 대신 `@classmate/design-tokens` 에서 읽기 · 오개념/값 흐름/변형과 허브 5절은 회상 기록이 붙으면 채움 · 프레임 출력 경로 규약 `frames/p<교시>/` 는 `src/assets.ts`
   - [ ] tutor-core: 확장 쪽 Clock/Scheduler 구현체 · question.asked 에 봉인을 싣는 문맥 수집기 · `next` 입력의 실제 트리거 정의
@@ -104,9 +106,10 @@
 
 - [ ] packages/tutor-core 상태기계 + ContextSnapshot
 - [ ] apps/native-host session-store · context-builder · provider 연결
-- [ ] packages/design-tokens 포팅 → 사이드패널 4화면 · 상태 A~H
-- [ ] Playwright E2E + docs/screenshots/ 9장
-- [ ] reviewer 검토 · docs/architecture.md · docs/privacy.md
+- [ ] packages/design-tokens 포팅 → 사이드패널 4화면 · 상태 A~H — 듣는 중·자세히 2화면과 상태 A·B·C·D·E·F·H 는 `apps/browser-extension/src/panel/` 에 완료(2026-09-03), 기록·설정 화면과 G 는 2라운드
+- [x] Playwright E2E + docs/screenshots/ 9장 (2026-09-03 · `e2e/extension.spec.ts` 10 passed · `docs/screenshots/README.md`)
+- [x] docs/architecture.md · docs/privacy.md 초안 (2026-09-03)
+- [ ] reviewer 검토 (사이드패널 2라운드 병합 뒤)
 
 ## Phase 3 — 교시 종료 후
 
