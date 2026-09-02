@@ -1,0 +1,15 @@
+{
+  "name": "@classmate/spikes",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "Phase 1 게이트 스파이크용 Node 스크립트(버리는 코드). 결과는 docs/spikes/*.md 에 기록한다.",
+  "scripts": {
+    "test": "vitest run --passWithNoTests"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "playwright": "^1.62.1",
+    "vitest": "^4.1.11"
+  }
+}

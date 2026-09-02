@@ -1,6 +1,7 @@
 packages:
   - apps/*
   - packages/*
+  - spikes
 minimumReleaseAgeExclude:
   - '@types/chrome@0.2.8'
   - '@types/node@26.4.1'

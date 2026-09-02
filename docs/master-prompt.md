@@ -1,4 +1,4 @@
-# Corthex Classmate — Claude Code 마스터 프롬프트 (v1.3 · 2026-09-02)
+# Corthex Classmate — Claude Code 마스터 프롬프트 (v1.4 · 2026-09-02)
 
 > 이 문서는 두 부분입니다.
 > **A. 사용 안내** — 사람(고동희)이 Claude Code에 보내기 전에 읽는 부분.
@@ -63,6 +63,34 @@
 ```
 
 Codex 쪽 자동화(`corthex-classmate-hourly-save`, 매 1시간)는 `.git`과 `AGENTS.md`가 생기면 `docs/tutor-agent-worklog.md`에 따로 씁니다. 두 로그는 파일이 다르므로 충돌하지 않습니다.
+
+### A-6. `/batch` 프롬프트 (보내는 시점: Claude Code가 "Phase 2 준비 완료 — contracts 고정 · fixtures · 스켈레톤 · origin" 을 보고한 뒤 · 그 전에 보내면 빈 저장소에 대고 돌아감)
+
+1라운드 — 서로 의존하지 않는 잎(leaf) 패키지 10개. 계획이 뜨면 단위 수·이름을 확인하고 승인.
+
+```
+/batch docs/master-prompt.md §3(확정 결정)·§4(불변 원칙)·§3-7(UX 정본 = design/claude-design-export/)과 packages/contracts 의 JSON Schema를 먼저 읽고, 아래 10개 단위를 각각 독립 worktree 에서 구현·테스트·커밋한다. 단위 간 코드 공유는 packages/contracts 의 타입과 packages/design-tokens 의 CSS 변수 이름으로만 하고, contracts 를 바꿔야 하면 바꾸지 말고 docs/DECISIONS.md 에 제안만 적고 그 단위는 멈춘다. origin 이 있으면 단위마다 PR(제목 `[batch-1/<단위>] …`), 없으면 브랜치 `batch-1/<단위>` 만 남기고 보고. 각 단위의 완료 조건은 `pnpm --filter <pkg> test` 또는 `cargo test -p <crate>` exit 0 + README 한 단락 + 비밀정보·Tiro URL 없음.
+(1) packages/design-tokens — design-system/tokens/*.css·styles.css 를 그대로 옮기고 TS 상수(export const tokens)와 CSS 변수 목록 스냅샷 테스트.
+(2) packages/ui-base — design-system/components/{core,forms,feedback,surfaces,navigation,overlay}/*.jsx 를 TS React 로 포팅, .d.ts 의 props 계약 유지, Vitest 렌더 테스트(각 컴포넌트 1개 이상).
+(3) packages/ui-classmate — components/classmate/*.jsx 10개(TranscriptFlow·MarginNote·GuessList·NowLine·SourceFooter·CodeCompare·MomentRow·AnswerCard·SourceStatus·StuckButton) 포팅. MarginNote preparing 상태는 children 으로 SourceStatus compact 를 받는 현재 계약 유지.
+(4) packages/tutor-core — 상태기계 CAPTURE→ANSWER_MINIMAL→EXIT_RECALL→FEEDBACK→FADE_SUPPORT→DELAYED_CHECK 와 ContextSnapshot 봉인(최근 전사 N문단·최신 프레임·에디터 문맥·자료 나이), 18초 접힘 타이머, 오류→대기→복구 전이. 순수 TS, 브라우저 API 없음, 전이표 단위 테스트 전부.
+(5) apps/browser-extension/tiro-connectors — 공유 페이지 커넥터: main 안의 문단 div 를 MutationObserver 로 읽고 확정(font-medium)/진행 중(font-semibold) 구분·도착 시각 기록·구조 기반 셀렉터+폴백·셀렉터 깨짐 감지 이벤트. fixtures/tiro 의 HTML 스냅샷으로 jsdom 테스트. MCP/API 커넥터는 인터페이스+스텁만.
+(6) apps/browser-extension/meet-capture — tabCapture+Offscreen Document, dHash 변화 감지(임계값 설정 가능), 변화 시에만 WebP(폭 1280·품질 80) 생성, 60분 메모리 상한. 합성 프레임으로 감지 테스트.
+(7) apps/native-host/session-store — rusqlite WAL, 교시별 세션 파일, SessionEvent 저장·조회, JSONL 내보내기, 강제 종료 후 최근 수초 이내 복구 테스트.
+(8) apps/native-host/providers — TutorProvider trait { ask(context, question) -> stream } + provider-claude(`claude -p --output-format stream-json` 자식 프로세스, 타임아웃·큐잉) + provider-codex(app-server stdio, 한도 소진 시 스텁 + 프로토콜 메모). 자격증명 저장 금지. 모의 바이너리로 테스트.
+(9) apps/native-host/transport — Chrome Native Messaging 프레이밍(4바이트 길이+JSON), contracts 스키마 검증, Windows 레지스트리 매니페스트 생성/제거 스크립트, 왕복 테스트.
+(10) packages/report-ui — JSON(교시 세션) → 교시별 상세 HTML + 하루 허브 정적 생성기(React 템플릿, 모델 HTML 직접 삽입 금지), design-tokens 사용, fixtures 세션 1개로 out/ 생성 + HTML 유효성 테스트.
+```
+
+2라운드 — 1라운드가 main 에 합쳐진 뒤. 화면과 통합(의존성이 있어 1라운드와 분리).
+
+```
+/batch 1라운드 결과를 읽고 아래 4개 단위를 독립 worktree 에서 구현·테스트·커밋한다(규칙·완료 조건은 1라운드와 동일). (1) apps/browser-extension/side-panel — ui-classmate + tutor-core 로 듣는 중·자세히·기록·설정 4화면과 상태 A~H(design/claude-design-export/design-system/prompts/claude-design-prompt.md 정의) 구현, 헤더 아래 NowLine 고정, Alt+S, 360/380/520 대응, Playwright 로 확장 로드 후 각 상태 스크린샷을 docs/screenshots/ 에 저장하고 `Classmate Side Panel.dc.html` 렌더와 나란히 비교 이미지 생성. (2) apps/native-host/context-builder — session-store·providers·transport 를 묶어 질문 시점 봉인→제공자 호출→SessionEvent 기록 파이프라인, 제공자 실패 시 queued→recovered, 통합 테스트. (3) apps/browser-extension/service-worker — 사이드패널·tiro-connectors·meet-capture·Native Messaging 을 잇는 메시지 라우팅과 재연결(패널 닫기/열기, 공유 페이지 새로고침, 호스트 재시작), 통합 테스트. (4) installer/windows — 호스트 실행파일 + 레지스트리 등록 + 제거 + 확장 zip 패키징 스크립트, 깨끗한 VM 설치 절차서 docs/first-class.md 초안.
+```
+
+- `/batch` 는 계획을 보여 주고 **승인**을 기다립니다. 단위가 10개보다 많거나 적게 잘렸으면 "위 목록대로 10개" 라고 답하세요.
+- 워커는 각자 PR 을 열려고 하므로 `gh auth login` 이 되어 있고 origin 이 있을 때 가장 매끄럽습니다. 없으면 브랜치만 남기고 보고하도록 위에 적어 두었습니다. 합치는 것은 사람이 PR 을 보고 하거나, Claude 에게 "batch-1/* 브랜치를 main 에 순서대로 머지하고 테스트" 를 별도 메시지로 시키면 됩니다.
+- `/goal` 이 살아 있는 동안 보내도 됩니다(백그라운드 서브에이전트가 도는 동안 평가를 미루고 끝나면 재개).
 
 ---
 
