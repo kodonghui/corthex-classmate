@@ -1,6 +1,8 @@
 // 시험이 함께 쓰는 도구들입니다. 시험 파일이 아니므로 vitest 가 여기서는 시험을 찾지 않습니다.
 //
-// 여기에서만 계약을 **값으로** 들여옵니다(제품 코드는 `import type` 만 씁니다).
+// 시험 코드에서는 계약을 **값으로** 들여와도 됩니다(제품 코드 `src/**` 만 `import type` 으로
+// 묶여 있고, 그 규칙은 test/source-rules.test.ts 가 지킵니다). 이 파일 자체는 지금 타입만
+// 쓰고, 값 import 는 smoke · machine-table · snapshot · answer-flow · replay-fixtures 시험에 있습니다.
 
 import { readFileSync } from "node:fs";
 

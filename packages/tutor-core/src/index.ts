@@ -15,6 +15,7 @@ export {
   initialState,
   inputKindOf,
   inputTimeOf,
+  MachineError,
   NOTE_PHASES,
   PREP_MS,
   PROVIDER_PHASES,
@@ -28,6 +29,7 @@ export {
 export type {
   Effect,
   Env,
+  IgnoreReason,
   InputKind,
   MachineInput,
   MachineState,
