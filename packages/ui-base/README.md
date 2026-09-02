@@ -31,12 +31,16 @@ CSS 는 토큰 위에 얹힙니다. `@classmate/design-tokens` 의 변수들을 
 
 ## Icon 맵 규칙
 
-`src/icons.ts` 에 **kebab 이름 → lucide-react 컴포넌트** 를 손으로 적습니다. 지금 **23개** 입니다.
+`src/icons.ts` 에 **kebab 이름 → lucide-react 컴포넌트** 를 손으로 적습니다. 지금 **31개** 입니다.
 
 - 맵에 넣는 기준은 정본에서 **실제로 쓰인 이름** 입니다.
   - `design-system/components/**/*.jsx` 전부 — 여섯 폴더 22개 + `classmate` 10개
   - `design-system/ui_kits/sidepanel/*.jsx` — `SettingsScreen` 의 `trash-2` 가 여기서 옵니다
   - `design-system/readme.md` ICONOGRAPHY 절의 어휘
+  - 2라운드에 `@classmate/ui-classmate` 에서 넘어온 8개 — `arrow-up` · `files` · `history` ·
+    `list` · `message-circle` · `message-square-text` · `minimize-2` · `refresh-cw`. 이 이름들은
+    정본의 `.jsx` 가 아니라 각 폴더의 `*.card.html` · `*.prompt.md` 예시에 나와서 위 재귀 훑기로는
+    잡히지 않습니다. 그래서 `test/icons.test.ts` 가 여덟 이름을 따로 이름 대고 요구합니다.
 - `import { icons } from "lucide-react"` 같은 전체 조회는 쓰지 않습니다(MV3 번들이 커집니다).
 - 맵에 없는 이름을 주면 개발 모드에서 한 번 경고하고, 빈 `<svg>` 대신 `aria-hidden` 인 빈 `span` 을 그립니다.
   `process` 전역이 없는 브라우저·MV3 번들과 배포 빌드에서는 경고하지 않습니다.
@@ -72,12 +76,31 @@ pnpm --filter @classmate/ui-base typecheck   # tsc --noEmit
 - `test/render.test.tsx` — 컴포넌트마다 렌더 시험 1개 이상(주요 props·상태·접근성 속성·문구)
 - `test/interaction.test.tsx` — Disclosure 열림/닫힘 · Tabs 고르기 · Dialog 초점/Escape/스크림 · Toast 자동 닫힘
 - `test/css-parity.test.ts` — 정본 `css('cm-…', \`…\`)` 블록과 `<Name>.css` 가 공백만 빼고 같은지 21건, `styles.css` 가 21개를 다 모으는지, 정본이 `css()` 를 **몇 번** 부르는지(21개는 한 번 · `Icon.jsx` 는 0번)
-- `test/icons.test.ts` — 정본 jsx 전부(`components/**` 32개 + `ui_kits/sidepanel` 5개)가 쓰는 이름 + `readme.md` 어휘가 맵에 다 있는지, 금지 3개가 없는지
+- `test/icons.test.ts` — 정본 jsx 전부(`components/**` 32개 + `ui_kits/sidepanel` 5개)가 쓰는 이름 + `readme.md` 어휘 + ui-classmate 에서 넘어온 8개가 맵에 다 있는지, 금지 3개가 없는지
 - `test/source-hygiene.test.ts` — 런타임 주입 0건 · 외부 주소 0건 · 다른 `@classmate/*` import 0건 · 색 직접 지정 0건(hex · `rgb()` · `hsl()` · 색 이름) · 영어 문장 한 줄 주석 0건
 
 화면 앱은 2라운드 사이드패널에서 붙습니다. 이 라운드에서는 위 렌더 시험이 눈으로 보는 확인을 대신합니다.
 
+## `@classmate/ui-classmate` 의 기본 요소 정본입니다 (2라운드)
+
+1라운드에는 ui-classmate 가 기본 요소 8개(`Icon` `Evidence` `Tag` `Disclosure` `CodeBlock` `Chip`
+`Button` `StatusDot`)를 `src/internal/base/` 에 사본으로 품고 있었습니다. 두 워커가 같은 시각에
+만드느라 잎 패키지끼리 import 하지 않기로 했기 때문입니다. 2라운드에 그 사본과 `base.css` 를 지우고
+여기를 정본으로 삼았습니다. 지금 ui-classmate 의 `src/internal/base/index.ts` 는 이 패키지를
+재수출하는 배럴 한 장이고, `@classmate/ui-base` 를 `workspace:*` 의존으로 답니다.
+
+CSS 도 같이 옮겨 갔습니다. ui-classmate 의 `src/styles.css` 첫 줄이
+`@import "@classmate/ui-base/styles.css";` 라서, ui-classmate 의 CSS 한 장만 실어도 기본 요소
+스타일이 따라옵니다. 확장처럼 `@classmate/ui-base/styles.css` 를 이미 먼저 싣는 앱에서는 번들러가
+같은 파일을 한 번만 넣습니다(확장 빌드 결과에서 `.cm-btn{` 은 한 번만 나옵니다).
+
+그래서 이 패키지의 아이콘 맵과 CSS 를 고치면 Classmate 화면 10개가 함께 움직입니다. 컴포넌트의
+props 이름·기본값·CSS 클래스 이름은 정본 `.d.ts` 계약이므로 여기서 마음대로 바꾸지 않습니다.
+
+---
+
 ## 이 패키지의 경계
 
 - 다른 잎 패키지(`@classmate/ui-classmate`, `@classmate/design-tokens`)를 import 하지 않습니다. 토큰은 `var(--이름)` 으로만 씁니다.
+  (의존은 한 방향입니다 — ui-classmate 가 이쪽을 부르고, 이쪽은 아무도 부르지 않습니다.)
 - 정본 `design/claude-design-export/**` 는 읽기 전용입니다. 고칠 곳이 보이면 여기서 고치고 표에 적습니다.

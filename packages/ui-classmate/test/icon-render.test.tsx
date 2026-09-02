@@ -1,5 +1,9 @@
-// Icon 은 정본에서 unpkg 의 lucide UMD 를 런타임에 불러왔습니다. npm lucide-react 로 바꾼 뒤에도
-// props 계약(name·size·strokeWidth·title)과 그리는 모양이 같은지 봅니다.
+// 배럴("../src/internal/base")이 내주는 Icon 이 정본 계약대로 그리는지 봅니다.
+//
+// 2라운드에 Icon 의 알맹이는 @classmate/ui-base 로 옮겼습니다. 여기 시험이 남은 이유는 배럴을 거쳐
+// 들어온 물건이 화면에 같은 모양으로 나오는지 보기 위해서입니다(props 계약: name·size·strokeWidth·title).
+// 맵에 없는 이름의 개발 경고 판정(`process` 전역이 없는 MV3 번들에서 조용한가)은 ui-base 의 정책이라
+// 거기 test/render.test.tsx 가 세 갈래로 봅니다. 여기서 겹쳐 두면 두 시험이 갈라집니다.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -50,26 +54,5 @@ describe("Icon", () => {
     expect(span.getAttribute("aria-hidden")).toBe("true");
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0]?.[0])).toContain("sparkles");
-  });
-
-  // 아래 두 가지가 이 패키지의 실제 실행 환경입니다. MV3 확장 번들에는 process 가 없고,
-  // 배포 빌드에서만 NODE_ENV 가 production 입니다. 경고 판정이 그 둘을 제대로 가르는지 봅니다.
-  it("process 가 없는 MV3 번들에서도 오류 없이 경고가 나온다", () => {
-    vi.stubGlobal("process", undefined);
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const r = render(<Icon name="mv3-빠진-아이콘" size={16} />);
-    expect(r.find("svg")).toBeNull();
-    expect(r.get("span.cm-icon").getAttribute("aria-hidden")).toBe("true");
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(String(warn.mock.calls[0]?.[0])).toContain("mv3-빠진-아이콘");
-  });
-
-  it("배포 빌드(NODE_ENV=production)에서는 조용히 빈 자리만 남긴다", () => {
-    vi.stubGlobal("process", { env: { NODE_ENV: "production" } });
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const r = render(<Icon name="배포-빠진-아이콘" size={16} />);
-    expect(r.find("svg")).toBeNull();
-    expect(r.get("span.cm-icon")).toBeTruthy();
-    expect(warn).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,4 @@
-@import "./internal/base/base.css";
+@import "@classmate/ui-base/styles.css";
 
 /* @classmate/ui-classmate — Classmate 10개의 CSS 입니다.
    정본 components/classmate 의 각 jsx 가 주입하던 css('<id>', `…`) 블록 원문 그대로입니다.

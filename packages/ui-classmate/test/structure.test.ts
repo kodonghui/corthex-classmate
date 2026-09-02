@@ -1,11 +1,14 @@
-// 2라운드에 internal/base 를 @classmate/ui-base 로 기계적으로 바꿀 수 있는 상태인지 시험으로 못 박습니다.
-// 그리고 1라운드 공유 규칙·불변 원칙(런타임 주입 0, 외부 URL 0)을 지키는지 봅니다.
+// 2라운드에 internal/base 사본을 @classmate/ui-base 로 갈아 끼웠습니다. 그 교체가 실제로 끝났는지,
+// 그리고 불변 원칙(런타임 주입 0, 외부 URL 0)을 여전히 지키는지 봅니다.
 
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import * as uiBase from "@classmate/ui-base";
+
+import * as barrel from "../src/internal/base";
 import { canonRoot, pkgRoot, srcRoot } from "./paths";
 
 function walk(dir: string, out: string[] = []): string[] {
@@ -24,90 +27,42 @@ const read = (f: string): string => readFileSync(f, "utf8");
 const rel = (f: string): string => relative(pkgRoot, f).split("\\").join("/");
 
 /**
- * 주석을 뺀 실제 코드만 봅니다. 이 패키지의 주석에는 "2라운드에 @classmate/ui-base 로 바꾼다" 같은
- * 안내가 일부러 들어 있어서, 주석까지 세면 규칙을 지켰는데도 걸립니다.
+ * 주석을 뺀 실제 코드만 봅니다. 이 패키지의 주석에는 "1라운드에는 사본이 있었다" 같은 안내가
+ * 일부러 들어 있어서, 주석까지 세면 규칙을 지켰는데도 걸립니다.
  */
 const code = (f: string): string =>
   read(f)
     .replace(/\/\*[\s\S]*?\*\//g, "")
     .replace(/(^|[^:\\])\/\/.*$/gm, "$1");
 
-const BASE_FILES = ["Button.tsx", "Chip.tsx", "CodeBlock.tsx", "Disclosure.tsx", "Evidence.tsx", "Icon.tsx", "StatusDot.tsx", "Tag.tsx"];
-/** props 인터페이스 이름 → [정본 .d.ts, 포팅한 internal/base 파일] */
-const PROPS_SOURCES: Array<[string, string, string]> = [
-  ["IconProps", "core/Icon.d.ts", "Icon.tsx"],
-  ["EvidenceProps", "feedback/Evidence.d.ts", "Evidence.tsx"],
-  ["TagProps", "feedback/Tag.d.ts", "Tag.tsx"],
-  ["DisclosureProps", "surfaces/Disclosure.d.ts", "Disclosure.tsx"],
-  ["CodeBlockProps", "surfaces/CodeBlock.d.ts", "CodeBlock.tsx"],
-  ["ChipProps", "forms/Chip.d.ts", "Chip.tsx"],
-  ["ChipGroupProps", "forms/Chip.d.ts", "Chip.tsx"],
-  ["ButtonProps", "core/Button.d.ts", "Button.tsx"],
-  ["StatusDotProps", "feedback/StatusDot.d.ts", "StatusDot.tsx"],
-];
-const PROPS_NAMES = PROPS_SOURCES.map(([name]) => name);
+/** 배럴이 내주는 값 10개입니다. 이름은 정본 .d.ts 와 글자 그대로입니다. */
+const BASE_VALUES = ["Icon", "Evidence", "Tag", "Disclosure", "CodeBlock", "tokenizeJava", "Chip", "ChipGroup", "Button", "StatusDot"] as const;
+/** 배럴이 내주는 props 타입 9개입니다(tokenizeJava 는 함수라 타입이 없습니다). */
+const BASE_PROPS = [
+  "IconProps",
+  "EvidenceProps",
+  "TagProps",
+  "DisclosureProps",
+  "CodeBlockProps",
+  "ChipProps",
+  "ChipGroupProps",
+  "ButtonProps",
+  "StatusDotProps",
+] as const;
 
-/** 정본 jsx ↔ 포팅한 tsx 짝. 기본 요소 8개 + Classmate 10개입니다. */
+/** 정본 jsx ↔ 포팅한 tsx 짝. Classmate 10개입니다(기본 요소 8개는 ui-base 가 자기 시험으로 봅니다). */
 const CANON_PAIRS: Array<[string, string]> = [
-  ["core/Icon.jsx", "internal/base/Icon.tsx"],
-  ["core/Button.jsx", "internal/base/Button.tsx"],
-  ["feedback/Evidence.jsx", "internal/base/Evidence.tsx"],
-  ["feedback/Tag.jsx", "internal/base/Tag.tsx"],
-  ["feedback/StatusDot.jsx", "internal/base/StatusDot.tsx"],
-  ["forms/Chip.jsx", "internal/base/Chip.tsx"],
-  ["surfaces/Disclosure.jsx", "internal/base/Disclosure.tsx"],
-  ["surfaces/CodeBlock.jsx", "internal/base/CodeBlock.tsx"],
-  ...["TranscriptFlow", "MarginNote", "GuessList", "NowLine", "SourceFooter", "CodeCompare", "MomentRow", "AnswerCard", "SourceStatus", "StuckButton"].map(
-    (n): [string, string] => [`classmate/${n}.jsx`, `components/${n}.tsx`],
-  ),
-];
-
-/** `interface <이름> … { … }` 의 중괄호 안쪽을 짝을 세어 잘라 냅니다. */
-function interfaceBody(text: string, name: string): string {
-  const at = text.indexOf(`interface ${name}`);
-  expect(at, `${name} 선언을 찾지 못했습니다`).toBeGreaterThan(-1);
-  const open = text.indexOf("{", at);
-  let depth = 0;
-  let i = open;
-  for (; i < text.length; i++) {
-    if (text[i] === "{") depth++;
-    else if (text[i] === "}" && --depth === 0) break;
-  }
-  return text.slice(open + 1, i);
-}
-
-/** 인터페이스 본문에서 맨 바깥 깊이의 prop 이름만 모읍니다(주석·중첩 타입은 뺍니다). */
-function propNames(text: string, name: string): string[] {
-  const body = interfaceBody(text, name)
-    .replace(/\/\*[\s\S]*?\*\//g, "")
-    .replace(/\/\/.*$/gm, "");
-  const members: string[] = [];
-  let depth = 0;
-  let cur = "";
-  for (const ch of body) {
-    if ("{([<".includes(ch)) depth++;
-    else if ("})]>".includes(ch)) depth--;
-    if ((ch === ";" || ch === ",") && depth === 0) {
-      members.push(cur);
-      cur = "";
-      continue;
-    }
-    cur += ch;
-  }
-  members.push(cur);
-  const found = new Set<string>();
-  for (const m of members) {
-    const hit = /^\s*([A-Za-z_$][\w$]*)\s*\??\s*:/.exec(m);
-    if (hit?.[1] !== undefined) found.add(hit[1]);
-  }
-  return [...found].sort();
-}
-
-/** `extends` 절(없으면 빈 문자열)입니다. 공백만 다듬어 견줍니다. */
-function extendsClause(text: string, name: string): string {
-  const hit = new RegExp(`interface ${name}\\s+extends\\s+([^{]+){`).exec(text);
-  return (hit?.[1] ?? "").replace(/\s+/g, " ").trim();
-}
+  "TranscriptFlow",
+  "MarginNote",
+  "GuessList",
+  "NowLine",
+  "SourceFooter",
+  "CodeCompare",
+  "MomentRow",
+  "AnswerCard",
+  "SourceStatus",
+  "StuckButton",
+].map((n): [string, string] => [`classmate/${n}.jsx`, `components/${n}.tsx`]);
 
 /** 파일 안에 나오는 cm-* 클래스 이름 집합입니다. 정본 쪽은 css() 블록을 먼저 뺍니다. */
 function classNames(text: string, dropCssBlock: boolean): string[] {
@@ -117,39 +72,33 @@ function classNames(text: string, dropCssBlock: boolean): string[] {
 }
 
 describe("구조 규칙", () => {
-  it("(1) internal/base 는 정본 .d.ts 와 같은 파일명·export 이름·props 인터페이스 이름을 쓴다", () => {
+  it("(1) internal/base 는 @classmate/ui-base 를 재수출하는 배럴 한 장이다", () => {
     const baseDir = join(srcRoot, "internal/base");
-    const names = readdirSync(baseDir).sort();
-    expect(names).toEqual([...BASE_FILES, "base.css", "index.ts"].sort());
-    const barrel = read(join(baseDir, "index.ts"));
-    for (const name of ["Icon", "Evidence", "Tag", "Disclosure", "CodeBlock", "tokenizeJava", "Chip", "ChipGroup", "Button", "StatusDot"]) {
-      expect(barrel, `배럴이 ${name} 를 내보내야 합니다`).toContain(name);
+    // 1라운드의 사본 8개와 base.css 는 지웠습니다. 남는 것은 배럴 하나뿐입니다.
+    expect(readdirSync(baseDir)).toEqual(["index.ts"]);
+
+    const source = code(join(baseDir, "index.ts"));
+    const targets = [...source.matchAll(/from\s+"([^"]+)"/g)].map((m) => m[1]);
+    expect(targets.length, "배럴은 재수출만 합니다").toBeGreaterThan(0);
+    for (const target of targets) expect(target).toBe("@classmate/ui-base");
+
+    for (const name of [...BASE_VALUES, ...BASE_PROPS]) {
+      expect(source, `배럴이 ${name} 를 내보내야 합니다`).toContain(name);
     }
-    for (const props of PROPS_NAMES) {
-      expect(barrel, `배럴이 ${props} 를 내보내야 합니다`).toContain(props);
-      const declared = BASE_FILES.some((f) => read(join(baseDir, f)).includes(`export interface ${props}`));
-      expect(declared, `${props} 가 interface 로 선언돼야 합니다`).toBe(true);
-    }
-    // 이름만 같은지가 아니라, prop 이름 집합과 extends 절까지 정본 .d.ts 와 같은지 봅니다.
-    // (이 줄이 없으면 "JSX.Element → React.JSX.Element 말고는 손대지 않았다"는 주장을 아무도 지키지 않습니다.)
-    for (const [props, canonRel, portedRel] of PROPS_SOURCES) {
-      const canon = read(join(canonRoot, canonRel));
-      const ported = read(join(srcRoot, "internal/base", portedRel));
-      expect(propNames(ported, props), `${portedRel}: ${props} 의 prop 이름이 정본 ${canonRel} 와 달라졌습니다`).toEqual(
-        propNames(canon, props),
-      );
-      expect(extendsClause(ported, props), `${portedRel}: ${props} 의 extends 절이 정본과 달라졌습니다`).toBe(
-        extendsClause(canon, props),
-      );
-    }
-    // 반환 타입만 JSX.Element → React.JSX.Element 로 바꿨습니다.
-    for (const f of BASE_FILES) {
-      expect(read(join(baseDir, f)), `${f}: 반환 타입은 React.JSX.Element`).toContain("React.JSX.Element");
+  });
+
+  it("(1-1) 배럴이 내주는 것이 실제로 ui-base 의 그것과 같은 물건이다", () => {
+    // 이름만 같고 알맹이가 다른 사본이 어딘가 남아 있으면 화면이 조용히 갈라집니다.
+    const got = barrel as unknown as Record<string, unknown>;
+    const want = uiBase as unknown as Record<string, unknown>;
+    for (const name of BASE_VALUES) {
+      expect(typeof got[name], `${name} 는 함수여야 합니다`).toBe("function");
+      expect(got[name], `${name} 가 ui-base 의 것과 다릅니다`).toBe(want[name]);
     }
   });
 
   it("(2) 정본 jsx 의 cm-* 클래스 집합이 포팅한 tsx 에 그대로 있다 — 빠뜨리지도, 새로 만들지도 않는다", () => {
-    expect(CANON_PAIRS).toHaveLength(18);
+    expect(CANON_PAIRS).toHaveLength(10);
     for (const [canonRel, portedRel] of CANON_PAIRS) {
       const canon = classNames(read(join(canonRoot, canonRel)), true);
       const ported = classNames(read(join(srcRoot, portedRel)), false);
@@ -174,16 +123,17 @@ describe("구조 규칙", () => {
     }
   });
 
-  it("(4) @classmate/ui-base 와 @classmate/design-tokens 를 import 하지 않는다", () => {
-    // 글자가 아니라 실제 import 대상만 봅니다(시험 제목·주석에는 두 이름이 일부러 나옵니다).
-    for (const f of [...codeFiles, ...walk(join(pkgRoot, "test"))]) {
+  it("(4) @classmate/ui-base 는 배럴 한 곳에서만 import 하고, design-tokens 는 어디서도 안 한다", () => {
+    // 글자가 아니라 실제 import 대상만 봅니다(주석·시험 제목에는 두 이름이 일부러 나옵니다).
+    const barrelPath = join(srcRoot, "internal/base/index.ts");
+    for (const f of codeFiles) {
       for (const m of code(f).matchAll(/(?:from|import)\s*\(?\s*["']([^"']+)["']/g)) {
-        expect(m[1], rel(f)).not.toBe("@classmate/ui-base");
+        if (m[1] === "@classmate/ui-base") expect(f, `${rel(f)}: ui-base 는 배럴에서만 부릅니다`).toBe(barrelPath);
         expect(m[1], rel(f)).not.toBe("@classmate/design-tokens");
       }
     }
     const pkgJson = read(join(pkgRoot, "package.json"));
-    expect(pkgJson).not.toContain("@classmate/ui-base");
+    expect(pkgJson, "ui-base 는 workspace 의존입니다").toContain('"@classmate/ui-base": "workspace:*"');
     expect(pkgJson).not.toContain("@classmate/design-tokens");
   });
 
