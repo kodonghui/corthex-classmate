@@ -46,6 +46,12 @@
 
 ## Phase 2 — MVP 수직 슬라이스
 
+- [x] 준비: contracts 고정 — `packages/contracts/frozen.sha256` + `test/frozen.test.ts` + `pnpm run freeze`(승인 뒤에만) · README "고정 상태"
+- [x] 준비: TS 스켈레톤 5개 `packages/{design-tokens,ui-base,ui-classmate,tutor-core,report-ui}` — package.json·tsconfig·vitest·src/index.ts·smoke 시험·README(정본 경로·1라운드 공유 규칙·완료 조건) · `pnpm --filter <pkg> test` exit 0
+- [x] 준비: `apps/native-host` Cargo 워크스페이스 — 루트 `classmate-host` + `crates/providers`(단위 8) + `crates/transport`(단위 9) · `cargo test --workspace` 43
+- [x] 준비: 교시 세션 번들 정의 `fixtures/README.md`(golden-ioc 폴더 그대로 · 번들 스키마 없음)
+- [x] 준비: DECISIONS — 계약 고정·1라운드 구조 / 디자인 정본 적용 기본값(함정 판정·폰트·아이콘·개인정보 문구)
+- [!] 대기 — origin: `gh repo create`(비공개) 허락 전까지 워커는 브랜치 `batch-1/<단위>` 만 남김 (`gh auth status` 로그인 확인됨 · `git remote -v` 비어 있음)
 - [!] 대기(예약) — 사용자가 2026-09-02 17:3x 에 `/batch` 1라운드 프롬프트(10단위)를 미리 보냄. 본문은 docs/master-prompt.md A-6 1라운드와 동일. **실행 시점: Phase 1 커밋 + "Phase 2 준비 완료 — contracts 고정 · fixtures · 스켈레톤 · origin(대기)" 보고 직후**, 그때 계획 모드 → 사용자 승인 → worktree 워커 10개. origin 이 없으면 브랜치 `batch-1/<단위>` 만 남김. Phase 1 게이트가 이미 만든 코드(5 tiro-connectors · 6 meet-capture · 7 session-store · 9 transport)는 갈아엎지 않고 완성·정리 단위로 다룸.
 - [x] 부채 해소(Gate D): `protocol::read_frame` 이 본문을 끝까지 읽은 UTF-8·JSON 오류는 `{"type":"error","message":"unreadable message"}` 로 답하고 계속 삶 · 헤더/본문 절단·상한 초과만 종료 (테스트 `serve_survives_a_frame_it_cannot_read`)
 - [ ] 부채: native-host `store::SESSION_EVENT_TYPES` 는 contracts `session-event.schema.json` enum 의 손 사본(테스트가 시험 시점에 대조) → Rust 타입 생성(typify)이 붙으면 생성물로 교체
