@@ -9,6 +9,10 @@ import {
   isCaptureMessage,
 } from '../src/capture/messages';
 import type { CaptureStartMessage, CaptureStreamMessage } from '../src/capture/messages';
+import { toScreenFrame } from '../src/capture/frame-store';
+import { MemoryFrameSink } from '../src/capture/frame-sink';
+import { fromBase64 } from '../src/capture/host-messages';
+import type { CaptureFrameMessage } from '../src/capture/messages';
 
 /** Offscreen 문서의 상대 URL. WXT 가 entrypoints/offscreen/index.html 을 여기로 냅니다. */
 const OFFSCREEN_URL = 'offscreen.html';
@@ -31,6 +35,57 @@ export default defineBackground(() => {
   chrome.runtime.onInstalled.addListener(() => {
     console.log('[classmate] 확장이 설치됐어요 · 아이콘을 누르면 사이드패널이 열려요');
   });
+
+  /**
+   * 감지된 프레임이 가는 곳입니다.
+   *
+   * 1라운드는 메모리 구현입니다. 60분·바이트 상한을 지키며 들고만 있고 디스크에 쓰거나
+   * 밖으로 보내지 않습니다(불변 원칙 §4-1). 2라운드에서 이 자리에
+   * `chrome.runtime.connectNative` 로 로컬 도우미에 붙는 구현을 끼우면, 위쪽 코드는
+   * 한 줄도 바뀌지 않습니다. 1 MiB 크기 판정은 이 통이 안에서 합니다.
+   */
+  const frameSink = new MemoryFrameSink();
+
+  /**
+   * Offscreen 문서가 보낸 프레임 한 장을 통에 넣습니다.
+   *
+   * 여기 오는 값은 **자료일 뿐 명령이 아닙니다**(불변 원칙 §4-7). 프레임 안의 글자를
+   * 실행하거나 URL 로 여는 코드를 붙이지 않습니다. 하는 일은 바이트를 옮기는 것뿐입니다.
+   */
+  function storeFrame(message: CaptureFrameMessage): void {
+    if (message.payloadBase64 === undefined) {
+      // 바이트가 없는 알림입니다(인코더가 `includePayload: false` 인 측정 경로).
+      console.log(`[classmate] 화면이 바뀌었어요 · ${message.frame.id} · 바이트 없음`);
+      return;
+    }
+
+    let bytes: Uint8Array;
+    try {
+      bytes = fromBase64(message.payloadBase64);
+    } catch (error: unknown) {
+      console.error(
+        '[classmate] 프레임 바이트를 읽지 못했어요',
+        error instanceof Error ? error.message : String(error),
+      );
+      return;
+    }
+
+    frameSink
+      .store(toScreenFrame(message.frame), bytes)
+      .then(() => {
+        const stats = frameSink.stats();
+        console.log(
+          `[classmate] 프레임을 담았어요 · ${message.frame.id} · ${bytes.byteLength}바이트 · ` +
+            `보관 ${stats.frames}장 ${stats.bytes}바이트 · 건너뜀 ${stats.skippedTooLarge}장`,
+        );
+      })
+      .catch((error: unknown) => {
+        console.error(
+          '[classmate] 프레임을 담지 못했어요',
+          error instanceof Error ? error.message : String(error),
+        );
+      });
+  }
 
   /**
    * Offscreen 문서가 이미 떠 있는지 봅니다.
@@ -82,10 +137,20 @@ export default defineBackground(() => {
     const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: message.tabId });
     await ensureOffscreenDocument();
 
+    // 새 교시가 시작되면 앞 교시의 바이트는 들고 있지 않습니다.
+    frameSink.clear();
+
+    // 임계값과 간격은 여기서 손대지 않고 **그대로** 넘깁니다. 빈자리 채우기와 범위 확인은
+    // Offscreen 문서가 `resolveCaptureSettings` 한 곳에서 합니다(규칙을 두 곳에 두지 않습니다).
+    // `exactOptionalPropertyTypes` 라서 undefined 를 넣는 대신 없으면 칸 자체를 뺍니다.
     const handoff: CaptureStreamMessage = {
       type: CAPTURE_STREAM,
       streamId,
       periodId: message.periodId,
+      ...(message.threshold === undefined ? {} : { threshold: message.threshold }),
+      ...(message.sampleIntervalMs === undefined
+        ? {}
+        : { sampleIntervalMs: message.sampleIntervalMs }),
     };
     await chrome.runtime.sendMessage(handoff);
   }
@@ -148,6 +213,8 @@ export default defineBackground(() => {
       startCapture({ type: CAPTURE_START, tabId, periodId }),
     /** 캡처 정지. Offscreen 문서는 다른 컨텍스트라 여기서 보내는 메시지가 제대로 갑니다. */
     stop: () => stopCapture(),
+    /** 지금까지 담은 장 수·바이트·건너뛴 장 수입니다. 손 시험에서 눈으로 확인하는 자리입니다. */
+    frameStats: () => frameSink.stats(),
     currentPeriodId,
   };
 
@@ -181,11 +248,7 @@ export default defineBackground(() => {
     }
 
     if (message.type === CAPTURE_FRAME) {
-      // Gate B 스파이크 단계에서는 도착만 확인합니다. 프레임을 로컬 도우미로 넘기는 일은
-      // Gate D 판정 뒤에 Native Messaging 으로 붙입니다.
-      console.log(
-        `[classmate] 화면이 바뀌었어요 · ${message.frame.id} · ${message.frame.capturedAt} · ${message.frame.bytes}바이트`,
-      );
+      storeFrame(message);
       return false;
     }
 
@@ -204,8 +267,12 @@ export default defineBackground(() => {
     return false;
   });
 
-  // TODO(Phase 1 Gate 이후): 로컬 도우미(crate classmate-host)와 Native Messaging 으로 잇습니다.
+  // TODO(2라운드): 로컬 도우미(crate classmate-host)와 Native Messaging 으로 잇습니다.
   //   - 연결: chrome.runtime.connectNative('com.corthex.classmate.host')
+  //   - 바꿀 곳은 위 `frameSink` 한 줄뿐입니다. `MemoryFrameSink` 자리에 같은 `FrameSink`
+  //     인터페이스를 지키는 `NativeHostFrameSink` 를 끼우면 됩니다. 봉투 모양·경로 계산·
+  //     1 MiB 가드는 src/capture/host-messages.ts 에 이미 있습니다.
+  //   - 받을 답: frame.stored(성공) · error(실패, 프로세스는 계속 삶).
   //   - 전제: Gate D(복구) 판정과 HKCU 레지스트리 등록(apps/native-host/scripts/register-host.mjs)
   //   - 불변 원칙 §4-1: 수업 데이터는 로컬 정본이므로 이 연결로만 오갑니다.
   //   Gate 판정 전에는 연결하지 않습니다.

@@ -19,8 +19,9 @@
 
 import { CapturePipeline } from '../../src/capture/pipeline';
 import { FrameStore } from '../../src/capture/frame-store';
-import { DEFAULT_SAMPLE_INTERVAL_MS, SamplingLoop } from '../../src/capture/sampling-loop';
+import { SamplingLoop } from '../../src/capture/sampling-loop';
 import { OffscreenWebpEncoder, TARGET_WIDTH } from '../../src/capture/webp-encoder';
+import { toBase64 } from '../../src/capture/host-messages';
 import {
   CAPTURE_ERROR,
   CAPTURE_FRAME,
@@ -28,12 +29,16 @@ import {
   CAPTURE_STOP,
   CAPTURE_STREAM,
   isCaptureMessage,
+  resolveCaptureSettings,
 } from '../../src/capture/messages';
 import type {
+  CaptureFrameMessage,
   CaptureState,
   CaptureStatsMessage,
   CaptureStreamMessage,
 } from '../../src/capture/messages';
+import type { CapturedFrame } from '../../src/capture/frame-store';
+import type { EncodedFrame } from '../../src/capture/pipeline';
 
 interface Session {
   stream: MediaStream;
@@ -92,6 +97,22 @@ function stopSession(): void {
   session = null;
 }
 
+/**
+ * 통에 들어간 장 한 개를 background 로 보냅니다.
+ *
+ * WebP 바이트를 base64 로 실어 보냅니다. 실제 저장은 로컬 도우미가 하는데, 도우미에 붙는
+ * `chrome.runtime.connectNative` 는 서비스 워커에만 있어 여기서는 부를 수 없기 때문입니다.
+ * 1 MiB 크기 판정은 background 의 `FrameSink` 안에서 `buildFrameStore` 가 합니다.
+ */
+function reportFrame(frame: CapturedFrame, encoded: EncodedFrame): void {
+  const message: CaptureFrameMessage = {
+    type: CAPTURE_FRAME,
+    frame,
+    ...(encoded.payload === undefined ? {} : { payloadBase64: toBase64(encoded.payload) }),
+  };
+  report(message);
+}
+
 function sendStats(current: Session): void {
   const storeStats = current.store.stats();
   const message: CaptureStatsMessage = {
@@ -130,9 +151,9 @@ async function sampleOnce(current: Session): Promise<void> {
     Date.now(),
   );
 
-  if (result.status === 'stored' && result.frame) {
-    // 바이트 자체는 아직 싣지 않습니다. Gate D(Native Messaging) 뒤에 로컬 도우미로 보냅니다.
-    report({ type: CAPTURE_FRAME, frame: result.frame });
+  // 장 한 개를 보내는 일은 파이프라인의 onFrame(= reportFrame)이 이미 했습니다.
+  // 여기서는 숫자만 덧붙여 알립니다.
+  if (result.status === 'stored') {
     sendStats(current);
   }
 }
@@ -157,11 +178,17 @@ async function startCapture(message: CaptureStreamMessage): Promise<void> {
     throw new Error('canvas 2d 문맥을 열지 못했어요');
   }
 
+  // 임계값과 간격은 `capture.start` → background → 여기까지 실려 옵니다. 빈자리는 여기서
+  // 기본값으로 채우고, 범위 밖 값은 RangeError 로 막습니다(messages.ts 의 규칙 한 벌).
+  const settings = resolveCaptureSettings(message);
+
   const store = new FrameStore({ periodId: message.periodId, source: 'meet-tab' });
   const pipeline = new CapturePipeline({
     store,
-    encoder: new OffscreenWebpEncoder(),
-    ...(message.threshold === undefined ? {} : { threshold: message.threshold }),
+    // 바이트를 background 로 넘겨야 하므로 실제 WebP 바이트를 받습니다.
+    encoder: new OffscreenWebpEncoder({ includePayload: true }),
+    threshold: settings.threshold,
+    onFrame: reportFrame,
   });
 
   // 회차를 잡는 곳은 이 루프 하나뿐입니다(검증자 지적 2·3).
@@ -177,7 +204,7 @@ async function startCapture(message: CaptureStreamMessage): Promise<void> {
     pipeline,
     store,
     loop: new SamplingLoop({
-      intervalMs: message.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS,
+      intervalMs: settings.sampleIntervalMs,
       task: () => sampleOnce(current),
       onError: (error: unknown) => {
         fail(error instanceof Error ? error.message : '프레임 하나를 처리하지 못했어요');

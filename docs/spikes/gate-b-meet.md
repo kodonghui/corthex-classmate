@@ -336,3 +336,43 @@ grep -c "ajv\|Ajv" apps/browser-extension/.output/chrome-mv3/background.js \
 - **Offscreen 문서는 확장당 하나뿐이다.** 다른 기능(예: 오디오)이 나중에 Offscreen 을 쓰면
   이 문서와 다퉈야 한다. 지금은 `runtime.getContexts` 로 재사용하지만, 쓰임이 늘면 한 문서
   안에서 역할을 나누는 구조가 필요하다.
+
+## 부록 — 1라운드 완성 (2026-09-02)
+
+위 본문은 Gate B 스파이크 시점의 판정과 측정값이다. **그 뒤 1라운드에서 파이프라인의 빈
+자리를 채웠다.** 판정·측정값 문단은 고치지 않았고, 아래는 무엇을 더 넣었는지만 적는다.
+
+### 채운 것
+
+| 빈 자리 (스파이크 때) | 1라운드에서 한 일 |
+|---|---|
+| 임계값·간격을 바깥에서 정할 수 없었다 | `CaptureStartMessage` 에 `threshold` · `sampleIntervalMs` 를 넣고, `background.ts` 의 handoff 가 두 값을 그대로 `capture.stream` 에 실어 보낸다. 빈자리 채우기와 범위 확인은 `messages.ts` 의 `resolveCaptureSettings` 한 곳에서만 한다 |
+| `webp-encoder` · `messages` 에 시험이 없었다 | 두 모듈에 시험을 붙였다. 인코더는 그림판을 `EncoderSurface` 인터페이스로 뽑아 **생성자 인자로 가짜를 주입**한다(전역을 덮어쓰지 않는다). 폭 1280 축소 · 품질 0.8 · `image/webp` 호출을 값으로 확인한다 |
+| 감지된 `capture.frame` 이 `console.log` 로만 끝났다 | `FrameSink` 인터페이스와 `MemoryFrameSink`(60분 나이 상한 · 48MiB 바이트 상한 · 통계 `stored`/`skippedTooLarge`/`bytes`)를 만들고, background 의 `capture.frame` 갈래가 통에 넣도록 바꿨다 |
+| 호스트로 프레임을 보낼 말이 없었다 | `src/capture/host-messages.ts` 에 계약 (가)의 `frame.store` · `frame.stored` · `error` 타입과 `buildFrameStore` 를 두었다. `path` 는 `id` 에서 다시 계산하고, 봉투가 `MAX_MESSAGE_BYTES`(1 MiB)를 넘으면 `{ skipped: true, reason: 'too-large' }` 로 건너뛴다 |
+
+Offscreen 문서가 WebP 바이트를 base64 로 `capture.frame` 에 실어 보내게 바꿨다. 실제 저장은
+로컬 도우미가 하고, 도우미에 붙는 `chrome.runtime.connectNative` 는 **서비스 워커에만** 있어
+Offscreen 문서에서는 부를 수 없기 때문이다. 크기 판정은 바이트가 통로를 건넌 뒤가 아니라
+`FrameSink` 안에서 `buildFrameStore` 가 한다.
+
+### 이번에 확인한 값 (2026-09-02, 로컬 Windows · Node 24.15.0)
+
+| 항목 | 값 | 명령 |
+|---|---|---|
+| 단위 시험 · capture | 4파일 42개 → **9파일 89개** 통과 | `pnpm --filter @classmate/browser-extension test` |
+| 단위 시험 · 확장 전체 | 7파일 87개 → **12파일 134개** 통과 · exit 0 | 같음 |
+| 타입 검사 | exit 0 | `pnpm --filter @classmate/browser-extension typecheck` |
+| 빌드 | exit 0 · `offscreen.html` 778 B | `pnpm --filter @classmate/browser-extension build` |
+| 매니페스트 권한 | `["sidePanel","storage","tabCapture","offscreen"]` (그대로) | 빌드 뒤 `.output/chrome-mv3/manifest.json` |
+| 빌드에 Ajv 가 섞였는지 | `ajv` 문자열 **0회** (background.js · offscreen 청크) | `grep -c -i ajv .output/chrome-mv3/…` |
+| 실측 스파이크 | exit 0 · 인코더 리팩터링 뒤에도 바이트 동일 (code 2,960 B · text 68,282 B · noise 621,396 B) | `node spikes/meet-capture-measure.mjs` |
+
+인코더를 `EncoderSurface` 로 감쌌지만 **브라우저에서 도는 경로는 그대로다.** 스파이크가
+`webp-encoder.ts` 를 그대로 주입해 다시 재었고 바이트 수가 한 자리도 바뀌지 않았다.
+
+### 여전히 BLOCKED
+
+본문 §사람이 할 일 의 세 항목(실제 Meet 탭 5분 캡처 · 실제 화면 프레임 바이트 · 60분 메모리
+곡선)은 그대로 사람 대기다. 1라운드에서 바뀐 것은 없다. 손 시험 때 서비스 워커 콘솔에서
+`classmateCapture.frameStats()` 를 부르면 담은 장 수·바이트·건너뛴 장 수를 볼 수 있다.
