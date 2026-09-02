@@ -5,9 +5,20 @@
   "type": "module",
   "description": "Corthex Classmate 전용 컴포넌트 10개(TranscriptFlow·MarginNote·GuessList·NowLine·SourceFooter·CodeCompare·MomentRow·AnswerCard·SourceStatus·StuckButton)",
   "types": "./src/index.ts",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
-  "dependencies": { "@classmate/contracts": "workspace:*", "react": "^19.2.8", "react-dom": "^19.2.8" },
+  "exports": {
+    ".": "./src/index.ts",
+    "./styles.css": "./src/styles.css"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@classmate/contracts": "workspace:*",
+    "lucide-react": "^1.38.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8"
+  },
   "devDependencies": {
     "@types/node": "^26.4.1",
     "@types/react": "^19.2.18",
