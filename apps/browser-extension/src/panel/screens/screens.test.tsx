@@ -1,14 +1,18 @@
-// 두 화면이 체크포인트의 값으로 정본 클래스·문구를 실제로 그리는지 봅니다.
+// 네 화면이 체크포인트의 값으로 정본 클래스·문구를 실제로 그리는지 봅니다.
 // DOM 없이 renderToStaticMarkup 으로 HTML 문자열을 만들어 확인합니다(새 의존성 없음).
 
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { GOLDEN_BUNDLE } from "../golden-bundle";
-import { detailView, listeningView } from "../lesson-view";
+import { historyView } from "../history-view";
+import { detailView, detailViewFor, listeningView } from "../lesson-view";
 import { type Checkpoint, ReplayStore } from "../replay-store";
+import { DEFAULT_SETTINGS } from "../settings-store";
 import { DetailScreen } from "./DetailScreen";
+import { HistoryScreen } from "./HistoryScreen";
 import { ListeningScreen } from "./ListeningScreen";
+import { SettingsScreen } from "./SettingsScreen";
 
 const noop = (): void => {};
 
@@ -18,7 +22,18 @@ function homeHtml(checkpoint: Checkpoint): string {
   const state = store.getState();
   const view = listeningView(GOLDEN_BUNDLE, state, store.lines(state.now));
   return renderToStaticMarkup(
-    <ListeningScreen view={view} onTerm={noop} onSentence={noop} onGuess={noop} onChip={noop} onDetail={noop} onExpand={noop} />,
+    <ListeningScreen
+      view={view}
+      onTerm={noop}
+      onSentence={noop}
+      onGuess={noop}
+      onChip={noop}
+      onDetail={noop}
+      onExpand={noop}
+      onSettings={noop}
+      onHistory={noop}
+      onReconnect={noop}
+    />,
   );
 }
 
@@ -32,8 +47,21 @@ function detailHtml(checkpoint: Checkpoint, followUp?: string): string {
   return renderToStaticMarkup(<DetailScreen view={view} onBack={noop} onFollowUp={noop} />);
 }
 
+function historyHtml(checkpoint: Checkpoint): string {
+  const store = new ReplayStore(GOLDEN_BUNDLE);
+  store.goto(checkpoint);
+  const view = historyView(GOLDEN_BUNDLE, store.getState());
+  return renderToStaticMarkup(<HistoryScreen view={view} onBack={noop} onOpen={noop} />);
+}
+
+function settingsHtml(): string {
+  return renderToStaticMarkup(
+    <SettingsScreen values={DEFAULT_SETTINGS} count={2} onBack={noop} onChange={noop} onClearToday={noop} />,
+  );
+}
+
 describe("듣는 중 화면", () => {
-  it("A 듣는 중: 헤더 · 다섯 줄 · 점선 new · 팁 · 바닥줄, 메모와 버튼은 없다", () => {
+  it("A 듣는 중: 헤더 · 다섯 줄 · 점선 new · 팁 · 바닥줄, 메모와 행동 버튼은 없다", () => {
     const html = homeHtml("listening");
     expect(html).toContain("IoC 컨테이너와 의존성 주입");
     expect(html).toContain("3교시");
@@ -42,7 +70,50 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("걸리는 말을 누르세요");
     expect(html).toContain("2초 전");
     expect(html).not.toContain("cm-note");
-    expect(html).not.toContain("<button");
+    // 정본이 말하는 "이 화면에 버튼은 없습니다" 는 **채도 있는 행동 블록(.cm-btn)** 이 없다는 뜻입니다.
+    // 헤더의 설정 아이콘 하나(prompt §4 "듣는 중 화면엔 설정 아이콘 하나", dc.html:392 settingsAction)와
+    // 바닥줄의 "기록 N"(dc.html:398 onCount) 은 정본에도 있는 <button> 입니다.
+    expect(html).not.toContain("cm-btn");
+    expect(html).toContain('aria-label="설정"');
+    expect(html).toContain("cm-sf__r");
+  });
+
+  it("H-1 전사 멈춤: 바닥줄이 호박색이고 다시 연결이 붙는다", () => {
+    // 골든 fixture 의 connector.status 세 줄은 전부 connected 라, 멈춘 형편은 사건 하나를 더 넣어 만듭니다.
+    // 넣는 값은 계약 connector.status 의 connector·state 두 칸뿐입니다.
+    const store = new ReplayStore(GOLDEN_BUNDLE);
+    store.goto("listening");
+    store.pushEvent({
+      id: "ev-test-tiro-paused",
+      periodId: GOLDEN_BUNDLE.periodId,
+      at: "2026-09-02T10:32:16+09:00",
+      type: "connector.status",
+      payload: { connector: "tiro-share", state: "paused" },
+    });
+    const state = store.getState();
+    const view = listeningView(GOLDEN_BUNDLE, state, store.lines(state.now));
+    expect(view.tiroPaused).toBe(true);
+    expect(view.header.status).toBe("paused");
+    expect(view.footer.warn?.reconnect).toBe("tiro-share");
+    const html = renderToStaticMarkup(
+      <ListeningScreen
+        view={view}
+        onTerm={noop}
+        onSentence={noop}
+        onGuess={noop}
+        onChip={noop}
+        onDetail={noop}
+        onExpand={noop}
+        onSettings={noop}
+        onHistory={noop}
+        onReconnect={noop}
+      />,
+    );
+    expect(html).toContain("cm-sf--paused");
+    expect(html).toContain("전사가 잠시 멈췄어요.");
+    expect(html).toContain("화면과 코드는 계속 기록하고 있어요.");
+    expect(html).toContain("다시 연결");
+    expect(html).toContain("전사가 멈춘 동안에도");
   });
 
   it("B 붙잡은 직후: 메모가 준비 중이고 세 자료가 compact 로 붙는다", () => {
@@ -116,5 +187,96 @@ describe("자세히 화면", () => {
     const html = detailHtml("waiting");
     expect(html).toContain("cm-ans__load");
     expect(html).toContain("튜터가 돌아오면 여기에 나타나요 · 순간은 저장됐어요");
+  });
+
+  it("기록에서 연 지난 순간도 같은 자세히 화면으로 그려진다", () => {
+    const store = new ReplayStore(GOLDEN_BUNDLE);
+    store.goto("recovered");
+    const state = store.getState();
+    const first = state.moments[0];
+    if (first === undefined) throw new Error("붙잡은 순간이 없어요");
+    const view = detailViewFor(GOLDEN_BUNDLE, state, store.lines(state.now), first.questionId);
+    if (view === null) throw new Error("그 순간의 자세히를 만들지 못했어요");
+    // 지금 보고 있는 질문은 두 번째(q-p3-002)라 첫 순간은 "지난 순간" 입니다.
+    expect(view.term).toBe("new");
+    expect(view.conclusion).toBe("new 자체는 괜찮지만 바꾸기 어려워서 생성 책임을 나눠요");
+    expect(view.loading).toBe(false);
+    // 후속 칩은 상태기계가 든 답으로 대답하므로 지난 순간에는 붙이지 않습니다.
+    expect(view.followUps).toHaveLength(0);
+    const html = renderToStaticMarkup(<DetailScreen view={view} onBack={noop} onFollowUp={noop} />);
+    expect(html).toContain("10:32:18 붙잡음");
+    expect(html).toContain("수업으로 돌아가기");
+  });
+});
+
+describe("기록 화면", () => {
+  it("G 기록: 오늘 N개 · 교시 묶음 · MomentRow · 바닥 안내 · 기록 중", () => {
+    const html = historyHtml("answer");
+    expect(html).toContain("기록");
+    expect(html).toContain("오늘 1개");
+    expect(html).toContain("cm-group__label");
+    expect(html).toContain("3교시");
+    expect(html).toContain("cm-rows");
+    expect(html).toContain("cm-mo");
+    expect(html).toContain("10:32:18");
+    expect(html).toContain("new 자체는 괜찮지만 바꾸기 어려워서 생성 책임을 나눠요");
+    expect(html).toContain("cm-foot-note");
+    expect(html).toContain("붙잡은 순간은 수업이 끝나도 남아요. 지우기는 설정에서.");
+    expect(html).toContain("전사 기록 중 · Meet 기록 중 · IntelliJ 기록 중");
+    // 정본 G: 카드도 화살표도 없습니다.
+    expect(html).not.toContain("cm-card");
+  });
+
+  it("아직 붙잡은 것이 없으면 교시 묶음 안에 한 줄만 남는다", () => {
+    const html = historyHtml("listening");
+    expect(html).toContain("오늘 0개");
+    expect(html).toContain("아직 붙잡은 순간이 없어요");
+    expect(html).not.toContain("cm-mo ");
+  });
+
+  it("답이 아직 오지 않은 순간은 정리 중으로 남는다", () => {
+    const html = historyHtml("caught");
+    expect(html).toContain("cm-mo--preparing");
+    expect(html).toContain("정리 중");
+  });
+});
+
+describe("설정 화면", () => {
+  it("네 절 · 개인정보 세 칸 · 제공자 고르기 · 오늘 기록 지우기", () => {
+    const html = settingsHtml();
+    expect(html).toContain("설정");
+    // (a) 답변
+    expect(html).toContain("한 줄만 먼저");
+    expect(html).toContain("자세한 내용은 눌러서 봐요");
+    expect(html).toContain("바로 자세히");
+    expect(html).toContain("18초 뒤 자동으로 접기");
+    expect(html).toContain("끄면 접히지 않고 그대로 남아요");
+    // 정본에 없는 자리(2라운드 고정 계약): 제공자 · codex 는 잠겨 있습니다.
+    expect(html).toContain("답변을 만드는 곳");
+    expect(html).toContain("Claude");
+    expect(html).toContain("Codex");
+    expect(html).toContain("한도 복구 뒤에 고를 수 있어요");
+    expect(html).toContain("cm-radio--disabled");
+    // (b) 붙잡을 때 함께 저장 + 개인정보 세 칸(불변 원칙 §5 정본 문구)
+    expect(html).toContain("붙잡을 때 함께 저장");
+    expect(html).toContain("막힌 시점의 최근 30초");
+    expect(html).toContain("선생님 공유 화면 한 장");
+    expect(html).toContain("지금 보고 있는 파일");
+    expect(html).toContain("cm-set__privacy");
+    expect(html).toContain("로컬 보관");
+    expect(html).toContain("선택한 AI 제공자로 전송될 수 있음");
+    expect(html).toContain("Corthex 서버 기본 전송 없음");
+    // (c) 수업
+    expect(html).toContain("지금 교시");
+    expect(html).toContain("8교시");
+    expect(html).toContain("주제");
+    expect(html).toContain("단축키 Alt+S");
+    expect(html).toContain("마지막 문장을 붙잡아요");
+    // (d) 위험
+    expect(html).toContain("오늘 기록 지우기");
+    expect(html).toContain("cm-btn--danger");
+    // 확인 창은 누르기 전까지 그리지 않습니다.
+    expect(html).not.toContain("오늘 기록을 지울까요");
+    expect(html).not.toContain("dangerouslySetInnerHTML");
   });
 });

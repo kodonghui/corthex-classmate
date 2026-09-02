@@ -11,7 +11,7 @@
 //   detail ───▶ 자세히 화면 (F) — 홈에서는 ready 와 같게 그립니다
 //   folded ───▶ MarginNote collapsed (E)
 
-import type { Answer } from "@classmate/contracts";
+import type { Answer, Id } from "@classmate/contracts";
 import { answerView, foldNotice, parseIso, WAITING_FOOTER_LINE, WAITING_NOTE_LINE } from "@classmate/tutor-core";
 import type {
   AnswerSection,
@@ -30,6 +30,7 @@ import { clockOfIso, clockOfMs } from "./clock";
 import { evidenceType } from "./evidence";
 import type { GoldenBundle } from "./golden-bundle";
 import { guessesForLine } from "./golden-bundle";
+import type { ReconnectTarget } from "./ports";
 import type { Moment, Reply, ReplayState } from "./replay-store";
 
 export type EvidenceItem = NonNullable<MarginNoteProps["evidence"]>[number];
@@ -77,10 +78,22 @@ export interface HeaderView {
   readonly status: "live" | "paused";
 }
 
+/**
+ * 바닥줄 안내 + "다시 연결" 이 되살릴 커넥터.
+ *
+ * `reconnect` 를 `FooterWarn` 안에 둡니다. 되살릴 것이 없는 안내(튜터 멈춤)에는 아예 키가 생기지
+ * 않아, 안내 한 덩어리가 곧 "무엇이 멈췄고 무엇을 누를 수 있는지" 전부가 됩니다.
+ * 화면은 이 값으로 `onReconnect` 를 묶습니다 — 문구(`action`)와 대상을 따로 두어야 화면이
+ * 커넥터 이름을 지어내지 않습니다.
+ */
+export interface FooterWarnView extends FooterWarn {
+  readonly reconnect?: ReconnectTarget;
+}
+
 export interface FooterView {
   readonly sources: readonly FooterSource[];
   readonly count: number;
-  readonly warn: FooterWarn | null;
+  readonly warn: FooterWarnView | null;
 }
 
 export interface ListeningView {
@@ -130,6 +143,9 @@ const FOLLOW_UPS: readonly FollowUp[] = [
 /** 정본 SourceStatus 의 이름 순서입니다. */
 const SOURCE_ORDER = ["tiro", "meet", "intellij"] as const;
 
+/** 바닥줄 호박색 안내에 붙는 되살리기 문구입니다(정본 H-1). */
+export const RECONNECT_LABEL = "다시 연결";
+
 function basename(filePath: string): string {
   return filePath.split(/[\\/]/).at(-1) ?? filePath;
 }
@@ -146,6 +162,32 @@ export function currentMoment(state: ReplayState): Moment | null {
 export function currentAnswer(bundle: GoldenBundle, state: ReplayState): Answer | null {
   const answerId = state.machine.answerId;
   return answerId === null ? null : (bundle.answers[answerId] ?? null);
+}
+
+/**
+ * 질문 → 도착한 답 id. **도착한 사건만** 봅니다(`bundle.events` 를 쓰지 않습니다 — 라이브 모드에서는 비어 있고,
+ * fixture 를 그대로 읽으면 아직 오지 않은 답까지 미리 보여 주게 됩니다).
+ * `answer.queued` 와 `answer.failed` 는 아직 답이 아니므로 세지 않습니다(기록에서 "정리 중" 으로 남습니다).
+ */
+export function answerIdByQuestion(state: ReplayState): Readonly<Record<string, Id>> {
+  const map: Record<string, Id> = {};
+  for (const event of state.received) {
+    if (event.type !== "answer.completed" && event.type !== "answer.recovered") continue;
+    const questionId = event.payload["questionId"];
+    const answerId = event.payload["answerId"];
+    if (typeof questionId === "string" && typeof answerId === "string") map[questionId] = answerId;
+  }
+  return map;
+}
+
+/** 그 질문에 지금까지 도착한 답입니다. 지금 보고 있는 질문이면 상태기계가 든 답을 먼저 씁니다. */
+export function answerOfQuestion(bundle: GoldenBundle, state: ReplayState, questionId: Id): Answer | null {
+  if (state.machine.questionId === questionId) {
+    const current = currentAnswer(bundle, state);
+    if (current !== null) return current;
+  }
+  const answerId = answerIdByQuestion(state)[questionId];
+  return answerId === undefined ? null : (bundle.answers[answerId] ?? null);
 }
 
 function latestMs(items: readonly { at: number }[], untilMs: number): number | null {
@@ -166,9 +208,21 @@ export function sourceAges(bundle: GoldenBundle, nowMs: number): Record<(typeof 
   };
 }
 
+/**
+ * 전사가 멈췄는지입니다(디자인 상태 H-1).
+ *
+ * **"아직 아무 보고도 안 옴" 은 멈춤이 아닙니다.** 패널을 연 첫 순간에 호박색 안내를 띄우면
+ * 아직 시작하지도 않은 것을 고장이라고 말하게 됩니다. 커넥터가 스스로 `connector.status` 로
+ * connected 아닌 형편을 알려 준 뒤에만 멈춤으로 봅니다.
+ */
 function tiroPaused(state: ReplayState): boolean {
   const status = state.machine.connectors["tiro-share"];
   return status !== undefined && status !== "connected";
+}
+
+/** 로컬 도우미(native host)가 끊겼는지입니다. 계약 `connector.status` 의 `off` 만 봅니다. */
+function nativeHostOff(state: ReplayState): boolean {
+  return state.machine.connectors["native-host"] === "off";
 }
 
 /** 답이 딸린 세 자료의 근거 칩입니다. 근거 단계는 답의 것을 그대로 쓰고 시각은 붙잡은 시각입니다. */
@@ -287,12 +341,28 @@ function footerOf(bundle: GoldenBundle, state: ReplayState): FooterView {
     { key: "intellij", state: "live", ago: formatAgo(ages.intellij) },
   ];
   const providerDown = state.machine.provider === "failed" || state.machine.provider === "queued";
-  let warn: FooterWarn | null = null;
+  let warn: FooterWarnView | null = null;
   if (providerDown) {
+    // H-2 튜터 멈춤: 빨간 계열. 되살리는 것은 사람이 누를 일이 아니라 제공자 쪽이라 "다시 연결" 을 두지 않습니다.
     const [title, ...rest] = WAITING_FOOTER_LINE.split(/(?<=\.)\s+/);
     warn = { tone: "off", title: title ?? WAITING_FOOTER_LINE, description: rest.join(" ") };
   } else if (paused) {
-    warn = { tone: "paused", title: "전사가 잠시 멈췄어요.", description: "화면과 코드는 계속 기록하고 있어요." };
+    // H-1 전사 멈춤: 호박색 + "다시 연결".
+    warn = {
+      tone: "paused",
+      title: "전사가 잠시 멈췄어요.",
+      description: "화면과 코드는 계속 기록하고 있어요.",
+      action: RECONNECT_LABEL,
+      reconnect: "tiro-share",
+    };
+  } else if (nativeHostOff(state)) {
+    warn = {
+      tone: "paused",
+      title: "로컬 도우미와 잠시 끊겼어요.",
+      description: "붙잡은 순간은 패널에 남아요.",
+      action: RECONNECT_LABEL,
+      reconnect: "native-host",
+    };
   }
   return { sources, count: state.moments.length, warn };
 }
@@ -367,26 +437,48 @@ export function sectionsOf(bundle: GoldenBundle, answer: Answer, line: Transcrip
   return sections;
 }
 
-/** 자세히 화면(F)의 값 전부입니다. 붙잡은 순간이 없으면 null 입니다. */
-export function detailView(bundle: GoldenBundle, state: ReplayState, allLines: readonly TranscriptLine[]): DetailView | null {
-  const moment = currentMoment(state);
+/**
+ * 붙잡은 순간 **하나**의 자세히 화면(F)입니다. 기록에서 지난 순간을 열 때도 이 함수를 씁니다.
+ *
+ * 지금 보고 있는 질문이 아니면(기록에서 연 지난 순간) 후속 칩과 칩 답을 두지 않습니다.
+ * 후속 칩은 상태기계가 든 `answerId` 로 답을 꺼내므로, 지난 순간에 붙이면 엉뚱한 답이 옵니다.
+ */
+export function detailViewFor(
+  bundle: GoldenBundle,
+  state: ReplayState,
+  allLines: readonly TranscriptLine[],
+  questionId: Id,
+): DetailView | null {
+  const moment = state.moments.find((item) => item.questionId === questionId) ?? null;
   if (moment === null) return null;
+  const current = state.machine.questionId === questionId;
   const view = answerView(state.machine, state.now);
-  const answer = currentAnswer(bundle, state);
+  const answer = answerOfQuestion(bundle, state, questionId);
   const line = allLines.find((item) => item.id === moment.lineId) ?? null;
-  const loading = answer === null || view.phase === "preparing" || view.phase === "waiting";
+  const loading = answer === null || (current && (view.phase === "preparing" || view.phase === "waiting"));
   return {
     term: moment.term,
     time: moment.time,
     line,
     marked: moment.segKey === null ? [] : [moment.segKey],
     loading,
-    loadingText: view.waiting ? "튜터가 돌아오면 여기에 나타나요 · 순간은 저장됐어요" : "한 줄로 정리하고 있어요",
+    loadingText:
+      current && view.waiting ? "튜터가 돌아오면 여기에 나타나요 · 순간은 저장됐어요" : "한 줄로 정리하고 있어요",
     conclusion: answer?.conclusion ?? "",
     evidence: answer === null ? [] : evidenceOf(answer, moment),
     sections: answer === null ? [] : sectionsOf(bundle, answer, line),
-    followUps: FOLLOW_UPS,
-    reply: state.reply,
+    followUps: current ? FOLLOW_UPS : [],
+    reply: current ? state.reply : null,
     nowLine: answer?.nowLine === undefined ? pinnedNow(bundle, state.now) : answer.nowLine,
   };
+}
+
+/** 지금 보고 있는 순간의 자세히 화면(F)입니다. 붙잡은 순간이 없으면 null 입니다. */
+export function detailView(
+  bundle: GoldenBundle,
+  state: ReplayState,
+  allLines: readonly TranscriptLine[],
+): DetailView | null {
+  const questionId = state.machine.questionId;
+  return questionId === null ? null : detailViewFor(bundle, state, allLines, questionId);
 }

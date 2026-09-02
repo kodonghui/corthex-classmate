@@ -1,11 +1,13 @@
 // 듣는 중 화면 — 선생님 말이 아래에서 흐르고, 점선 낱말이나 문장을 누르는 것이 곧 질문입니다.
 // 정본: design-system/ui_kits/sidepanel/ListeningScreen.jsx. 값은 전부 lesson-view 가 만들어 줍니다.
 
-import { PanelHeader } from "@classmate/ui-base";
+import { IconButton, PanelHeader } from "@classmate/ui-base";
+import type { FooterWarn } from "@classmate/ui-classmate";
 import { GuessList, MarginNote, NowLine, SourceFooter, SourceStatus, TranscriptFlow } from "@classmate/ui-classmate";
 import { useEffect, useRef } from "react";
 
-import type { ListeningView } from "../lesson-view";
+import type { FooterWarnView, ListeningView } from "../lesson-view";
+import type { ReconnectTarget } from "../ports";
 
 export interface ListeningScreenProps {
   readonly view: ListeningView;
@@ -15,10 +17,22 @@ export interface ListeningScreenProps {
   readonly onChip: (chipId: string) => void;
   readonly onDetail: () => void;
   readonly onExpand: () => void;
+  /** 헤더의 설정 아이콘. 이 화면의 아이콘은 이것 하나뿐입니다(정본 프롬프트 §4). */
+  readonly onSettings: () => void;
+  /** 바닥줄 "기록 N" 을 누르면 기록 화면으로 갑니다(정본 상태 G 의 유일한 입구). */
+  readonly onHistory: () => void;
+  /** 바닥줄 호박색 안내의 "다시 연결"(정본 상태 H-1). */
+  readonly onReconnect: (connector: ReconnectTarget) => void;
 }
 
 function Kbd({ children }: { readonly children: string }): React.JSX.Element {
   return <kbd className="cm-kbd">{children}</kbd>;
+}
+
+/** 안내에서 `reconnect` 를 떼어 내고 그 자리에 누를 손짓을 답니다. */
+function warnProps(warn: FooterWarnView, onReconnect: (connector: ReconnectTarget) => void): FooterWarn {
+  const { reconnect, ...rest } = warn;
+  return reconnect === undefined ? rest : { ...rest, onAction: () => onReconnect(reconnect) };
 }
 
 export function ListeningScreen({
@@ -29,9 +43,13 @@ export function ListeningScreen({
   onChip,
   onDetail,
   onExpand,
+  onSettings,
+  onHistory,
+  onReconnect,
 }: ListeningScreenProps): React.JSX.Element {
   const bodyRef = useRef<HTMLDivElement>(null);
   const { note } = view;
+  const { warn } = view.footer;
 
   // 새 줄이나 메모가 생기면 바닥으로 붙입니다(정본 규칙: 전사는 아래에서 흐릅니다).
   useEffect(() => {
@@ -110,7 +128,13 @@ export function ListeningScreen({
 
   return (
     <div className="cm-screen">
-      <PanelHeader status={view.header.status} title={view.header.title} subtitle={view.header.subtitle} time={view.header.time} />
+      <PanelHeader
+        status={view.header.status}
+        title={view.header.title}
+        subtitle={view.header.subtitle}
+        time={view.header.time}
+        actions={<IconButton icon="settings-2" label="설정" size="sm" onClick={onSettings} />}
+      />
       {view.pinnedNow === null ? null : (
         <div className="cm-screen__now">
           <NowLine variant="plain">{view.pinnedNow}</NowLine>
@@ -131,7 +155,8 @@ export function ListeningScreen({
       <SourceFooter
         sources={[...view.footer.sources]}
         count={view.footer.count}
-        {...(view.footer.warn === null ? {} : { warn: view.footer.warn })}
+        onCount={onHistory}
+        {...(warn === null ? {} : { warn: warnProps(warn, onReconnect) })}
       />
     </div>
   );
