@@ -1,0 +1,334 @@
+{
+  "generatedAt": "2026-09-02T23:18:51.349Z",
+  "commit": "eafba93",
+  "viewport": {
+    "width": 380,
+    "height": 900
+  },
+  "design": {
+    "dir": "design/claude-design-export/project-classmate-side-panel",
+    "file": "Classmate Side Panel.dc.html"
+  },
+  "implementation": {
+    "output": "apps/browser-extension/.output/chrome-mv3",
+    "page": "sidepanel.html?replay=manual"
+  },
+  "rows": [
+    {
+      "id": "A",
+      "name": "listening",
+      "title": "A 듣는 중",
+      "file": "A-listening.png",
+      "size": {
+        "width": 834,
+        "height": 1086
+      },
+      "canonical": {
+        "ok": true,
+        "move": "초기 화면 · 1초 tick 31번(전사 5줄까지)",
+        "size": {
+          "width": 382,
+          "height": 902
+        },
+        "message": null
+      },
+      "implementation": {
+        "ok": true,
+        "kind": "checkpoint",
+        "checkpoint": "listening",
+        "iso": null,
+        "size": {
+          "width": 380,
+          "height": 900
+        },
+        "facts": {
+          "screen": "듣는 중",
+          "note": "none",
+          "footerPaused": false,
+          "footerOff": false
+        },
+        "message": null
+      }
+    },
+    {
+      "id": "B",
+      "name": "caught",
+      "title": "B 붙잡은 직후",
+      "file": "B-caught.png",
+      "size": {
+        "width": 834,
+        "height": 1086
+      },
+      "canonical": {
+        "ok": true,
+        "move": "tick 31 → l3 의 점선 낱말 'new' 클릭 · 준비(1.6초) 전에 촬영",
+        "size": {
+          "width": 382,
+          "height": 902
+        },
+        "message": null
+      },
+      "implementation": {
+        "ok": true,
+        "kind": "checkpoint",
+        "checkpoint": "caught",
+        "iso": null,
+        "size": {
+          "width": 380,
+          "height": 900
+        },
+        "facts": {
+          "screen": "듣는 중",
+          "note": "preparing",
+          "footerPaused": false,
+          "footerOff": false
+        },
+        "message": null
+      }
+    },
+    {
+      "id": "C",
+      "name": "answer",
+      "title": "C 한 줄 답변",
+      "file": "C-answer.png",
+      "size": {
+        "width": 834,
+        "height": 1086
+      },
+      "canonical": {
+        "ok": true,
+        "move": "tick 31 → 'new' 클릭 → tick 2(준비 끝)",
+        "size": {
+          "width": 382,
+          "height": 902
+        },
+        "message": null
+      },
+      "implementation": {
+        "ok": true,
+        "kind": "checkpoint",
+        "checkpoint": "answer",
+        "iso": null,
+        "size": {
+          "width": 380,
+          "height": 900
+        },
+        "facts": {
+          "screen": "듣는 중",
+          "note": "minimal",
+          "footerPaused": false,
+          "footerOff": false
+        },
+        "message": null
+      }
+    },
+    {
+      "id": "D",
+      "name": "sentence",
+      "title": "D 문장을 붙잡음",
+      "file": "D-sentence.png",
+      "size": {
+        "width": 834,
+        "height": 1086
+      },
+      "canonical": {
+        "ok": true,
+        "move": "tick 8(전사 4줄) → 마지막 문장 클릭 → GuessList",
+        "size": {
+          "width": 382,
+          "height": 902
+        },
+        "message": null
+      },
+      "implementation": {
+        "ok": true,
+        "kind": "checkpoint",
+        "checkpoint": "sentence",
+        "iso": null,
+        "size": {
+          "width": 380,
+          "height": 900
+        },
+        "facts": {
+          "screen": "듣는 중",
+          "note": "none",
+          "footerPaused": false,
+          "footerOff": false
+        },
+        "message": null
+      }
+    },
+    {
+      "id": "E",
+      "name": "folded",
+      "title": "E 접힌 메모",
+      "file": "E-folded.png",
+      "size": {
+        "width": 834,
+        "height": 1086
+      },
+      "canonical": {
+        "ok": true,
+        "move": "tick 31 → 'new' 클릭 → tick 2 → tick 18(18초 자동 접힘)",
+        "size": {
+          "width": 382,
+          "height": 902
+        },
+        "message": null
+      },
+      "implementation": {
+        "ok": true,
+        "kind": "checkpoint",
+        "checkpoint": "folded",
+        "iso": null,
+        "size": {
+          "width": 380,
+          "height": 900
+        },
+        "facts": {
+          "screen": "듣는 중",
+          "note": "folded",
+          "footerPaused": false,
+          "footerOff": false
+        },
+        "message": null
+      }
+    },
+    {
+      "id": "F",
+      "name": "detail",
+      "title": "F 자세히",
+      "file": "F-detail.png",
+      "size": {
+        "width": 834,
+        "height": 1086
+      },
+      "canonical": {
+        "ok": true,
+        "move": "tick 31 → 'new' 클릭 → tick 2 → '자세히 보기 ▸' 클릭",
+        "size": {
+          "width": 382,
+          "height": 902
+        },
+        "message": null
+      },
+      "implementation": {
+        "ok": true,
+        "kind": "checkpoint",
+        "checkpoint": "detail",
+        "iso": null,
+        "size": {
+          "width": 380,
+          "height": 900
+        },
+        "facts": {
+          "screen": "자세히",
+          "note": "detail",
+          "footerPaused": false,
+          "footerOff": false
+        },
+        "message": null
+      }
+    },
+    {
+      "id": "G",
+      "name": "history",
+      "title": "G 기록",
+      "file": "G-history.png",
+      "size": {
+        "width": 834,
+        "height": 1086
+      },
+      "canonical": {
+        "ok": true,
+        "move": "tick 31 → 바닥줄 \"기록 N\" 클릭",
+        "size": {
+          "width": 382,
+          "height": 902
+        },
+        "message": null
+      },
+      "implementation": {
+        "ok": false,
+        "kind": "none",
+        "checkpoint": null,
+        "iso": null,
+        "size": null,
+        "facts": null,
+        "message": "구현에 기록 화면이 없어요 (단위 1a 병합 뒤 다시 돌립니다)"
+      }
+    },
+    {
+      "id": "H",
+      "name": "tutor-paused",
+      "title": "H 튜터 멈춤",
+      "file": "H-tutor-paused.png",
+      "size": {
+        "width": 834,
+        "height": 1086
+      },
+      "canonical": {
+        "ok": true,
+        "move": "props aiDown=true → tick 31 → 'new' 클릭(답이 오지 않음)",
+        "size": {
+          "width": 382,
+          "height": 902
+        },
+        "message": null
+      },
+      "implementation": {
+        "ok": true,
+        "kind": "checkpoint",
+        "checkpoint": "waiting",
+        "iso": null,
+        "size": {
+          "width": 380,
+          "height": 900
+        },
+        "facts": {
+          "screen": "듣는 중",
+          "note": "waiting",
+          "footerPaused": false,
+          "footerOff": true
+        },
+        "message": null
+      }
+    },
+    {
+      "id": "H1",
+      "name": "tiro-paused",
+      "title": "H-1 전사 멈춤",
+      "file": "H1-tiro-paused.png",
+      "size": {
+        "width": 834,
+        "height": 1104
+      },
+      "canonical": {
+        "ok": true,
+        "move": "tick 31 → props tiroDown=true → tick 1(전사 얼림)",
+        "size": {
+          "width": 382,
+          "height": 902
+        },
+        "message": null
+      },
+      "implementation": {
+        "ok": true,
+        "kind": "clock",
+        "checkpoint": null,
+        "iso": "2026-09-02T10:31:35+09:00",
+        "size": {
+          "width": 380,
+          "height": 900
+        },
+        "facts": {
+          "screen": "듣는 중",
+          "note": "none",
+          "footerPaused": false,
+          "footerOff": false
+        },
+        "message": null
+      }
+    }
+  ]
+}
