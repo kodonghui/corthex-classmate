@@ -53,6 +53,25 @@
 - [x] 준비: DECISIONS — 계약 고정·1라운드 구조 / 디자인 정본 적용 기본값(함정 판정·폰트·아이콘·개인정보 문구)
 - [!] 대기 — origin: `gh repo create`(비공개) 허락 전까지 워커는 브랜치 `batch-1/<단위>` 만 남김 (`gh auth status` 로그인 확인됨 · `git remote -v` 비어 있음)
 - [!] 대기(예약) — 사용자가 2026-09-02 17:3x 에 `/batch` 1라운드 프롬프트(10단위)를 미리 보냄. 본문은 docs/master-prompt.md A-6 1라운드와 동일. **실행 시점: Phase 1 커밋 + "Phase 2 준비 완료 — contracts 고정 · fixtures · 스켈레톤 · origin(대기)" 보고 직후**, 그때 계획 모드 → 사용자 승인 → worktree 워커 10개. origin 이 없으면 브랜치 `batch-1/<단위>` 만 남김. Phase 1 게이트가 이미 만든 코드(5 tiro-connectors · 6 meet-capture · 7 session-store · 9 transport)는 갈아엎지 않고 완성·정리 단위로 다룸.
+- [~] `/batch` 1라운드 실행 중 (2026-09-02 23:04 기준) — 계획 승인 · worktree `cc-wt/<단위>` 10개 · 브랜치 `batch-1/<단위>` · 병합 순서 1·4·10·2·3 → 5·6 → 7·8·9 · 검토 워크플로(검토 → 반박 검증) 병행
+  - [x] (1) design-tokens `f3d950c` — test 17 · 정본 6 css 바이트 동일(예외 `--panel-header-h` 44 한 줄) · 고유 변수 196 스냅샷 · fonts.css npm(`pretendard@1.3.9`·`@fontsource/ibm-plex-mono@5.3.0`) · `src/tokens.ts` 는 생성물(`pnpm --filter @classmate/design-tokens generate`)
+  - [x] (4) tutor-core `823daed` — test 54 · 전이표 6상태×20입력(규칙 93) · 봉인 · FoldTimer(주입 시계) · fixtures 재생(state.changed 4건·snapshot 2건 일치)
+  - [x] (10) report-ui `0a9b5a3` — test 56(Playwright 포함) · `scripts/generate.mjs`(Node 24 타입 스트리핑, esbuild 불필요) · 허브 8칸 · 토큰 CSS 인라인(44px 치환)
+  - [x] (2) ui-base `dab3512` — test 65 · 22 jsx → 25 export · CSS 21 블록 동일성(Icon 은 css() 없음) · Icon 선별 맵 22 · `lucide-react@1.38.0`
+  - [x] (3) ui-classmate `d65735f` — test 88 · 10개 + internal/base 8개 · MarginNote children 계약 · AnswerCard compare/rows · Icon 맵 31
+  - [x] (5) tiro-connectors `904e2f3` — 확장 test 122(tiro 36→71) · flush() · tiro.hint_degraded · periodNumber 주입 · MCP/API 스텁 · 관찰기가 class 속성 변화를 놓치던 버그 수정
+  - [x] (6) meet-capture `a817def` — 확장 test 169(capture 42→89) · threshold/sampleIntervalMs · EncoderSurface 주입 · FrameSink/MemoryFrameSink · frame.store 봉투 + 1 MiB 가드
+  - [ ] (7) session-store · (8) providers · (9) transport — 워커 진행 중
+- [ ] 1라운드 후속(워커 메모 이월)
+  - [ ] 사이드패널(2라운드): CSS 적재 순서 = design-tokens → `@classmate/ui-base/styles.css` → `@classmate/ui-classmate/styles.css` · fonts.css 의 bare specifier `@import` 가 WXT/Vite 빌드에서 해석되는지 확인
+  - [ ] 사이드패널(2라운드): Alt+S 는 화면이 `e.code === "KeyS"` 로 듣기(StuckButton 은 kbd 안내만) · 접힘 타이머는 tutor-core FoldTimer · SourceFooter count 는 term 있을 때만 화면이 셈 · 대기 문구 3종은 tutor-core 상수 재사용 · 화면 분기는 TutorState 가 아니라 note 축
+  - [ ] ui-classmate internal/base → `@classmate/ui-base` 교체(index.ts 한 줄 + tsx 8개·base.css 삭제 + styles.css 첫 줄 + structure.test.ts 기대값) — 두 포팅의 어긋남은 검토 결과 참고
+  - [ ] Evidence 이름 대응표(디자인 verified/delayed ↔ 계약 confirmed/stale)를 2라운드에서 한 곳에 두기
+  - [ ] design-tokens 에 실제로 정의돼 있는지 확인: --transcript-1/2/3 · --term-* · --evidence-*-{bg,text,border} · --code-* · --panel-inset · --control-h-hero · 키프레임 cm-sweep/cm-breathe/cm-fade-in/cm-spin (컴포넌트 CSS 가 참조)
+  - [ ] report-ui: 토큰을 정본 파일 대신 `@classmate/design-tokens` 에서 읽기 · 오개념/값 흐름/변형과 허브 5절은 회상 기록이 붙으면 채움 · 프레임 출력 경로 규약 `frames/p<교시>/` 는 `src/assets.ts`
+  - [ ] tutor-core: 확장 쪽 Clock/Scheduler 구현체 · question.asked 에 봉인을 싣는 문맥 수집기 · `next` 입력의 실제 트리거 정의
+  - [ ] tiro: background 가 tiro.hint_degraded/selector_broken 을 connector.status payload 로 싣기 · tiro.stop 보내는 쪽(세션 관리) · classmate.periodNumber 쓰는 쪽(설정) · 새로고침 뒤 seq 이어 붙이기(세션 스토어) · 배너 등급(class-partial/structure) 결정
+  - [ ] capture: background.ts 의 frameSink 를 NativeHostFrameSink 로 교체 · frame.stored/error 응답 처리 · 재연결 정책 · 캡처 버튼이 생기면 onClicked 갈래·`classmateCapture` 콘솔 손잡이 제거
 - [x] 부채 해소(Gate D): `protocol::read_frame` 이 본문을 끝까지 읽은 UTF-8·JSON 오류는 `{"type":"error","message":"unreadable message"}` 로 답하고 계속 삶 · 헤더/본문 절단·상한 초과만 종료 (테스트 `serve_survives_a_frame_it_cannot_read`)
 - [ ] 부채: native-host `store::SESSION_EVENT_TYPES` 는 contracts `session-event.schema.json` enum 의 손 사본(테스트가 시험 시점에 대조) → Rust 타입 생성(typify)이 붙으면 생성물로 교체
 - [ ] 부채: rusqlite `=0.30.0` 고정(winsqlite3 기능이 0.31 부터 삭제) → MSVC 전환 시 `bundled` 로 바꾸고 고정 해제
