@@ -73,3 +73,10 @@
 - 다음 행동: 첫 호출 결과를 받으면 TASKS `[x]` · 대시보드 '내가 할 일' 3번 완료 → /batch 3라운드 계획(텍스트 입력창 · 점선 낱말 원천 · 캡처 버튼 · Phase 3)
 
 ## 2026-09-03 11:11 — heartbeat · 변경 없음 (사용자의 ask-once.mjs 첫 호출 결과 대기 · 세션 스냅샷만 갱신)
+
+## 2026-09-03 11:32 — 실제 첫 호출 성공(ask-once 8.2초 · Chrome 실전 9초) · 실측 결함 6건 · 3라운드 워커 시작
+- 변경: `docs/TASKS.md` 첫 호출 항목 `[x]`(관측값 포함) · 결함 6건을 항목으로 추가 · 대시보드(실측 단계 done · 내가 할 일 3·4번 done · 발견 3건 · 지금 문단) 재생성·재배포 · worktree `cc-wt/live-quality`(`batch-3/live-quality`) · `cc-wt/panel-ask`(`batch-3/panel-ask`) 생성
+- 검증: `%LOCALAPPDATA%\CorthexClassmate\sessions\2026-09-03-p2.sqlite` events 74건 — `connector.status tiro-share connected` 11:20:46 · `transcript.segment` ts-025~057 final · `question.asked` 11:24:27(confused, q-2026-09-03-p2-x9fb2ccfb-001) · `answer.completed` 11:24:36 provider claude(결론 "자료에는 new 직접 생성 관련 설명이 없어서 확인할 수 없어요") · ts-058 partial·partial·final 3회 append · `paused hint-class-partial` 11:27:19 → connected 11:29:02 → `paused selector-broken` 11:29:34 ; 사용자 PowerShell `ask-once.mjs --cli <claude.cmd>` 출력 `+8.2s answer.completed` · 성공 · 프레임 3개 ; 사용자 스크린샷 — 기록 1 · 자세히 화면 시각 02:20:46 · 후속 칩 3개가 결론 되풀이
+- 위험: 수업 중 확장을 갈아끼우면 사용자가 chrome://extensions 리로드 + 공유 탭 F5 를 해야 함 → 병합·커밋까지만 자동, 리로드 시점은 사용자 · 세션 모델 한도(fable) 소진 임박 — 진도는 이 파일·TASKS·`.kdh-sessions/`·대시보드에 있음
+- 미결·블로커: 3라운드 A·B 보고 대기 · Meet 캡처 버튼 · 복습 페이지 · selector-broken 원인은 DOM 로그가 있어야 알 수 있음
+- 다음 행동: 워커 보고 → opus 검토 → 병합(`git merge --no-ff`) → 전체 검증 → 로컬 커밋 → 대시보드 재배포

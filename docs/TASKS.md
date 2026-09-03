@@ -133,7 +133,13 @@
 - [ ] EXIT_RECALL → FEEDBACK → FADE_SUPPORT → DELAYED_CHECK
 - [ ] Tiro 최종본 교정 + 보정 사전
 - [ ] packages/report-ui 교시 상세 8 + 하루 허브 1
-- [ ] 자세히 화면 맨 아래 자유 텍스트 질문 입력창(`docs/master-prompt.md` §3-7) — `DetailScreen.tsx` 에 입력창 없음. 2026-09-03 대시보드 근거 대조에서 발견. 입력 문장은 `tutor.ask` 의 `question` 칸(≤4096바이트)으로
+- [ ] 자세히 화면 맨 아래 자유 텍스트 질문 입력창(`docs/master-prompt.md` §3-7) — `DetailScreen.tsx` 에 입력창 없음. 2026-09-03 대시보드 근거 대조에서 발견. 입력 문장은 `tutor.ask` 의 `question` 칸(≤4096바이트)으로 → 3라운드 B `batch-3/panel-ask`(입력 문장은 kind `free` · `question.text`)
+- [ ] 라이브 짐작 라벨이 fixture 고정(`golden-bundle.ts:165` "왜 new로 직접 만들면 안 되는지") — 2026-09-03 11:24 실전 질문이 그 문장으로 나가 답이 "자료에 없다". 붙잡은 문장 자체를 `question`(kind `free` · `text`)으로 보내거나 문장에서 짐작을 만들기 → 3라운드 B `batch-3/panel-ask`
+- [ ] 후속 칩(더 쉽게 · 왜 필요한데? · 방금 내용)이 모델을 부르지 않고 결론을 되풀이(`replay-store.ts:499` `followUp`) · 모델이 준 `answer.chips` 2개는 화면에 없음 — 2026-09-03 실전 스크린샷으로 확인. 실제 후속 `tutor.ask` 로, 기다리는 동안만 지금 문구 → 3라운드 B
+- [ ] partial 문단 중복 — `ts-058` 이 partial(11:20:56) · partial(11:22:17) · final(11:27:18) 로 3번 `event.append` 되고 패널에 같은 문단이 두 번 보임(탭 숨김 때 `flush()` 가 partial 을 세그먼트로 냄). 패널은 segment id 로 갈아끼우고, 워커는 같은 (id, state, text) 재전송을 거름 → 3라운드 A `batch-3/live-quality`(워커) · B(패널 스토어)
+- [ ] 자세히 화면 문단 시각이 UTC(02:20:46) — content script `arrivedAt` 이 `toISOString()` Z 이고 `clock.ts` `clockOfIso` 가 오프셋을 무시. 패널에서 로컬 시각으로 → 3라운드 A
+- [ ] 기록 화면 바닥줄이 Meet·IntelliJ 도 "기록 중" 으로 고정(`history-view.ts:56`) — 연결 안 된 것은 `—` 로 → 3라운드 A
+- [ ] Tiro 공유 페이지가 `hint-class-partial`(11:27:19 · 11:29:02 복구) · `selector-broken`(11:29:34) 로 잠시 멈춤 — "다시 연결" 복구 여부 확인 · 깨졌을 때 DOM 모양(클래스 이름만, 본문 없이)을 워커 로그에 남겨 파서 보정 근거로 → 3라운드 A
 
 ## 사람이 할 일 (대기)
 
@@ -149,6 +155,6 @@
 - [x] 로컬 도우미 레지스트리 등록 `node installer/windows/install.mjs --apply` — 2026-09-03 오전 사용자가 직접 실행 · `reg query HKCU\Software\Google\Chrome\NativeMessagingHosts\com.corthex.classmate` 가 `dist/com.corthex.classmate.json` 을 가리킴 (해제는 `--remove --apply`)
 - [!] 깨끗한 Windows 11 VM 에서 `docs/first-class.md` §2~§4 를 처음부터 1회 · 65분 리허설 1회 + §4-2 다섯 항목 기록
 - [x] Chrome 안 실제 왕복 손 시험 — 2026-09-03 10:49 dev 확장(id `meldoohgnggckjahcchmfjnngpafcjon`)을 얹고 사이드패널 '수업 · 2교시' 를 열자 도우미가 `%LOCALAPPDATA%\CorthexClassmate\sessions\2026-09-03-p2.sqlite` 를 만듦(패널 → 워커 → `connectNative` → `period.started` → SQLite). `tutor.ask` → `tutor.event` 는 실제 첫 호출 항목과 함께
-- [!] 실제 `claude` 첫 호출 — 길 A: 수업 중 Tiro 전사로 낱말 붙잡기 / 길 B: `installer/windows/ask-once.mjs --i-accept-cost --word 생성자`(`b5d73e9` · 플래그 없으면 거부 · 1999-01-02-p1 · 임시 폴더) — 2026-09-03 사용자 "모두 승인" · `ANTHROPIC_API_KEY` 없음 = 구독 한도 사용(과금 아님) · `CLASSMATE_CLAUDE_CLI` 를 절대 경로로 두고 질문 1건(승인 뒤 · `installer/windows/smoke-host.mjs` 는 자식 환경에서 CLI 변수를 지우고 임시 데이터 폴더·1999년 교시 id 로 돌므로 스모크로는 실제 CLI 가 불리지 않음, 검토 수정 `ff74cf3`) · Chrome Web Store 업로드 · 코드 서명 인증서 구입 여부
+- [x] 실제 `claude` 첫 호출 — **2026-09-03 완료** · 11:19 길 B `ask-once.mjs --i-accept-cost --model sonnet --word 생성자 --cli <claude.cmd>` → `answer.completed` 8.2초(sonnet · inferred · 1999-01-02-p1 임시 폴더) · 11:24:36 길 A Chrome 실전 — 2교시 Tiro 공유 탭 전사 33문단 → 문장 붙잡기 → `question.asked`(confused) → `answer.completed` 9초, 답이 전사 ts-057·058 을 인용해 "자료에 없다" 고 답함(질문이 fixture 짐작 문장이었기 때문 · 아래 3라운드 항목) — 원래 항목: 길 A: 수업 중 Tiro 전사로 낱말 붙잡기 / 길 B: `installer/windows/ask-once.mjs --i-accept-cost --word 생성자`(`b5d73e9` · 플래그 없으면 거부 · 1999-01-02-p1 · 임시 폴더) — 2026-09-03 사용자 "모두 승인" · `ANTHROPIC_API_KEY` 없음 = 구독 한도 사용(과금 아님) · `CLASSMATE_CLAUDE_CLI` 를 절대 경로로 두고 질문 1건(승인 뒤 · `installer/windows/smoke-host.mjs` 는 자식 환경에서 CLI 변수를 지우고 임시 데이터 폴더·1999년 교시 id 로 돌므로 스모크로는 실제 CLI 가 불리지 않음, 검토 수정 `ff74cf3`) · Chrome Web Store 업로드 · 코드 서명 인증서 구입 여부
 - [!] `design/_to_delete/` 삭제 여부
 - [!] `%TEMP%/ccsq`(스크래치 Rust target 폴더) 삭제 여부
