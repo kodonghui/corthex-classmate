@@ -86,6 +86,14 @@ export interface HintDegradedSignal {
   previousStateSource: StateSource | null;
   /** `'class'` 가 아니면 true 입니다. 즉 클래스 힌트가 한 겹이라도 사라진 상태입니다. */
   degraded: boolean;
+  /**
+   * 그 순간 DOM 이 어떤 모양이었는지 한 줄 요약입니다(`share-parser.ts` 의 `domShapeLine`).
+   *
+   * 개수와 클래스 이름만 들어 있고 **본문·주소·`id` 값은 들어 있지 않습니다**. 사람이 서비스
+   * 워커 콘솔에서 읽고 파서를 고치라고 있는 값이라, 계약 사건(`connector.status`)에는 싣지
+   * 않습니다. 요약을 못 잰 자리(옛 기록·시험이 손으로 만든 신호)에서는 없습니다.
+   */
+  shape?: string;
 }
 
 /** 선택자가 깨졌을 때 올리는 신호입니다. 본문 텍스트는 담지 않습니다. */
@@ -96,6 +104,13 @@ export interface SelectorBrokenSignal {
   emptyForMs: number;
   /** 마지막으로 문단을 잡았을 때 쓰던 선택자입니다. 처음부터 못 잡았으면 null. */
   lastMatchedSelector: string | null;
+  /**
+   * 그 순간 DOM 이 어떤 모양이었는지 한 줄 요약입니다(`share-parser.ts` 의 `domShapeLine`).
+   *
+   * 「무엇 때문에 못 잡았나」를 사람이 읽는 유일한 단서입니다. 개수와 클래스 이름만 들어
+   * 있고 **본문·주소·`id` 값은 들어 있지 않습니다**.
+   */
+  shape?: string;
 }
 
 /** 리스너를 떼는 함수입니다. */

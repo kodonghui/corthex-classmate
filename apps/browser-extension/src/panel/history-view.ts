@@ -1,8 +1,8 @@
 // 기록 화면(디자인 상태 G)이 그릴 값 덩어리.
 //
-//   ReplayState.moments ──┐
-//                         ├─▶ historyView() ──▶ 교시 묶음 · MomentRow 줄 · 바닥 안내 · "기록 중" 바닥줄
-//   도착한 answer.* 사건 ──┘
+//   ReplayState.moments             ─┐
+//   도착한 answer.* 사건            ─┼─▶ historyView() ──▶ 교시 묶음 · MomentRow 줄 · 바닥 안내 · 바닥줄
+//   ReplayState.machine.connectors  ─┘
 //
 // 규칙:
 //  - 자료는 `state.moments` 와 **도착한** 답(`lesson-view.answerOfQuestion`)에서만 만듭니다.
@@ -53,12 +53,51 @@ export const HISTORY_FOOT_NOTE = "붙잡은 순간은 수업이 끝나도 남아
 /** 아직 아무것도 붙잡지 않았을 때 교시 묶음 안에 뜨는 한 줄입니다(정본 dc.html). */
 export const HISTORY_EMPTY_TEXT = "아직 붙잡은 순간이 없어요";
 
-/** 기록 화면의 바닥줄은 나이 대신 "기록 중" 만 보여 줍니다(정본). */
-const RECORDING_SOURCES: readonly FooterSource[] = [
-  { key: "tiro", ago: "기록 중" },
-  { key: "meet", ago: "기록 중" },
-  { key: "intellij", ago: "기록 중" },
-];
+/**
+ * 기록 화면의 바닥줄은 **나이 대신 형편**을 보여 줍니다(정본 HistoryScreen.jsx).
+ *
+ * 예전에는 세 칸이 모두 `"기록 중"` 으로 못 박혀 있었습니다. 실측(2026-09-03 2교시)에서
+ * Meet 도 IntelliJ 도 붙지 않았는데 바닥줄만 「Meet 기록 중 · IntelliJ 기록 중」 이라
+ * 적혀 있었습니다. 화면이 사실이 아닌 말을 하면 사람은 다음부터 그 줄을 안 읽습니다.
+ *
+ * | 커넥터 형편 | 글자 | 점 |
+ * |---|---|---|
+ * | `connected` | `기록 중` | 초록(live) |
+ * | `paused` | `잠시 멈춤` | 호박 |
+ * | `off` | `—` | 빨강 |
+ * | 아직 아무 보고도 없음 | `—` | 회색(idle) |
+ *
+ * 마지막 줄을 `off` 와 나누는 이유: 패널을 연 첫 순간에는 어느 커넥터도 아직 자기 형편을
+ * 알리지 않았습니다. 그것을 빨간 점으로 그리면 시작도 안 한 것을 고장이라고 말하게 됩니다
+ * (`lesson-view.ts` 의 `tiroPaused` 도 같은 이유로 "없음" 을 멈춤으로 세지 않습니다).
+ */
+const FOOTER_KEYS = [
+  { key: "tiro", connector: "tiro-share" },
+  { key: "meet", connector: "meet-tab" },
+  { key: "intellij", connector: "intellij-mcp" },
+] as const;
+
+/** 커넥터 형편 하나를 바닥줄 한 칸으로 옮깁니다. */
+function footerSourceOf(key: string, status: string | undefined): FooterSource {
+  switch (status) {
+    case "connected":
+      return { key, state: "live", ago: "기록 중" };
+    case "paused":
+      return { key, state: "paused", ago: "잠시 멈춤" };
+    case "off":
+      return { key, state: "off", ago: "—" };
+    default:
+      // 아직 아무 보고도 안 왔거나(undefined) 모르는 낱말입니다. 지어내지 않고 비워 둡니다.
+      return { key, state: "idle", ago: "—" };
+  }
+}
+
+/** 바닥줄 세 칸입니다. 자료는 상태기계가 받아 적은 `connector.status` 뿐입니다. */
+function recordingSources(state: ReplayState): FooterSource[] {
+  return FOOTER_KEYS.map((entry) =>
+    footerSourceOf(entry.key, state.machine.connectors[entry.connector]),
+  );
+}
 
 /**
  * 줄 하나.
@@ -88,7 +127,7 @@ export function historyView(bundle: GoldenBundle, state: ReplayState): HistoryVi
     groups: [{ period: `${bundle.periodIndex}교시`, rows }],
     emptyText: HISTORY_EMPTY_TEXT,
     footNote: HISTORY_FOOT_NOTE,
-    sources: RECORDING_SOURCES,
+    sources: recordingSources(state),
     count: rows.length,
   };
 }

@@ -6,8 +6,13 @@
  * 스로틀되기 때문입니다 (docs/spikes/gate-a-tiro.md).
  *
  * 시각과 id 는 밖에서 넣습니다(`now`, `makeId`). 그래야 시험이 시계에 흔들리지 않습니다.
+ *
+ * 시각 문자열은 `toLocalIso` 로 **수업 시간대(KST) 오프셋 표기**(`+09:00`)로 적습니다.
+ * `toISOString()` 의 `Z` 표기를 쓰면 패널 시계가 UTC 시각을 그대로 잘라 써 9시간
+ * 어긋납니다(`src/tiro/iso-time.ts`).
  */
-import { parseSharePage } from './share-parser';
+import { toLocalIso } from './iso-time';
+import { domShapeLine, parseSharePage } from './share-parser';
 import type {
   HintDegradedSignal,
   ParseResult,
@@ -164,11 +169,15 @@ export function startShareObserver(options: ShareObserverOptions): ShareObserver
     lastStateSource = stateSource;
     // 처음 본 등급이 정상('class')이면 알릴 것이 없습니다. 처음부터 낮은 등급이면 한 번 알립니다.
     if (previous === null && stateSource === 'class') return;
+    const degraded = stateSource !== 'class';
     onHintDegraded?.({
-      at: at.toISOString(),
+      at: toLocalIso(at),
       stateSource,
       previousStateSource: previous,
-      degraded: stateSource !== 'class',
+      degraded,
+      // 등급이 떨어진 순간에만 DOM 모양을 잽니다. 회복(`class`)은 고칠 것이 없고,
+      // 훑을 때마다 재면 정상 수업에서도 DOM 을 통째로 도는 일이 잦아집니다.
+      ...(degraded ? { shape: domShapeLine(root) } : {}),
     });
   }
 
@@ -188,9 +197,12 @@ export function startShareObserver(options: ShareObserverOptions): ShareObserver
       if (!brokenReported && emptyForMs >= selectorBrokenGraceMs) {
         brokenReported = true;
         onSelectorBroken?.({
-          at: at.toISOString(),
+          at: toLocalIso(at),
           emptyForMs,
           lastMatchedSelector,
+          // 「무엇 때문에 못 잡았나」를 사람이 읽을 유일한 단서입니다. 깨짐 구간마다 한 번만
+          // 잽니다(`brokenReported` 가 위에서 막습니다).
+          shape: domShapeLine(root),
         });
       }
       return result;
@@ -214,7 +226,7 @@ export function startShareObserver(options: ShareObserverOptions): ShareObserver
           seq: seqValue,
           text: paragraph.text,
           state: 'final',
-          arrivedAt: at.toISOString(),
+          arrivedAt: toLocalIso(at),
           source: 'tiro-share',
         });
         continue;
@@ -228,7 +240,7 @@ export function startShareObserver(options: ShareObserverOptions): ShareObserver
         periodId,
         index: paragraph.index,
         text: paragraph.text,
-        arrivedAt: at.toISOString(),
+        arrivedAt: toLocalIso(at),
       });
     }
 
@@ -263,7 +275,7 @@ export function startShareObserver(options: ShareObserverOptions): ShareObserver
         state: 'partial',
         // 도착 시각은 flush 를 부른 시각입니다. 공유 페이지에는 녹음 중 문단 시각이 없어
         // spokenAt 은 붙이지 않습니다(계약에서 선택 항목입니다).
-        arrivedAt: at.toISOString(),
+        arrivedAt: toLocalIso(at),
         source: 'tiro-share',
       };
       flushed.push(segment);

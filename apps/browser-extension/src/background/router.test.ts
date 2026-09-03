@@ -72,6 +72,8 @@ interface Harness {
   controls: { tiro: number; capture: number };
   reconnects: number;
   warnings: string[];
+  /** 서비스 워커 콘솔로 나간 DOM 모양 요약입니다. `[이유, 요약]` 짝입니다. */
+  shapeWarnings: [string, string][];
   log: PeriodLog;
   /** 끝난 교시들입니다. `onPeriodEnd` 훅이 여기 담습니다. */
   endedPeriods: string[];
@@ -89,6 +91,7 @@ interface HarnessOptions {
 function makeHarness(settings: Partial<ClassmateSettings> = {}, options: HarnessOptions = {}): Harness {
   const sent: HostEnvelope[] = [];
   const warnings: string[] = [];
+  const shapeWarnings: [string, string][] = [];
   const controls = { tiro: 0, capture: 0 };
   const queuedReplies: HostSendResult[] = [];
   const panel = new FakePanel();
@@ -132,6 +135,7 @@ function makeHarness(settings: Partial<ClassmateSettings> = {}, options: Harness
     ids: new EventIdFactory('1a2b3c4d'),
     now: () => NOW,
     warn: (message) => warnings.push(message),
+    warnShape: (reason, shape) => shapeWarnings.push([reason, shape]),
     onPeriodEnd: (periodId) => endedPeriods.push(periodId),
   });
 
@@ -150,6 +154,7 @@ function makeHarness(settings: Partial<ClassmateSettings> = {}, options: Harness
       return reconnects;
     },
     warnings,
+    shapeWarnings,
     log,
     endedPeriods,
     replyOnce: (result) => queuedReplies.push(result),
@@ -316,6 +321,55 @@ describe('Router · 들어온 말 → 나가는 것', () => {
     expect(status?.payload).toEqual({ connector: 'tiro-share', state: 'paused', reason: 'selector-broken' });
   });
 
+  it('멈춤 신호의 DOM 모양 요약은 콘솔에만 남고 계약 payload 에는 안 실립니다', async () => {
+    // 실측(2026-09-03 2교시)에서 selector-broken 이 떴는데 그때 페이지가 어떤 모양이었는지
+    // 기록이 없어 파서를 못 고쳤습니다. 요약은 남기되 사건 payload 는 그대로 둡니다.
+    const shape = '그릇 main · 문단 후보 12개 · 클래스 text-body×12';
+    await harness.router.handleRuntimeMessage({
+      type: 'tiro.selector_broken',
+      signal: { at: '2026-09-02T10:32:15+09:00', emptyForMs: 8000, lastMatchedSelector: null, shape },
+    });
+
+    expect(harness.shapeWarnings).toEqual([['selector-broken', shape]]);
+    const status = harness.appended().find((event) => event.type === 'connector.status');
+    expect(status?.payload).toEqual({ connector: 'tiro-share', state: 'paused', reason: 'selector-broken' });
+    expect(JSON.stringify(status?.payload)).not.toContain('문단 후보');
+  });
+
+  it('등급이 떨어진 신호도 요약을 남기고, 회복은 남기지 않습니다', async () => {
+    const shape = '그릇 main · 문단 후보 7개 · 클래스 whitespace-pre-wrap×7';
+    await harness.router.handleRuntimeMessage({
+      type: 'tiro.hint_degraded',
+      signal: {
+        at: '2026-09-02T10:32:10+09:00',
+        stateSource: 'structure',
+        previousStateSource: 'class',
+        degraded: true,
+        shape,
+      },
+    });
+    await harness.router.handleRuntimeMessage({
+      type: 'tiro.hint_degraded',
+      signal: {
+        at: '2026-09-02T10:32:20+09:00',
+        stateSource: 'class',
+        previousStateSource: 'structure',
+        degraded: false,
+      },
+    });
+
+    expect(harness.shapeWarnings).toEqual([['hint-structure', shape]]);
+  });
+
+  it('요약이 없는 옛 content script 의 신호는 조용히 넘어갑니다', async () => {
+    await harness.router.handleRuntimeMessage({
+      type: 'tiro.selector_broken',
+      signal: { at: '2026-09-02T10:32:15+09:00', emptyForMs: 8000, lastMatchedSelector: null },
+    });
+
+    expect(harness.shapeWarnings).toEqual([]);
+  });
+
   it('capture.stats → connector.status {meet-tab, …} 를 바뀔 때만 냅니다', async () => {
     const stats = {
       type: 'capture.stats',
@@ -364,6 +418,59 @@ describe('Router · 들어온 말 → 나가는 것', () => {
       .filter((event) => event.type === 'transcript.segment')
       .map((event) => event.payload['state']);
     expect(states).toEqual(['partial', 'final']);
+  });
+
+  it('같은 조각이 다시 와도 자란 때만 붙입니다 (partial → 같은 partial → 더 긴 partial → final → 같은 final)', async () => {
+    // 실측(2026-09-03 2교시)에서 조각 ts-058 이 partial · partial · final 로 세 번 붙었습니다.
+    // 탭이 숨겨질 때마다 content script 의 flush() 가 진행 중 문단을 partial 로 내보내기
+    // 때문입니다. 글자가 자란 것은 새 사실이니 남기고, 똑같은 것은 거릅니다.
+    const grow = (text: string, state: TranscriptSegment['state']): TranscriptSegment => ({
+      ...segment(58),
+      state,
+      text,
+    });
+    const short = '여기서 뭔가를 또 타이핑을';
+    const longer = '여기서 뭔가를 또 타이핑을 해 줘야 되는데';
+
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: grow(short, 'partial') });
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: grow(short, 'partial') });
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: grow(longer, 'partial') });
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: grow(longer, 'final') });
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: grow(longer, 'final') });
+
+    const appended = harness
+      .appended()
+      .filter((event) => event.type === 'transcript.segment')
+      .map((event) => [event.payload['state'], event.payload['segmentId']]);
+    expect(appended).toEqual([
+      ['partial', 'ts-p3-058'],
+      ['partial', 'ts-p3-058'],
+      ['final', 'ts-p3-058'],
+    ]);
+    // 사건 이름표는 매번 새로 짓습니다 — 도우미는 사건 id 로 중복을 거르므로,
+    // 같은 이름표를 다시 쓰면 자란 문단이 조용히 버려집니다.
+    const ids = harness
+      .appended()
+      .filter((event) => event.type === 'transcript.segment')
+      .map((event) => event.id);
+    expect(new Set(ids).size).toBe(3);
+
+    // 패널에도 이 3건이 그대로 갑니다. **여기서 보는 것은 라우터의 출력까지입니다** —
+    // 이 3건이 화면에서 한 줄로 합쳐지는지는 패널 스토어의 몫이고, 지금 스토어
+    // (`src/panel/replay-store.ts` 의 `pushSegment`)는 이미 아는 id 를 통째로 버려 뒤 2건이
+    // 화면에 오르지 못합니다(알려진 결함 · 패널 단위에서 upsert 로 고칩니다). 그러니 이 줄을
+    // 「화면에 한 줄로 보인다」의 근거로 읽으면 안 됩니다.
+    const toPanel = harness.panel.received.filter((message) => message.type === LIVE_SEGMENT);
+    expect(toPanel).toHaveLength(3);
+  });
+
+  it('교시가 바뀌면 본 조각 기억을 비웁니다', async () => {
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(1) });
+    await harness.router.endPeriod();
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(1) });
+
+    const transcripts = harness.appended().filter((event) => event.type === 'transcript.segment');
+    expect(transcripts).toHaveLength(2);
   });
 
   it('캡처가 끊겨도 전사 기록은 이어집니다', async () => {

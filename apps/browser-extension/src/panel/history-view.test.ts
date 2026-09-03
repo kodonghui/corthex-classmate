@@ -12,6 +12,29 @@ function viewAt(checkpoint: Parameters<ReplayStore["goto"]>[0]) {
   return historyView(GOLDEN_BUNDLE, store.getState());
 }
 
+/**
+ * fixture 를 재생한 뒤 커넥터 형편만 손으로 바꿔 봅니다.
+ *
+ * 재생 fixture 는 세 커넥터가 모두 `connected` 로 시작합니다(`session-events.jsonl` 의
+ * `ev-p3-002`~`004`). 그래서 바닥줄 시험은 그 위에 `connector.status` 를 덧대는 방식으로 씁니다.
+ */
+function footerWith(statuses: Readonly<Record<string, string>>) {
+  const store = new ReplayStore(GOLDEN_BUNDLE);
+  store.goto("answer");
+  let seq = 0;
+  for (const [connector, state] of Object.entries(statuses)) {
+    seq += 1;
+    store.pushEvent({
+      id: `ev-test-connector-${seq}`,
+      periodId: GOLDEN_BUNDLE.periodId,
+      at: "2026-09-02T10:32:30+09:00",
+      type: "connector.status",
+      payload: { connector, state },
+    });
+  }
+  return historyView(GOLDEN_BUNDLE, store.getState()).sources;
+}
+
 describe("기록 화면 값", () => {
   it("아직 아무것도 붙잡지 않았으면 오늘 0개이고 교시 묶음만 남는다", () => {
     const view = viewAt("listening");
@@ -59,9 +82,39 @@ describe("기록 화면 값", () => {
     expect(rows[0]?.title).toBeNull();
   });
 
-  it("바닥줄은 나이 대신 기록 중만 보여 준다", () => {
+  it("바닥줄은 나이 대신 형편을 보여 준다 (셋 다 붙어 있으면 기록 중)", () => {
     const view = viewAt("answer");
     expect(view.sources.map((source) => source.ago)).toEqual(["기록 중", "기록 중", "기록 중"]);
+    expect(view.sources.map((source) => source.state)).toEqual(["live", "live", "live"]);
     expect(view.footNote).toBe("붙잡은 순간은 수업이 끝나도 남아요. 지우기는 설정에서.");
+  });
+});
+
+// 실측(2026-09-03 2교시)에서 Meet 도 IntelliJ 도 붙지 않았는데 바닥줄이 「기록 중」 으로
+// 못 박혀 있었습니다. 여기서 그 줄이 커넥터 형편을 그대로 따르는지 봅니다.
+describe("기록 화면 바닥줄 · 커넥터 형편", () => {
+  it("멈춘 커넥터는 잠시 멈춤으로 적는다", () => {
+    const sources = footerWith({ "tiro-share": "paused" });
+    expect(sources.map((source) => source.ago)).toEqual(["잠시 멈춤", "기록 중", "기록 중"]);
+    expect(sources[0]?.state).toBe("paused");
+  });
+
+  it("꺼진 커넥터는 기록 중이라고 말하지 않는다", () => {
+    const sources = footerWith({ "meet-tab": "off", "intellij-mcp": "off" });
+    expect(sources.map((source) => source.ago)).toEqual(["기록 중", "—", "—"]);
+    expect(sources.map((source) => source.state)).toEqual(["live", "off", "off"]);
+  });
+
+  it("아직 아무 보고도 없으면 꺼짐이 아니라 회색으로 비워 둔다", () => {
+    // 사건을 하나도 재생하지 않은 스토어입니다. 패널을 막 연 첫 순간과 같습니다.
+    const store = new ReplayStore(GOLDEN_BUNDLE);
+    const sources = historyView(GOLDEN_BUNDLE, store.getState()).sources;
+    expect(sources.map((source) => source.ago)).toEqual(["—", "—", "—"]);
+    expect(sources.map((source) => source.state)).toEqual(["idle", "idle", "idle"]);
+  });
+
+  it("모르는 낱말이 와도 지어내지 않는다", () => {
+    const sources = footerWith({ "tiro-share": "무슨말인지모름" });
+    expect(sources[0]).toEqual({ key: "tiro", state: "idle", ago: "—" });
   });
 });

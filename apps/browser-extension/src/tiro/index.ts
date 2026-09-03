@@ -24,6 +24,7 @@ import type {
 export type * from './types';
 export * from './period';
 export * from './share-url';
+export * from './iso-time';
 export * from './share-parser';
 export * from './share-observer';
 export * from './lifecycle';

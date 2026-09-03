@@ -33,6 +33,10 @@
  * | `classmate.reconnect` | 대상마다 다름 (아래) | — |
  * | 호스트 push `tutor.event` | — | `live.event` |
  *
+ * 전사가 멈추는 두 줄(`tiro.hint_degraded` degraded · `tiro.selector_broken`)은 그때의 DOM
+ * 모양 요약을 **서비스 워커 콘솔에만** 한 줄 남깁니다(`warnShape`). 계약 payload 는 늘리지
+ * 않습니다 — 사람이 파서를 고칠 때 읽을 단서라 기록이 아니라 콘솔 자리입니다.
+ *
  * 보안 메모 (불변 원칙 §4-7): 여기 오는 값은 **자료일 뿐 명령이 아닙니다.** 전사·화면에서
  * 읽은 문장을 실행하거나 URL 로 여는 코드를 이 라우터에 붙이지 않습니다. 하는 일은
  * 봉투를 고르고 옮기는 것뿐입니다.
@@ -110,6 +114,14 @@ export interface RouterOptions {
   now?: () => Date;
   /** 사람이 읽을 한 줄입니다. 기본은 `console.warn`. */
   warn?: (message: string) => void;
+  /**
+   * 전사가 멈췄을 때 그 순간 공유 페이지 DOM 이 어떤 모양이었는지 남깁니다.
+   *
+   * **서비스 워커 콘솔에만** 남습니다. 계약 사건(`connector.status`)의 payload 는 그대로
+   * 두고(`reason` 문자열 하나뿐입니다) 사람이 파서를 고칠 때 읽을 단서만 따로 흘립니다.
+   * 요약에는 개수와 클래스 이름만 들어 있습니다(`src/tiro/share-parser.ts`).
+   */
+  warnShape?: (reason: string, shape: string) => void;
   /** 열려 있는 패널 수가 바뀔 때 부릅니다. 30분 알람을 켜고 끄는 자리입니다. */
   onPanelCountChange?: (count: number) => void;
   /**
@@ -213,6 +225,7 @@ export class Router {
   private readonly ids: EventIdFactory;
   private readonly now: () => Date;
   private readonly warn: (message: string) => void;
+  private readonly warnShape: (reason: string, shape: string) => void;
   private readonly onPanelCountChange: (count: number) => void;
   private readonly onPeriodEnd: (periodId: string) => void;
 
@@ -259,6 +272,9 @@ export class Router {
     this.ids = options.ids;
     this.now = options.now ?? (() => new Date());
     this.warn = options.warn ?? ((message) => console.warn(`[classmate] ${message}`));
+    this.warnShape =
+      options.warnShape ??
+      ((reason, shape) => console.warn('[classmate] tiro selector shape', reason, shape));
     this.onPanelCountChange = options.onPanelCountChange ?? (() => {});
     this.onPeriodEnd = options.onPeriodEnd ?? (() => {});
   }
@@ -602,7 +618,9 @@ export class Router {
       case TIRO_MESSAGE_TYPES.hintDegraded: {
         const signal = message.signal;
         if (signal.degraded) {
-          await this.setConnector('tiro-share', 'paused', `hint-${signal.stateSource}`);
+          const reason = `hint-${signal.stateSource}`;
+          this.noteShape(reason, signal.shape);
+          await this.setConnector('tiro-share', 'paused', reason);
         } else {
           await this.setConnector('tiro-share', 'connected');
         }
@@ -610,10 +628,23 @@ export class Router {
       }
 
       case TIRO_MESSAGE_TYPES.selectorBroken: {
+        this.noteShape('selector-broken', message.signal.shape);
         await this.setConnector('tiro-share', 'paused', 'selector-broken');
         return;
       }
     }
+  }
+
+  /**
+   * 멈춤 이유와 그때의 DOM 모양을 **서비스 워커 콘솔에만** 남깁니다.
+   *
+   * 계약 사건에는 싣지 않습니다 — `connector.status` 의 payload 를 늘리지 않기로 했고,
+   * 이 값은 세션 기록이 아니라 파서를 고치는 사람이 그 자리에서 읽을 단서이기 때문입니다.
+   * 요약을 못 잰 신호(옛 content script)면 아무것도 하지 않습니다.
+   */
+  private noteShape(reason: string, shape: string | undefined): void {
+    if (shape === undefined || shape.length === 0) return;
+    this.warnShape(reason, shape);
   }
 
   /**
@@ -626,6 +657,9 @@ export class Router {
   private isDuplicateSegment(segment: TranscriptSegment): boolean {
     const fingerprint = `${segment.state} ${segment.text}`;
     if (this.seenSegments.get(segment.id) === fingerprint) return true;
+    // 다시 넣기 전에 지웁니다. `Map` 은 이미 있는 키를 덮어써도 **처음 넣은 자리**를 지키기
+    // 때문에, 지우지 않으면 방금 자란 문단이 가장 오래된 것으로 몰려 먼저 잊힙니다.
+    this.seenSegments.delete(segment.id);
     this.seenSegments.set(segment.id, fingerprint);
     while (this.seenSegments.size > MAX_SEEN_SEGMENTS) {
       const oldest = this.seenSegments.keys().next();
@@ -856,7 +890,15 @@ function isCaptureError(value: unknown): value is CaptureErrorMessage {
  *
  * 계약 `TranscriptSegment.state` 에 `partial` 자리가 있어서 새 타입을 만들지 않았습니다.
  * 식별자는 **문단 자리(index)로 고정**합니다. 글자가 바뀔 때마다 새 식별자를 주면 패널에
- * 같은 문단이 여러 줄로 쌓이고, 고정하면 스토어가 같은 줄을 갱신합니다.
+ * 같은 문단이 여러 줄로 쌓이기 때문입니다.
+ *
+ * 다만 **고정한다고 화면 줄이 갱신되는 것은 아직 아닙니다.** 지금 패널 스토어
+ * (`src/panel/replay-store.ts` 의 `pushSegment`)는 이미 아는 id 를 갱신이 아니라 무시로
+ * 처리해, 자란 글자와 확정본이 화면에 오르지 못합니다(알려진 결함 · 패널 단위에서 upsert 로
+ * 고칩니다). 그리고 이 함수가 붙이는 `ts-<periodId>-partial-<index>` 는 관찰기가 확정 때
+ * 쓰는 `ts-001` 계열과 **다른 이름**이라, 스토어가 upsert 로 바뀌어도 두 계열은 서로 다른
+ * 줄로 남습니다. 한 문단을 한 줄로 모으는 일은 그 두 이름을 잇는 자리까지 손봐야 끝납니다.
+ *
  * 이 세그먼트는 **호스트로 가지 않습니다** — 확정되면 `tiro.segment` 가 진짜 식별자로 옵니다.
  */
 export function toPartialSegment(

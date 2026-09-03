@@ -160,3 +160,122 @@ export function parseSharePage(root: ParentNode): ParseResult {
     stateSource,
   };
 }
+
+// ── 깨졌을 때 무엇을 보나 ─────────────────────────────────────────────────
+
+/**
+ * 선택자가 깨졌다고 알릴 때 함께 남기는 **DOM 모양 요약**입니다.
+ *
+ * 왜 필요한가: 실측(2026-09-03 2교시)에서 `selector-broken` 이 떴는데, 그때 페이지가 어떤
+ * 모양이었는지 기록이 없어 파서를 어떻게 고쳐야 하는지 알 수 없었습니다. 다음 배포에서
+ * 클래스 이름이 무엇으로 바뀌었는지 알면 `PARAGRAPH_SELECTORS` 한 줄로 고칠 수 있습니다.
+ *
+ * **본문·주소·`id` 값은 담지 않습니다** (불변 원칙 §4-3). 담는 것은 개수와 클래스 이름뿐입니다.
+ */
+export interface DomShape {
+  /**
+   * 문단이 될 만한 노드 수입니다. 글자를 품은 **가장 안쪽** 요소만 셉니다.
+   *
+   * 아주 큰 페이지에서는 앞에서부터 `MAX_SCANNED_ELEMENTS` 개까지만 보므로 실제보다 작을 수
+   * 있습니다. 이 값은 정확한 셈이 아니라 "몇 개쯤 있나" 를 사람이 가늠하는 눈금입니다.
+   */
+  paragraphNodes: number;
+  /** 그 노드들에 붙은 클래스 이름 상위 5개와 개수입니다. */
+  topClasses: readonly { name: string; count: number }[];
+  /** 문단을 담고 있(었)을 그릇의 태그 이름입니다. 못 찾으면 null 입니다. */
+  containerTag: string | null;
+}
+
+/** 요약 한 줄의 길이 상한입니다. 서비스 워커 콘솔 한 줄로 읽히는 길이입니다. */
+export const DOM_SHAPE_MAX_CHARS = 500;
+
+/** 모양을 훑을 때 보는 요소 수 상한입니다. 깨진 페이지가 커도 훑기가 오래 걸리지 않게 합니다. */
+const MAX_SCANNED_ELEMENTS = 3000;
+
+/** 상위 몇 개 클래스를 남기는지입니다. */
+const TOP_CLASS_COUNT = 5;
+
+/**
+ * 그대로 남겨도 되는 클래스 이름인지입니다.
+ *
+ * Tailwind 의 보통 유틸리티(`font-medium` · `md:leading-7` · `w-1/2`)는 통과하고,
+ * 대괄호가 든 임의값(`bg-[url('/img/a.png')]`)은 막습니다. 임의값 안에는 주소나 본문이
+ * 들어갈 수 있어, 이름만 남긴다는 약속이 거기서 깨집니다.
+ */
+const SAFE_CLASS_NAME = /^[A-Za-z0-9_:./-]{1,40}$/;
+
+/** 대괄호 임의값처럼 그대로 남길 수 없는 클래스를 한 자리에 모아 세는 이름입니다. */
+export const ARBITRARY_CLASS_LABEL = '(임의값)';
+
+/** 요소가 글자를 품고 있는지입니다. */
+function hasText(element: Element): boolean {
+  return (element.textContent ?? '').trim().length > 0;
+}
+
+/**
+ * 문단이 될 만한 노드를 찾습니다. **글자를 품은 가장 안쪽 요소**만 셉니다.
+ *
+ * 조상까지 세면 페이지 하나가 노드 수백 개로 보여 숫자가 뜻을 잃습니다.
+ */
+function candidateParagraphs(container: ParentNode): Element[] {
+  const all = Array.from(container.querySelectorAll('*')).slice(0, MAX_SCANNED_ELEMENTS);
+  return all.filter(
+    (element) =>
+      hasText(element) && !Array.from(element.children).some((child) => hasText(child)),
+  );
+}
+
+/** 클래스 이름 하나를 남길 수 있는 모양으로 다듬습니다. */
+function safeClassName(token: string): string {
+  return SAFE_CLASS_NAME.test(token) ? token : ARBITRARY_CLASS_LABEL;
+}
+
+/**
+ * 지금 DOM 이 어떤 모양인지 세어 봅니다. 읽기만 하고 고치지 않습니다.
+ *
+ * 그릇(`containerTag`)은 `main` 이 있으면 그것이고, 없으면 루트의 태그 이름입니다.
+ * `main` 이 사라진 배포에서는 이 한 글자가 곧 원인입니다.
+ */
+export function describeDomShape(root: ParentNode): DomShape {
+  const main = root.querySelector('main');
+  const container: ParentNode = main ?? root;
+  // `Document` 에는 `tagName` 이 없습니다. 그때는 그릇 이름을 모른다고 적습니다.
+  const containerTag =
+    main !== null ? main.tagName.toLowerCase() : ((root as Partial<Element>).tagName?.toLowerCase() ?? null);
+
+  const paragraphs = candidateParagraphs(container);
+  const counts = new Map<string, number>();
+  for (const element of paragraphs) {
+    for (const token of classListOf(element)) {
+      const name = safeClassName(token);
+      counts.set(name, (counts.get(name) ?? 0) + 1);
+    }
+  }
+
+  const topClasses = [...counts.entries()]
+    // 개수가 같으면 이름 순서로 갈라, 같은 페이지를 두 번 재면 같은 답이 나오게 합니다.
+    .sort((a, b) => (b[1] - a[1] !== 0 ? b[1] - a[1] : a[0].localeCompare(b[0])))
+    .slice(0, TOP_CLASS_COUNT)
+    .map(([name, count]) => ({ name, count }));
+
+  return { paragraphNodes: paragraphs.length, topClasses, containerTag };
+}
+
+/**
+ * 요약을 콘솔 한 줄로 적습니다. 길면 `…` 로 자릅니다.
+ *
+ *     "그릇 main · 문단 후보 12개 · 클래스 whitespace-pre-wrap×12 font-normal×11 leading-7×12"
+ */
+export function formatDomShape(shape: DomShape): string {
+  const classes =
+    shape.topClasses.length === 0
+      ? '없음'
+      : shape.topClasses.map((entry) => `${entry.name}×${entry.count}`).join(' ');
+  const line = `그릇 ${shape.containerTag ?? '없음'} · 문단 후보 ${shape.paragraphNodes}개 · 클래스 ${classes}`;
+  return line.length <= DOM_SHAPE_MAX_CHARS ? line : `${line.slice(0, DOM_SHAPE_MAX_CHARS - 1)}…`;
+}
+
+/** 지금 DOM 을 재서 곧바로 콘솔 한 줄로 적습니다. 신호를 낼 때 쓰는 지름길입니다. */
+export function domShapeLine(root: ParentNode): string {
+  return formatDomShape(describeDomShape(root));
+}

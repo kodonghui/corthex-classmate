@@ -1,13 +1,16 @@
 // @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { toLocalIso } from './iso-time';
 import { defaultMakeId, startShareObserver } from './share-observer';
 import {
   createApiConnector,
   createMcpConnector,
   createShareConnector,
   NOT_IMPLEMENTED_CODE,
+  stopWithFlush,
 } from './index';
+import { DOM_SHAPE_MAX_CHARS, domShapeLine } from './share-parser';
 import type {
   HintDegradedSignal,
   SelectorBrokenSignal,
@@ -124,7 +127,8 @@ describe('startShareObserver — 첫 스캔', () => {
       onSegment: (segment) => segments.push(segment),
     });
 
-    const expected = new Date('2026-09-02T10:32:00+09:00').toISOString();
+    // 시각은 UTC(`Z`) 가 아니라 수업 시간대(KST) 오프셋 표기로 적힙니다(`toLocalIso`).
+    const expected = toLocalIso(new Date('2026-09-02T10:32:00+09:00'));
     expect(segments.map((s) => s.arrivedAt)).toEqual([expected, expected, expected, expected]);
 
     handle.stop();
@@ -173,7 +177,7 @@ describe('startShareObserver — 진행 → 확정 전이', () => {
     expect(segments[4]?.seq).toBe(5);
     expect(segments[4]?.id).toBe('ts-005');
     expect(segments[4]?.text).toBe('컨테이너가 대신 만들어 주면 우리는 언어테이션 하나만');
-    expect(segments[4]?.arrivedAt).toBe(new Date('2026-09-02T10:32:04+09:00').toISOString());
+    expect(segments[4]?.arrivedAt).toBe(toLocalIso(new Date('2026-09-02T10:32:04+09:00')));
 
     // 4) 몇 번을 더 훑어도 이미 낸 문단은 다시 나오지 않습니다.
     handle.scanNow();
@@ -397,6 +401,83 @@ describe('startShareObserver — 선택자 깨짐', () => {
     expect(signals[1]?.lastMatchedSelector).toBe('main div.whitespace-pre-wrap');
 
     handle.stop();
+  });
+
+  it('깨짐 신호에 그때의 DOM 모양 요약이 함께 실립니다', () => {
+    // 실측(2026-09-03 2교시)에서 selector-broken 이 떴는데 그때 페이지 모양을 몰라 파서를
+    // 못 고쳤습니다. 요약에는 개수와 클래스 이름만 들어 있습니다(본문·주소·id 없음).
+    document.body.innerHTML = brokenHtml;
+    const clock = fakeClock('2026-09-02T10:32:00+09:00');
+    const signals: SelectorBrokenSignal[] = [];
+
+    const handle = startShareObserver({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: clock.now,
+      selectorBrokenGraceMs: 0,
+      onSegment: () => {},
+      onSelectorBroken: (signal) => signals.push(signal),
+    });
+
+    const shape = signals[0]?.shape ?? '';
+    expect(shape).toBe(domShapeLine(document.body));
+    expect(shape).toContain('그릇 main');
+    expect(shape).toContain('문단 후보 3개');
+    expect(shape).toContain('tds-transcript-line×3');
+    // 본문 문장은 절대 들어가지 않습니다.
+    expect(shape).not.toContain('주문 서비스');
+    expect(shape.length).toBeLessThanOrEqual(DOM_SHAPE_MAX_CHARS);
+
+    handle.stop();
+  });
+
+  it('「다시 연결」로 관찰기를 새로 세우면 깨졌던 페이지도 다시 읽습니다', () => {
+    // 사람이 패널에서 「전사 다시 연결」을 누르면 서비스 워커가 content script 에
+    // `tiro.stop` → `tiro.start` 를 보냅니다. content script 는 그 두 말을
+    // `stopWithFlush(connector)` 와 `connector.start()` 로 옮깁니다. 여기서 그 두 줄을
+    // 그대로 부르고, 멈춘 뒤 다시 시작한 관찰기가 **새로** 파싱하는지 봅니다.
+    //
+    // 여기서 보는 것은 **관찰기까지**입니다. 이 시험이 통과한다고 패널 화면의 줄까지
+    // 되살아난다는 뜻은 아닙니다 — 재시작 뒤 화면이 어디서 막히는지는 README 의
+    // 「다시 시작하면 `seq` 가 1부터 다시 셉니다」에 그림으로 적어 두었습니다.
+    document.body.innerHTML = brokenHtml;
+    const clock = fakeClock('2026-09-02T10:32:00+09:00');
+    const segments: TranscriptSegment[] = [];
+    const broken: SelectorBrokenSignal[] = [];
+
+    const connector = createShareConnector({
+      root: document.body,
+      periodId: PERIOD_ID,
+      now: clock.now,
+      selectorBrokenGraceMs: 0,
+    });
+    connector.onSegment((segment) => segments.push(segment));
+    connector.onSelectorBroken((signal) => broken.push(signal));
+
+    connector.start();
+    expect(broken).toHaveLength(1);
+    expect(segments).toHaveLength(0);
+
+    // tiro.stop — 진행 중 문단을 건지고 관찰을 멈춥니다. 깨진 화면이라 건질 것이 없습니다.
+    clock.advance(1_000);
+    stopWithFlush(connector);
+    expect(segments).toHaveLength(0);
+
+    // 그 사이 페이지가 정상 모양으로 돌아왔습니다(다음 배포·새로고침).
+    clock.advance(1_000);
+    document.body.innerHTML = recordingHtml;
+
+    // tiro.start — 관찰기를 새로 세웁니다. 붙자마자 한 번 훑으므로 곧바로 문단이 나옵니다.
+    connector.start();
+    expect(segments).toHaveLength(4);
+    // 순번은 1 부터 다시 셉니다. **일부러 그렇습니다** — 같은 문단이 같은 id 로 다시 와야
+    // 라우터가 새로고침 중복을 알아보고 거릅니다(`router.test.ts` 의 새로고침 시험).
+    // 이어 세면 화면에 이미 있는 문단 전부가 새 id 로 다시 올라와 전사가 두 벌이 됩니다.
+    expect(segments[0]?.seq).toBe(1);
+    // 구독은 살아 있어야 합니다. 끊겨 있으면 전사가 조용히 사라집니다.
+    expect(broken).toHaveLength(1);
+
+    connector.stop();
   });
 });
 
@@ -633,7 +714,7 @@ describe('startShareObserver — flush()', () => {
     expect(partial?.text).toBe('컨테이너가 대신 만들어 주면 우리는 언어테이션');
     expect(partial?.source).toBe('tiro-share');
     // 도착 시각은 flush 를 부른 시각입니다.
-    expect(partial?.arrivedAt).toBe(new Date('2026-09-02T10:32:01+09:00').toISOString());
+    expect(partial?.arrivedAt).toBe(toLocalIso(new Date('2026-09-02T10:32:01+09:00')));
     // 공유 페이지에는 녹음 중 문단 시각이 없으므로 spokenAt 은 아예 붙이지 않습니다.
     expect(partial && 'spokenAt' in partial).toBe(false);
     // 확정 세그먼트와 같은 자리(onSegment)로도 나갑니다.
@@ -862,7 +943,10 @@ describe('startShareObserver — 판별 근거 등급 전이', () => {
     expect(signals[0]?.stateSource).toBe('structure');
     expect(signals[0]?.previousStateSource).toBe('class');
     expect(signals[0]?.degraded).toBe(true);
-    expect(signals[0]?.at).toBe(new Date('2026-09-02T10:32:01+09:00').toISOString());
+    expect(signals[0]?.at).toBe(toLocalIso(new Date('2026-09-02T10:32:01+09:00')));
+    // 등급이 떨어진 순간에는 그때의 DOM 모양 요약이 함께 실립니다(개수·클래스 이름만).
+    expect(signals[0]?.shape).toBe(domShapeLine(document.body));
+    expect(signals[0]?.shape).toContain('그릇 main');
 
     // 같은 등급으로 문단이 계속 쌓여도 추가 경보는 없습니다.
     clock.advance(1_000);
@@ -901,6 +985,8 @@ describe('startShareObserver — 판별 근거 등급 전이', () => {
     expect(signals[1]?.stateSource).toBe('class');
     expect(signals[1]?.previousStateSource).toBe('structure');
     expect(signals[1]?.degraded).toBe(false);
+    // 회복은 고칠 것이 없으므로 DOM 모양을 재지 않습니다.
+    expect(signals[1]?.shape).toBeUndefined();
 
     handle.stop();
   });
