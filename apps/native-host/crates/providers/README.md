@@ -1,6 +1,6 @@
 # classmate-providers
 
-튜터 제공자 어댑터입니다. `TutorProvider` trait 하나 뒤에 두 제공자를 붙입니다. **Claude CLI 제공자**는 호출자가 준 실행 파일 경로를 `-p --output-format stream-json --verbose --include-partial-messages` 로 띄우고, 질문과 문맥은 명령행이 아니라 **stdin** 으로만 흘려보낸 뒤 stdout 을 줄 단위 stream-json 으로 읽어 `Status → TextDelta… → Usage` 순서의 이벤트로 바꿉니다. 답은 다 만들어지기 전에 조각(`stream_event`)으로 먼저 흐릅니다. 제한 시간을 넘기면 `taskkill /PID <pid> /T /F` 로 프로세스를 **트리째** 끊고 stderr 꼬리를 실은 `Timeout` 을 돌려줍니다. **Codex 제공자**는 사용 한도 소진으로 실측을 못 해 지금은 `NotImplemented` 스텁이고, app-server stdio 프로토콜 메모와 실측 후 채울 칸만 `src/codex.rs` 주석에 적어 두었습니다. 앞단의 `ProviderQueue` 는 작업 스레드 하나로 **한 번에 한 건만** CLI 를 띄우고 대기 줄 상한(기본 4)을 넘으면 곧바로 거절합니다. 자격증명은 어디에도 저장·전송하지 않고(불변 원칙 §4-2) 로그인은 각 CLI 가 스스로 한 것을 그대로 씁니다. 시험은 실제 CLI 를 **0회** 부르고 언제나 `node tests/fake-claude.mjs` 만 띄웁니다. 검증은 `cargo test -p classmate-providers --manifest-path apps/native-host/Cargo.toml` 입니다(49개 통과).
+튜터 제공자 어댑터입니다. `TutorProvider` trait 하나 뒤에 두 제공자를 붙입니다. **Claude CLI 제공자**는 호출자가 준 실행 파일 경로를 `-p --output-format stream-json --verbose --include-partial-messages` 로 띄우고, 질문과 문맥은 명령행이 아니라 **stdin** 으로만 흘려보낸 뒤 stdout 을 줄 단위 stream-json 으로 읽어 `Status → TextDelta… → Usage` 순서의 이벤트로 바꿉니다. 답은 다 만들어지기 전에 조각(`stream_event`)으로 먼저 흐릅니다. 제한 시간을 넘기면 `taskkill /PID <pid> /T /F` 로 프로세스를 **트리째** 끊고 stderr 꼬리를 실은 `Timeout` 을 돌려줍니다. 답을 다 받은 뒤 자식이 끝나기를 기다리는 자리에도 같은 마감이 걸려 있어, 자식이 stdout 을 닫고도 살아 있으면 트리째 끊고 나온 답으로 회차를 마칩니다(회차가 영원히 잠기지 않습니다). **Codex 제공자**는 사용 한도 소진으로 실측을 못 해 지금은 `NotImplemented` 스텁이고, app-server stdio 프로토콜 메모와 실측 후 채울 칸만 `src/codex.rs` 주석에 적어 두었습니다. 앞단의 `ProviderQueue` 는 작업 스레드 하나로 **한 번에 한 건만** CLI 를 띄우고 대기 줄 상한(기본 4)을 넘으면 곧바로 거절합니다. 자격증명은 어디에도 저장·전송하지 않고(불변 원칙 §4-2) 로그인은 각 CLI 가 스스로 한 것을 그대로 씁니다. 시험은 실제 CLI 를 **0회** 부르고 언제나 `node tests/fake-claude.mjs` 만 띄웁니다. 검증은 `cargo test -p classmate-providers --manifest-path apps/native-host/Cargo.toml` 입니다 — 시험 수는 여기에 적지 않습니다(적어 두면 늘 때마다 어긋납니다).
 
 ## 1. 무엇이 어디에 있나
 
@@ -87,7 +87,7 @@ let req = AskRequest::new(snapshot, question, timeout).with_materials(materials)
 
 ### 3-2. 부분 스트리밍 — `--include-partial-messages`
 
-Gate C2 실측에서 첫 글자까지 p50 6.6초, CLI 를 띄우는 데만 4~6초가 들었습니다(`docs/spikes/gate-c2-provider-latency.md`). 그 시간 내내 화면이 비어 있지 않게 조각을 먼저 받습니다.
+Gate C2 실측에서 첫 글자까지 p50 6.6초, CLI 를 띄우는 데만 4~6초가 들었습니다(`docs/spikes/gate-c2-provider.md`). 그 시간 내내 화면이 비어 있지 않게 조각을 먼저 받습니다.
 
 ```text
 {"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"조각"}}}

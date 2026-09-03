@@ -24,6 +24,9 @@
 //   --close-stdin-early    프롬프트를 읽지 않고 stdin 을 먼저 닫습니다(부모의 BrokenPipe 를 만듭니다).
 //   --echo-stdin           받은 stdin 본문과 자기 argv 를 답변 조각으로 되돌려 보냅니다.
 //   --partial              답을 stream_event 청크로 먼저 흘린 뒤 assistant 전체 본문과 result 를 냅니다.
+//   --break-stdout-and-linger  답을 다 낸 뒤 UTF-8 이 아닌 바이트 한 줄을 흘리고 끝나지 않습니다.
+//                          부모의 stdout 읽기는 그 줄에서 스스로 끝나는데 자식은 살아 있는
+//                          상태를 만듭니다. 성공 경로의 기다림에 마감이 있는지 보려는 것입니다.
 //
 // 위 옵션들의 **이름과 뜻은 고정입니다.** 다른 단위(파이프라인)가 이 파일 경로와 옵션을 그대로
 // 참고하므로, 옵션을 지우거나 뜻을 바꾸면 그쪽 시험이 함께 깨집니다. 더하는 것만 합니다.
@@ -67,6 +70,7 @@ function readArgs(argv) {
     closeStdinEarly: argv.includes('--close-stdin-early'),
     echoStdin: argv.includes('--echo-stdin'),
     partial: argv.includes('--partial'),
+    breakStdoutAndLinger: argv.includes('--break-stdout-and-linger'),
     // 제공자가 붙이는 고정 인자입니다. 흐름을 바꾸지는 않고 "받아도 죽지 않는다" 는 사실만 담습니다.
     includePartialMessages: argv.includes('--include-partial-messages'),
     exitCode: 0,
@@ -206,6 +210,13 @@ async function main() {
       result: body,
       ...(args.echoStdin ? { stdin_bytes: stdin.bytes } : {}),
     })
+  }
+
+  if (args.breakStdoutAndLinger) {
+    // 같은 스트림에 이어 씁니다(순서를 지키려고 writeSync 를 섞지 않습니다).
+    // 부모의 줄 단위 읽기는 이 바이트에서 스스로 끝나는데, 이 프로세스는 살아 있습니다.
+    process.stdout.write(Buffer.from([0xff, 0x0a]))
+    setInterval(() => {}, 1000)
   }
 }
 

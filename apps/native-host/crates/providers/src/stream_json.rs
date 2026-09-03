@@ -29,7 +29,7 @@
 //! # 부분 스트리밍(`--include-partial-messages`)
 //!
 //! `--include-partial-messages` 를 주면 답이 **다 만들어지기 전에** 조각이 먼저 옵니다. Gate C2
-//! 실측에서 첫 글자까지 p50 6.6초였으므로(`docs/spikes/gate-c2-provider-latency.md`) 화면이
+//! 실측에서 첫 글자까지 p50 6.6초였으므로(`docs/spikes/gate-c2-provider.md`) 화면이
 //! 그만큼 빨리 살아나는 것이 이 옵션의 값어치입니다. 줄 모양은 이렇습니다.
 //!
 //! ```text

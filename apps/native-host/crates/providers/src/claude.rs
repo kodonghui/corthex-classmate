@@ -26,7 +26,7 @@
 use std::ffi::{OsStr, OsString};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -38,7 +38,7 @@ use crate::stream_json::{ResultMetrics, StreamItem, StreamJsonParser};
 /// 언제나 붙는 고정 인자입니다. 사람이 만든 문자열은 여기에 실리지 않습니다(§4-7).
 ///
 /// `--include-partial-messages` 는 답이 다 만들어지기 전에 조각을 먼저 받으려고 붙입니다.
-/// Gate C2 실측에서 첫 글자까지 p50 6.6초였으므로(`docs/spikes/gate-c2-provider-latency.md`)
+/// Gate C2 실측에서 첫 글자까지 p50 6.6초였으므로(`docs/spikes/gate-c2-provider.md`)
 /// 이 옵션 없이는 화면이 그 시간 내내 비어 있습니다. 옵션을 모르는 CLI 를 만나도 회차는
 /// 성립합니다 — 청크가 하나도 오지 않으면 파서가 예전처럼 `assistant` 본문을 씁니다.
 pub const CLI_ARGS: [&str; 5] = [
@@ -501,11 +501,21 @@ impl TutorProvider for ClaudeCliProvider {
             }
         }
 
-        let status = child.wait().map_err(ProviderError::Spawn)?;
+        // 성공 경로에도 마감을 둡니다. 자식이 stdout 을 닫고도 살아 있으면 여기서 영원히
+        // 잠겨, 파이프라인 스레드와 그것을 기다리는 `shutdown` 까지 함께 잠깁니다.
+        let status = match wait_until(&mut child, deadline) {
+            Some(result) => Some(result.map_err(ProviderError::Spawn)?),
+            None => {
+                // 답은 이미 다 받았고 자식만 남았습니다. 트리째 끊고 회차는 나온 답으로 마칩니다.
+                kill_tree(&mut child);
+                wait_with_grace(&mut child);
+                None
+            }
+        };
         join_stderr(stderr_handle);
         let duration = started.elapsed();
 
-        if !status.success() {
+        if let Some(status) = status.filter(|status| !status.success()) {
             // 여기서는 stdin 쓰기 오류를 덧붙이지 않습니다. 종료 코드와 stderr 꼬리가 이미
             // 원인을 담고 있고, 변형을 바꾸면 호출자가 종료 코드를 잃기 때문입니다.
             return Err(ProviderError::NonZeroExit {
@@ -692,6 +702,25 @@ fn kill_tree(child: &mut Child) {
     }
     // taskkill 이 없거나 실패한 경우, 그리고 Windows 가 아닌 경우입니다. 최소한 자식은 확실히 끝냅니다.
     let _ = child.kill();
+}
+
+/// 마감까지 자식이 끝나기를 기다립니다. 끝났으면 종료 상태, 마감을 넘겼으면 `None` 입니다.
+///
+/// [`Child::wait`] 를 그냥 부르면 마감이 없습니다. 자식이 stdout 을 닫고도 살아 있는 경우
+/// (읽기 스레드가 UTF-8 이 아닌 바이트를 만나 스스로 끝난 때가 그렇습니다) 그 자리가 영원히
+/// 잠기고, 파이프라인 스레드와 그것을 기다리는 종료 절차까지 함께 잠깁니다.
+fn wait_until(child: &mut Child, deadline: Instant) -> Option<std::io::Result<ExitStatus>> {
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Some(Ok(status)),
+            Err(error) => return Some(Err(error)),
+            Ok(None) => {}
+        }
+        if Instant::now() >= deadline {
+            return None;
+        }
+        thread::sleep(Duration::from_millis(10));
+    }
 }
 
 fn wait_with_grace(child: &mut Child) {
