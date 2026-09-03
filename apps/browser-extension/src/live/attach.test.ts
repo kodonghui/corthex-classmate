@@ -298,16 +298,34 @@ describe('attachLive · 끊김', () => {
     expect(harness.ports).toHaveLength(3);
   });
 
-  it('다시 붙으면 첫 회차 지연으로 돌아갑니다', async () => {
+  it('말이 한 번 오가면 첫 회차 지연으로 돌아갑니다', async () => {
     const harness = makeHarness();
     attachLive({ inbox: harness.inbox, outbox: harness.outbox }, harness.runtime, { warn: () => {} });
 
     harness.port().die();
     await vi.advanceTimersByTimeAsync(1000);
-    // 붙었으니 회차가 0 으로 돌아갑니다. 다음 끊김도 1초입니다.
+    // 서비스 워커가 붙자마자 보내는 `period.started` 입니다. 왕복이 성립했으니 회차가 0 으로
+    // 돌아가고 다음 끊김도 1초입니다.
+    harness.port().deliver({ type: 'live.event', event: makeEvent('period.started') });
     harness.port().die();
     await vi.advanceTimersByTimeAsync(1000);
     expect(harness.ports).toHaveLength(3);
+  });
+
+  it('붙자마자 끊기기만 하면 백오프가 자랍니다 (1Hz 재접속 루프를 막습니다)', async () => {
+    const harness = makeHarness();
+    attachLive({ inbox: harness.inbox, outbox: harness.outbox }, harness.runtime, { warn: () => {} });
+
+    // 말이 한 번도 오가지 않은 연결입니다. 포트가 생긴 것만으로는 왕복이 성립하지 않습니다.
+    harness.port().die();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.ports).toHaveLength(2); // 1초
+
+    harness.port().die();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.ports).toHaveLength(2); // 아직 2초가 안 됐습니다
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(harness.ports).toHaveLength(3); // 2초
   });
 
   it('다시 붙은 뒤에는 새 포트로 말이 옵니다', async () => {

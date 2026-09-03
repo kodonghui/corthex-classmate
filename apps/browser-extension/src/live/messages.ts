@@ -111,12 +111,30 @@ export function isReconnectTarget(value: unknown): value is ReconnectTarget {
   return typeof value === 'string' && RECONNECT_TARGETS.includes(value as ReconnectTarget);
 }
 
+/**
+ * 사건 한 벌이 계약의 다섯 칸을 갖췄는지 봅니다.
+ *
+ * 칸이 객체인지만 보면 `{type:'live.event', event:{}}` 가 통과해 스토어의 `pushEvent` 가
+ * `#seen.add(undefined)` · `parseIso(undefined)` 로 들어갑니다. 화면을 그리는 데 반드시
+ * 있어야 하는 `id`·`type`·`at` 까지 봅니다.
+ */
+function looksLikeEvent(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value['id'] === 'string' &&
+    typeof value['type'] === 'string' &&
+    typeof value['at'] === 'string' &&
+    // 라우터가 `payload['questionId']` 를 읽으므로 이 칸도 있어야 합니다.
+    isRecord(value['payload'])
+  );
+}
+
 /** 서비스 워커가 보낸 값인지 좁혀 줍니다. 낯선 모양은 그냥 무시합니다. */
 export function isLiveInboundMessage(value: unknown): value is LiveInboundMessage {
   if (!isRecord(value)) return false;
   switch (value['type']) {
     case LIVE_EVENT:
-      return isRecord(value['event']);
+      return looksLikeEvent(value['event']);
     case LIVE_SEGMENT:
       return isRecord(value['segment']);
     case LIVE_FRAME:
@@ -128,14 +146,32 @@ export function isLiveInboundMessage(value: unknown): value is LiveInboundMessag
   }
 }
 
+/**
+ * 질문 재료가 계약 `AskRequest` 의 모양인지 봅니다.
+ *
+ * 칸이 객체인지만 보면 `question` 이 문자열이 아닌 부탁이 라우터까지 가서 `clampUtf8` 뒤
+ * `question.length` 에서 TypeError 가 납니다. 서비스 워커에서는 그것이 처리되지 않은 약속
+ * 거부로 끝나 **질문이 조용히 사라집니다.** 그래서 여기서 막습니다.
+ */
+function looksLikeAskRequest(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value['questionId'] !== 'string' || value['questionId'].length === 0) return false;
+  if (typeof value['kind'] !== 'string') return false;
+  if (typeof value['question'] !== 'string') return false;
+  if (value['word'] !== undefined && typeof value['word'] !== 'string') return false;
+  const snapshot = value['snapshot'];
+  if (snapshot !== undefined && snapshot !== null && !isRecord(snapshot)) return false;
+  return true;
+}
+
 /** 패널이 보낸 값인지 좁혀 줍니다. 낯선 모양은 그냥 무시합니다. */
 export function isLiveOutboundMessage(value: unknown): value is LiveOutboundMessage {
   if (!isRecord(value)) return false;
   switch (value['type']) {
     case PANEL_EVENT:
-      return isRecord(value['event']);
+      return looksLikeEvent(value['event']);
     case PANEL_ASK:
-      return isRecord(value['request']);
+      return looksLikeAskRequest(value['request']);
     case PANEL_RECONNECT:
       return isReconnectTarget(value['connector']);
     default:
