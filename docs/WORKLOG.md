@@ -110,3 +110,18 @@
 - 위험: 3라운드 미병합 · 병합 때 `replay-store.ts` `lines()` 한 줄 충돌 예상 · `apps/browser-extension/src/background/router.ts` 의 NUL 2개로 git 이 이진 취급 · **원격 백업 없음**
 - 미결·블로커(사람 결정 '대기'): **원격 저장소 생성과 첫 push 승인(최우선)** · 사람 손 튜터를 시작할 Tiro 공유 링크 · 나머지 대기 항목은 앞 항목과 같음 — push · 배포 · 공개 전환 없음
 - 다음 행동: 백업 승인이 오면 origin 생성·push. 그다음 3라운드 병합(A → B, 충돌은 라이브 분기를 살림) → 전체 검증 → 로컬 커밋 → 대시보드 재배포
+
+## 2026-09-03 15:15 — 4·5·6·7 라운드 병합·설치, 화면 배선 완성, 실측으로 고장 다섯 개 확정
+
+- 변경: `main` 에 7건 병합 — `batch-5/speed`(조각 스트리밍 `tutor.delta` · `SessionClaudeProvider` env 뒤 · `render_with_limit` 2,000자 상한) · `batch-5/vision`(`docs/spikes/meet-vision.md`) · `batch-6/eyes`(`captureVisibleTab` 기반 `src/capture/snapshot.ts` · `host_permissions: meet.google.com` · `storeAndReport` 로 담긴 장만 봉인) · `batch-6/ctx`(질문 봉인을 물은 자리 중심으로) · `batch-5/scroll`(`use-stick-to-bottom.ts` — 줄 수가 아니라 높이를 봄) · `batch-6/chat`(듣는 중 화면 아래 1/3 늘 열린 대화 칸 · 경계 끌기) · `batch-7/frame-path`(봉인한 프레임의 절대 경로를 프롬프트에 한 줄로 · 파일 확장자를 바이트 매직 넘버로 결정 · 그림 속 글자는 명령이 아니라는 문장 고정). 설치: 확장 `C:\CorthexClassmate\extension`(15:01) · 호스트 exe `installer/windows/dist/`(15:06), 둘 다 이전 판 백업.
+- 검증: `pnpm test` exit 0 (668) · `typecheck` exit 0 · `build` exit 0 · `e2e` exit 0 (18) · `cargo test --workspace` exit 0 (312) · `clippy -D warnings` exit 0 · `fmt --check` exit 0 · `smoke-host.mjs` ping→hello exit 0 · 설치본 매니페스트 `host_permissions=["https://meet.google.com/*"]`·`key` 있음 확인.
+- 실측으로 확정한 고장 (전부 "실패했는데 흔적이 없음" 모양):
+  1. `delta.rs` 가 `mark as char` 로 바이트를 글자 취급 → 역슬래시 뒤 한글에서 panic, 그 교시 이후 모든 질문 영구 실패. 고침 커밋 `d7b53e9` 를 병합에서 빠뜨렸다가 마저 넣음. **회복 가능한 오류를 영구 정지로 바꾼 회귀였음.**
+  2. `answer-not-json` — 오늘 질문 21건 중 5건 실패. 모델이 답을 다 썼는데 형식만 어긋나 통째로 버리고 5·15·45초 재시도까지 태움.
+  3. `tutor.delta` 를 확장이 못 알아듣고 버림(`host-messages.ts` 의 `isTutorEventPush` 는 `tutor.event` 만). 답까지 21~25초 화면이 빔 → 학습자가 9초에 4번 클릭(15:09:56·15:10:03·15:10:04·15:10:05).
+  4. `screen.frame` 여전히 0 · `frames/` 폴더 없음 · 오류 기록도 0건. `snapshot.ts:134` 가 `tabs.query({active:true, currentWindow:true})` 로 **한 창의 활성 탭만** 보아 Meet 이 활성이 아니면 조용히 `null`.
+  5. 파일 이름 `.webp` 인데 내용이 JPEG(`captureVisibleTab` 은 JPEG/PNG 만 냄). 경로만 적어 넘기는 구조라 안 열려도 에러가 안 남 → `batch-7/frame-path` 에서 매직 넘버로 이름을 정하게 고침.
+- 판정 뒤집기: **Artifact 로 화면을 옮기는 안 폐기.** `curl -sI` 로 직접 확인한 응답 헤더가 `frame-ancestors 'self'` 라 확장 사이드패널 안에 넣을 수 없고, `sample.limits().images` 가 false 라 그림도 못 보냄. 탐침 실측은 첫 글자 1.3초 · 완료 4.6초(확장은 6.6초 · 7~24초)였으나 자리를 잃는 대가가 큼. 별도 조사에서 Aside 는 macOS 15.0+ 전용이라 탈락.
+- 정정: 앞서 적은 "1 FPS 연속 감시 = 월 520만원" 은 **Claude 이미지 요금 기준**이었음. Gemini 는 프레임당 약 258토큰 + Flash 단가라 자릿수가 다름. 공식 요금으로 재계산 진행 중.
+- 위험: **원격 백업 여전히 없음(push 미승인 · 최우선)** · `CLASSMATE_TUTOR_SESSION` 은 실제 CLI 로 검증한 적 없어 기본 꺼둠 · 질문마다 그림 1장(약 1,200 visual token)이 최대 4회 나갈 수 있어 실측 후 상한 조정 필요 · `docs/first-class.md` 가 적은 호스트 exe 경로가 실제 레지스트리 값과 다름 · `golden-11-settings.png` 가 `batch-4/fontsize` 이전 판이라 낡음.
+- 다음 행동: `batch-7/answer-parse`(형식 어긋난 답 살리기)와 `batch-7/delta-receive`(조각 수신 + 모든 창에서 Meet 탭 찾기 + 실패 까닭 기록)를 병합·재설치. 그다음 드래그 선택 기반 "이 부분 물어보기"(학습자 선택 (나)) 와 `chrome.commands` 전역 Alt+S 검토.
