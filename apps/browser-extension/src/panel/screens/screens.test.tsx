@@ -41,7 +41,7 @@ function homeHtml(checkpoint: Checkpoint): string {
 }
 
 /**
- * 라이브 듣는 중 화면의 HTML 입니다. 재생과 달리 맨 아래 한 줄이 **묻는 자리**로 바뀝니다.
+ * 라이브 듣는 중 화면의 HTML 입니다. 재생과 달리 아래 약 1/3 이 **대화 칸**입니다.
  * fixture 를 쓰지 않으므로 전사 한 줄을 직접 넣어 세웁니다.
  */
 function liveHomeHtml(): string {
@@ -118,20 +118,37 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("cm-sf__r");
   });
 
-  it("라이브: 맨 아래 안내 글 자리가 접힌 묻는 줄이 된다 — 새 바닥바를 만들지 않는다", () => {
+  it("라이브: 전사 아래에 대화 칸이 늘 서 있고 글 칸은 처음부터 열려 있다", () => {
     const html = liveHomeHtml();
-    // 묻는 자리는 TranscriptFlow 의 안내 글 슬롯 안에 있습니다(자세히 화면 같은 고정 바닥바가 아닙니다).
-    const tip = html.slice(html.indexOf("cm-tf__tip"));
-    expect(tip).toContain("궁금한 건 여기에 바로 물어보세요");
+    // 전사(구르는 상자 하나)와 대화(구르는 상자 둘)가 서로 다른 상자로 나뉩니다.
+    expect(html).toContain("cm-screen__body--flow");
+    expect(html).toContain("cm-chat__log");
+    expect(html).toContain("cm-chat__bar");
+    // 누르는 동작 없이 글 칸이 이미 있습니다 — 접힌 줄은 이제 없습니다.
+    expect(html).toContain("cm-input");
+    expect(html).toContain("지금 궁금한 걸 적어요");
+    expect(html).toContain('aria-label="바로 묻기"');
+    expect(html).toContain("보내기");
+    expect(html).not.toContain("궁금한 건 여기에 바로 물어보세요");
+    // 아직 물은 것이 없으면 이 칸이 무엇을 하는 자리인지 한 줄로 말합니다.
+    expect(html).toContain("여기에 적어 물으면 답이 이 칸에 쌓여요");
+    // 경계는 끌 수 있는 구분선입니다(기본 1/3).
+    expect(html).toContain('role="separator"');
+    expect(html).toContain('aria-valuenow="33"');
+    // 자세히 화면 같은 고정 바닥바를 만들지는 않습니다.
     expect(html).not.toContain("cm-screen__bar");
-    // 접혀 있는 동안에는 글 칸도 보내기 단추도 만들지 않습니다.
-    expect(html).not.toContain("cm-input");
-    expect(html).not.toContain("보내기");
-    // 안내 글은 한 줄로 줄지만 Alt+S 는 그대로 남습니다.
+    // 안내 글과 Alt+S 는 전사 칸 맨 아래에 그대로 남습니다.
     expect(html).toContain("걸리는 말을 누르세요");
     expect(html).toContain("Alt");
     // 듣는 중 화면의 "행동 버튼은 없다" 규칙은 라이브에서도 같습니다.
     expect(html).not.toContain("cm-btn");
+  });
+
+  it("재생에는 대화 칸을 아예 만들지 않는다 — 골든 9장면이 걸려 있습니다", () => {
+    const html = homeHtml("listening");
+    expect(html).not.toContain("cm-chat");
+    expect(html).not.toContain('role="separator"');
+    expect(html).not.toContain("cm-input");
   });
 
   it("H-1 전사 멈춤: 바닥줄이 호박색이고 다시 연결이 붙는다", () => {

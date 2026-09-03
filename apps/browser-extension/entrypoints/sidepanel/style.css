@@ -136,11 +136,17 @@ body {
   padding: 8px var(--panel-inset) 0;
 }
 
+/*
+  overscroll-behavior: contain 은 이 상자의 끝에 닿아도 스크롤을 바깥으로 넘기지 않게 합니다.
+  듣는 중 화면은 구르는 상자가 둘(전사 · 대화)이라 이것이 없으면 한쪽 끝에서 계속 굴렸을 때
+  바깥이 함께 움직여 옆 칸이 흔들립니다. 그리는 모양은 바꾸지 않아 골든 장면과 무관합니다.
+*/
 .cm-screen__body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
+  overscroll-behavior: contain;
   padding: 12px var(--panel-inset) 16px;
   display: flex;
   flex-direction: column;
@@ -157,6 +163,142 @@ body {
 
 .cm-screen__body--flow > .cm-tf {
   margin-top: auto;
+}
+
+/*
+  ── 대화 칸 (라이브에서만) ───────────────────────────────────────────────────────
+
+  듣는 중 화면 아래쪽 약 1/3 을 차지하는 대화 전용 칸입니다. 재생(`?replay=`)에는 아예
+  그려지지 않으므로 골든 9장면의 픽셀은 이 절과 상관이 없습니다.
+
+      .cm-screen                (세로 flex)
+      ├ .cm-ph                  머리글        flex: none
+      ├ .cm-screen__body--flow  전사          flex: 1      ← 남는 자리를 다 씁니다
+      ├ .cm-chat__catch         새 문장 N개   flex: none   (밀린 줄이 있을 때만)
+      ├ .cm-chat                대화          height: 33.33%
+      └ .cm-sf                  바닥줄        flex: none
+
+  높이를 %로 두는 까닭: 패널 높이는 창과 함께 늘 바뀝니다. px 로 못 박으면 낮은 창에서는
+  전사가 사라지고 높은 창에서는 대화 칸이 우표만 해집니다. 33.33% 는 사용자가 말한 "1/3" 이고,
+  경계를 끌면 ListeningScreen 이 인라인 height 로 20~60% 사이의 다른 값을 얹습니다.
+
+  min-height 가 min(180px, 45%) 인 까닭: 180px 는 글 칸 한 줄(36px)과 문답 두어 줄이 함께
+  보이는 최소 높이입니다. 그런데 CSS 에서는 min-height 가 max-height 를 이기므로, 아주 낮은
+  패널에서 180px 를 그대로 두면 대화 칸이 화면을 거의 다 먹고 전사가 사라집니다. min() 을
+  씌워 낮은 패널에서는 바닥도 함께 낮아지게 합니다(400px 보다 큰 패널에서는 늘 180px).
+*/
+.cm-chat {
+  flex: none;
+  height: 33.33%;
+  min-height: min(180px, 45%);
+  max-height: 60%;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  border-top: 1px solid var(--border-hairline);
+  background: var(--surface-canvas);
+}
+
+/*
+  전사와 대화 사이의 움직이는 경계입니다. 끌어서 비율을 바꾸고, 포커스를 받아 위아래 화살표로도
+  움직입니다(role="separator"). touch-action: none 은 손가락으로 끌 때 화면이 함께 굴러가는 것을
+  막습니다 — 이것이 없으면 모바일 폭에서 경계가 잡히지 않습니다.
+*/
+.cm-chat__grip {
+  flex: none;
+  height: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: row-resize;
+  touch-action: none;
+}
+
+.cm-chat__grip::after {
+  content: "";
+  width: 36px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--paper-5);
+  transition: var(--transition-color);
+}
+
+.cm-chat__grip:hover::after {
+  background: var(--ink-400);
+}
+
+.cm-chat__grip:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 3px;
+}
+
+/* 지난 문답이 쌓이는 자리입니다. 전사와 **따로** 구릅니다. */
+.cm-chat__log {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding: 2px var(--panel-inset) 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--paper-5) transparent;
+}
+
+/*
+  문답은 아래에서 위로 쌓입니다(전사와 같은 결). 첫 아이에게 margin-top: auto 를 주는 방식은
+  이 파일이 전사에 이미 쓰는 방법입니다(.cm-screen__body--flow > .cm-tf). justify-content:
+  flex-end 로 하지 않는 까닭: 내용이 넘칠 때 위쪽이 잘려 손이 닿지 않는 자리가 생깁니다.
+  auto 여백은 넘치는 순간 0 이 되어 그대로 굴릴 수 있습니다.
+*/
+.cm-chat__log > :first-child {
+  margin-top: auto;
+}
+
+.cm-chat__empty {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+  text-wrap: pretty;
+}
+
+/* 글 칸 한 줄. 이 칸은 누르는 동작 없이 언제나 열려 있습니다. */
+.cm-chat__bar {
+  flex: none;
+  padding: 0 var(--panel-inset) 10px;
+}
+
+/*
+  위로 올려 읽는 동안 새 문장이 왔다고 알리는 한 줄입니다. 채도 있는 블록을 늘리지 않고
+  밑줄만 답니다(듣는 중 화면에는 행동 버튼을 두지 않는다는 정본 규칙).
+*/
+.cm-chat__catch {
+  flex: none;
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: 0 var(--panel-inset) 6px;
+  border: 0;
+  background: transparent;
+  font: var(--type-caption);
+  color: var(--text-secondary);
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.cm-chat__catch:hover {
+  color: var(--text-body);
+}
+
+.cm-chat__catch:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+  border-radius: 3px;
 }
 
 /* 기록·설정: 줄이 화면 끝까지 닿고 여백은 줄 안쪽(var(--panel-inset))이 냅니다. */
