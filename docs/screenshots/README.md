@@ -1,4 +1,4 @@
-# docs/screenshots — 골든 시나리오 14장면
+# docs/screenshots — 골든 시나리오 15장면
 
 `apps/browser-extension/e2e/extension.spec.ts` 가 빌드된 확장을 Chromium 에 얹고, fixtures
 (`fixtures/synthetic-class/golden-ioc/`)만으로 "왜 new로 직접 만들면 안 돼요?" 시나리오를 다시 굴려 찍은 사진입니다.
@@ -19,7 +19,7 @@ pnpm --filter @classmate/browser-extension e2e
 | 2 | `golden-02-caught.png` | B 붙잡은 직후 | `caught` | 10:32:18 (첫 질문 `question.asked`) | ANSWER_MINIMAL · preparing |
 | 3 | `golden-03-sentence.png` | D 문장을 붙잡음 | `sentence` | 10:32:16 + 마지막 문장 붙잡기 | CAPTURE · none(화면은 choosing) |
 | 4 | `golden-04-answer.png` | C 한 줄 답변 | `answer` | 10:32:25 (`answer.completed` +1초) | ANSWER_MINIMAL · minimal |
-| 5 | `golden-05-detail.png` | F 자세히 | `detail` | 10:32:26 (+2초, 자세히 보기) | ANSWER_MINIMAL · detail |
+| 5 | `golden-05-detail.png` | F 자세히 | `detail` | 10:32:26 (+2초, 자세히 보기) | ANSWER_MINIMAL · detail — 맨 아래 한 줄 입력창(정본 §3-7 "텍스트 입력창은 여기 맨 아래에만")이 "수업으로 돌아가기" 바로 위에 있습니다 |
 | 6 | `golden-06-returned.png` | 수업 복귀 | `returned` | 10:32:30 (+6초, 수업으로 돌아가기) | ANSWER_MINIMAL · minimal(18초 새로 셈) |
 | 7 | `golden-07-folded.png` | E 접힌 메모 | `folded` | 10:32:43 (첫 접힘 +1초) | CAPTURE · folded |
 | 8 | `golden-08-waiting.png` | H-2 튜터 멈춤 | `waiting` | 10:32:59 (`answer.queued`) | ANSWER_MINIMAL · waiting |
@@ -34,6 +34,7 @@ pnpm --filter @classmate/browser-extension e2e
 | 12 | `golden-12-tiro-paused.png` | H-1 전사 멈춤 | `listening` → `window.classmateConnector('tiro-share','paused')` | 10:32:16 | 호박색 바닥줄 + "다시 연결" · 헤더 점 paused · 전사 멈춤용 팁. 아래 "왜 손잡이가 필요한가" 를 보세요 |
 | 13 | `golden-w360-listening.png` | A 듣는 중 (폭 360) | `listening` | 10:32:16 | `--panel-inset` 14px · 가로 스크롤 0 |
 | 14 | `golden-w520-answer.png` | C 한 줄 답변 (폭 520) | `answer` | 10:32:25 | `--panel-inset` 20px · 가로 스크롤 0 · 전사 최대 폭 안에서 줄이 길어지지 않음 |
+| 15 | `golden-13-detail-typed.png` | F 자세히 · 이어 묻기 | `detail` → 입력창에 적고 보내기 | 10:32:26 | 맨 아래 입력창으로 이어 물은 직후. 질문 줄(`.cm-reply__q`)과 대기 줄 "답을 만들고 있어요" 가 답 카드 아래에 붙습니다. fixture 재생에는 물을 곳이 없어 기다리는 자리에서 멈춥니다 — 라이브에서는 `AskPort` 로 나가고 60초 워치독이 붙습니다 |
 
 폭 380 의 여백(16px)은 사진 없이 E2E 15번이 확인합니다.
 
