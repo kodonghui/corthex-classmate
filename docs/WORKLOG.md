@@ -125,3 +125,56 @@
 - 정정: 앞서 적은 "1 FPS 연속 감시 = 월 520만원" 은 **Claude 이미지 요금 기준**이었음. Gemini 는 프레임당 약 258토큰 + Flash 단가라 자릿수가 다름. 공식 요금으로 재계산 진행 중.
 - 위험: **원격 백업 여전히 없음(push 미승인 · 최우선)** · `CLASSMATE_TUTOR_SESSION` 은 실제 CLI 로 검증한 적 없어 기본 꺼둠 · 질문마다 그림 1장(약 1,200 visual token)이 최대 4회 나갈 수 있어 실측 후 상한 조정 필요 · `docs/first-class.md` 가 적은 호스트 exe 경로가 실제 레지스트리 값과 다름 · `golden-11-settings.png` 가 `batch-4/fontsize` 이전 판이라 낡음.
 - 다음 행동: `batch-7/answer-parse`(형식 어긋난 답 살리기)와 `batch-7/delta-receive`(조각 수신 + 모든 창에서 Meet 탭 찾기 + 실패 까닭 기록)를 병합·재설치. 그다음 드래그 선택 기반 "이 부분 물어보기"(학습자 선택 (나)) 와 `chrome.commands` 전역 Alt+S 검토.
+
+## 2026-09-04 04:44 — 8라운드: 여섯 단위 중 다섯 완료, U-06 은 사람 몫으로 절차만 남김
+
+- 변경: `main` 에 5단위 — U-33 `e27f340`(붙잡기 메모에 답 본문 첫 문단) · U-34 `b6d0e3c`(밀려난 질문을 대화 칸에서 그 줄 옆으로) · U-21 `87d1c46`(기록 거절 시 `native-host` 커넥터 호박색) · U-22 `1421e21`(시험 네 갈래를 `pnpm test` 하나로 + CI) · U-23 `2e81b75`(문서를 지금 코드와 맞춤). 병합 `b37ea88`·`b725e6d`·`8facaea`. 골든 그림 6장 재생성(`golden-04-answer` 등 — 메모에 본문이 생겨 바뀐 것).
+- 검증: **`pnpm test` 한 번** exit 0 — vitest 1,162 · cargo 333 · `node --test` 145, 합계 1,640건 0실패. `no_real_cli` 가드 12건이 실제로 돌았음을 러너가 출력으로 확인. `pnpm typecheck` exit 0 · `build` 3.65 MB exit 0 · `pnpm run test:e2e` 18 pass(콘솔·페이지 오류 0). `git diff --check` 깨끗.
+- 판정 둘 (근거를 코드 주석에 남김):
+  1. U-33 의 「본문이 보이는 동안 접기 시계를 걸지 않는다」는 **라이브에만** 걸었습니다. 고정된 fixture 가 `state.changed ANSWER_MINIMAL→CAPTURE` 접힘 사건을 스스로 기록하고 있어, 재생에서까지 풀면 제품이 골든 대본과 어긋납니다(`replay-store.ts` `#holdFold`).
+  2. U-34 가 밀려난 질문을 옮길 자리는 **그 줄의 메모 자리**로 정했습니다. 전사 위 고정 띠는 물은 자리와 답이 떨어져 무엇에 대한 답인지 다시 찾게 하고, 그 자리에는 이미 `NowLine` 이 있습니다(`replay-store.ts` `#carryOverPending`).
+- 위험:
+  - 라이브에서 답에 `details.why` 가 있으면 자동 접기가 안 걸립니다. 그래서 **접힌 메모(E)가 라이브에서는 도달 불가**입니다. 되살리는 길은 `answerLength` 배선(U-04·U-15)에서 `short` 를 읽어 그때만 시계를 다시 거는 것입니다.
+  - CI 워크플로는 GitHub 에서 **한 번도 돌지 않았습니다**(push 승인 대기). `windows-latest` 러너에 `System32\winsqlite3.dll` 이 있다는 가정에 기댑니다.
+  - 원격은 붙어 있고 `origin/main` 과 `main` 이 같았으나, 이번 5단위는 아직 로컬에만 있습니다(push 미승인).
+- 다음 행동: **U-06 Meet 캡처 실측 — 사람이 합니다.** 아래 절차로 한 교시를 실제로 치르고 숫자를 이 파일 검증 줄에 적습니다. 이 숫자가 나와야 U-14 를 만들 값어치가 있는지 판단할 수 있습니다.
+
+### U-06 재는 절차 (숫자는 비워 둡니다 — 지어내지 않습니다)
+
+**왜 재나** — 모든 창에서 Meet 탭을 찾도록 고친 판(`226a641`)이 실제 수업에서 프레임을 남기는지 아직 아무도 모릅니다. 직전 실측은 고침 **이전** 판이었고 결과가 0장이었습니다.
+
+**준비**
+1. 확장과 호스트 exe 가 지금 `main` 판인지 확인합니다(`226a641` 이후). 설치 절차는 `docs/first-class.md`.
+2. 교시 시작 전에 그 교시의 자료 폴더가 비어 있는지 봅니다. 자료는 `%LOCALAPPDATA%\CorthexClassmate\sessions` 아래 `<교시 id>.sqlite` 와 `<교시 id>/frames/` 입니다.
+
+**재기 — 한 교시를 두 조건으로 나눠 칩니다**
+- 앞 절반: Meet 을 **그 창의 앞 탭**으로 둡니다.
+- 뒷 절반: Meet 을 **뒷 탭**으로 보내고 다른 탭을 앞에 둡니다.
+- 각 절반에서 붙잡기를 최소 3회씩 하고 시각을 적어 둡니다. 두 절반의 차이가 곧 「모든 창에서 찾기」 고침이 실제로 듣는지의 답입니다.
+
+**세기 — 교시가 끝난 뒤 (PowerShell)**
+
+```powershell
+$d = "$env:LOCALAPPDATA\CorthexClassmate\sessions"
+$p = "2026-09-04-p3"   # 잰 교시의 id 로 바꿉니다
+
+# (1) screen.frame 사건 수
+sqlite3 "$d\$p.sqlite" "select count(*) from events where type='screen.frame';"
+
+# (2) 시각별로 — 앞 탭 절반과 뒷 탭 절반을 가르려면 시각이 필요합니다
+sqlite3 "$d\$p.sqlite" "select at from events where type='screen.frame' order by at;"
+
+# (3) 실제로 남은 파일 수와 총 바이트
+Get-ChildItem "$d\$p\frames" -File | Measure-Object -Property Length -Sum
+
+# (4) 실패 까닭 낱말별 건수
+sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from events where type='connector.status' and json_extract(payload,'$.connector')='meet-tab' group by 1;"
+```
+
+`sqlite3.exe` 가 PATH 에 없으면 (1)(2)(4)는 건너뛰고 (3)만 세어도 판정의 절반은 섭니다 — 파일이 0개면 고침이 안 들은 것입니다. 그때는 그렇게 적습니다.
+
+**이 파일에 적을 것**
+- `screen.frame` 건수 — 앞 탭 절반 / 뒷 탭 절반 **따로**
+- `frames/` 파일 수와 총 바이트
+- 실패 낱말과 건수(`no-meet-tab` 따위). 하나도 없으면 「실패 기록 0건」이라고 적습니다 — 그것도 결과입니다.
+- 붙잡기 횟수와 그때 Meet 이 앞 탭이었는지
