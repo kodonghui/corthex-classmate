@@ -50,13 +50,19 @@ fn collect_sources(dir: &Path, out: &mut Vec<PathBuf>) {
     }
 }
 
-/// 이 시험이 지키는 자리입니다. 파이프라인 본체와 이 크레이트의 통합 시험 전부입니다.
+/// 이 시험이 지키는 자리입니다. 파이프라인 본체 · **라우터** · 이 크레이트의 통합 시험 전부입니다.
+///
+/// 라우터를 함께 보는 것은 2라운드 검토 #1 때문입니다. 라우터의 단위시험이 주변 환경의
+/// CLI 경로를 물려받아 파이프라인을 띄우면 `cargo test` 한 번으로 실제 호출이 나갑니다.
 fn sources() -> Vec<PathBuf> {
     let root = crate_root();
     let mut files = Vec::new();
     collect_sources(&root.join("src").join("tutor"), &mut files);
+    let router = root.join("src").join("router.rs");
+    assert!(router.is_file(), "{} 가 없습니다", router.display());
+    files.push(router);
     collect_sources(&root.join("tests"), &mut files);
-    assert!(files.len() >= 8, "검사할 파일이 너무 적습니다 · {files:?}");
+    assert!(files.len() >= 9, "검사할 파일이 너무 적습니다 · {files:?}");
     files
 }
 

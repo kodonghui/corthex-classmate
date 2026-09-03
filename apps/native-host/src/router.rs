@@ -96,9 +96,22 @@ pub fn serve<R: Read, W: Write + Send>(reader: &mut R, writer: &mut W) -> io::Re
 }
 
 /// 채널에 실려 오는 값을 프레임 하나씩 내보냅니다. 채널이 닫히면 flush 하고 끝납니다.
+///
+/// **프레임 하나가 상한을 넘으면 그 한 건만 버리고 계속 삽니다.** 자발 알림 한 건이 크다는
+/// 이유로 프로세스 전체가 끝나면 수업 도중에 호스트가 사라집니다. `framing::encode_body` 는
+/// 상한을 넘은 본문을 한 바이트도 내보내지 않고 `InvalidData` 로 되돌리므로, 이 갈래로
+/// 버려도 스트림은 다음 프레임 경계에 그대로 서 있습니다. 파이프가 끊기는 것 같은 진짜
+/// I/O 오류(`BrokenPipe` 등)는 예전처럼 그대로 올려보내 종료로 이어집니다.
 fn pump_output<W: Write>(sink: Receiver<Value>, writer: &mut W) -> io::Result<()> {
     for message in sink {
-        framing::write_message(writer, &message)?;
+        if let Err(error) = framing::write_message(writer, &message) {
+            if error.kind() == io::ErrorKind::InvalidData {
+                // 본문은 담지 않습니다. 어느 종류였는지와 까닭만 stderr 로 알립니다.
+                eprintln!("[classmate-host] 내보내지 못한 메시지 하나를 버립니다 · {error}");
+                continue;
+            }
+            return Err(error);
+        }
     }
     writer.flush()
 }
@@ -516,9 +529,6 @@ fn unknown_message_type(message: &Value) -> Value {
     })
 }
 
-/// 저장이 실패했을 때의 응답입니다. 프로세스는 죽지 않습니다.
-///
-/// `reason` 에는 우리가 직접 쓴 짧은 이유만 담습니다. 파일 경로와 본문 원문은 담지 않습니다.
 impl Drop for Router {
     /// 교시 손잡이를 세워 파이프라인 스레드가 답하던 물음을 마치고 끝나게 합니다.
     ///
@@ -567,13 +577,19 @@ fn tutor_failure(kind: &str, error: &TutorError) -> Value {
     })
 }
 
+/// 저장이 실패했을 때의 응답입니다. 프로세스는 죽지 않습니다.
+///
+/// `reason` 은 [`frame_failure`] 와 같이 `StoreError::reason_code()` 의 고정 낱말입니다.
+/// 예전에는 이 자리에 `Display` 의 한국어 문장이 실려, 확장이 분기할 수 없는 값이 갔습니다
+/// (`session.export` 에 경로를 빼면 `reason: "내보내기 경로는 …"` · 2라운드 검토 #3).
+/// 사람이 읽을 자세한 문구는 stderr 로만 나가고, 파일 경로도 본문 원문도 담기지 않습니다.
 fn store_failure(kind: &str, error: &StoreError) -> Value {
     eprintln!("[classmate-host] {kind} 를 처리하지 못했습니다 · {error}");
 
     json!({
         "type": "error",
         "message": "session store failed",
-        "reason": error.to_string(),
+        "reason": error.reason_code(),
         "received": kind,
     })
 }
@@ -663,7 +679,35 @@ mod tests {
     /// 살아 있어야 하기 때문이다.
     fn router_with(dir: &Path) -> (Router, Receiver<Value>) {
         let (out, sink) = mpsc::channel();
-        (Router::with_data_dir(dir.to_path_buf(), out), sink)
+        // 제공자 자리를 **비워서** 만든다. 이렇게 하지 않으면 주변 환경의
+        // CLASSMATE_CLAUDE_CLI 를 그대로 물려받아, tutor.ask 를 보는 시험이 이 PC 의 실제
+        // CLI 를 자식 프로세스로 띄운다(= cargo test 한 번에 과금 · Gate C2 사고 재발).
+        let router = Router::with_data_dir(dir.to_path_buf(), out)
+            .with_tutor_sources(TutorSources::default());
+        (router, sink)
+    }
+
+    /// 환경 변수를 잠깐 바꿨다가 시험이 끝나면 반드시 되돌리는 자리.
+    struct EnvGuard {
+        name: &'static str,
+        before: Option<OsString>,
+    }
+
+    impl EnvGuard {
+        fn set(name: &'static str, value: &str) -> Self {
+            let before = env::var_os(name);
+            env::set_var(name, value);
+            Self { name, before }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match self.before.take() {
+                Some(value) => env::set_var(self.name, value),
+                None => env::remove_var(self.name),
+            }
+        }
     }
 
     /// 채널에 쌓인 것을 전부 꺼낸다. 비어 있으면 빈 벡터다.
@@ -785,6 +829,35 @@ mod tests {
         assert_eq!(seen.len(), 2, "{seen:?}");
         assert_eq!(seen[0]["type"], "hello", "먼저 실은 것이 먼저 나간다");
         assert_eq!(seen[1]["type"], "tutor.event");
+    }
+
+    #[test]
+    fn one_message_over_the_frame_limit_is_dropped_and_the_road_stays_open() {
+        // 자발 알림 하나가 프레임 상한을 넘었다고 호스트가 통째로 끝나면 안 된다.
+        // 예전에는 write_message 의 첫 실패에서 되돌아와 serve 가 Err 을 내고 exit 1 이었다.
+        let (out, sink) = mpsc::channel();
+        // 한글 한 글자가 3바이트라, 상한 글자 수만큼 이으면 상한의 세 배가 된다.
+        let huge = "가".repeat(framing::MAX_MESSAGE_BYTES);
+        out.send(json!({
+            "type": "tutor.event",
+            "periodId": "2026-09-02-p3",
+            "word": huge,
+        }))
+        .expect("실을 수 있어야 한다");
+        out.send(json!({ "type": "hello" }))
+            .expect("실을 수 있어야 한다");
+        drop(out);
+
+        let mut written = Vec::new();
+        pump_output(sink, &mut written).expect("큰 것 하나로 끝나면 안 된다");
+
+        let seen = frames_in(written);
+        assert_eq!(
+            seen.len(),
+            1,
+            "큰 것 하나만 버리고 나머지는 나간다: {seen:?}"
+        );
+        assert_eq!(seen[0]["type"], "hello");
     }
 
     #[test]
@@ -1169,6 +1242,28 @@ mod tests {
         assert_eq!(router.handle(json!({ "type": "ping" }))["type"], "hello");
     }
 
+    #[test]
+    fn a_store_failure_answers_with_a_fixed_reason_word_not_a_korean_sentence() {
+        // 확장은 reason 으로 갈래를 나눈다. 여기에 Display 의 한국어 문장이 실리면
+        // 확장이 분기할 수 없고, 문구를 다듬는 것만으로 계약이 깨진다.
+        let dir = temp_dir("store-reason");
+        let (mut router, _sink) = router_with(&dir);
+
+        let reply = router.handle(json!({
+            "type": "session.export",
+            "periodId": "2026-09-02-p3",
+        }));
+
+        assert_eq!(reply["reason"], "unusable-export-path", "{reply}");
+        let reason = reply["reason"].as_str().expect("문자열이어야 한다");
+        assert!(
+            reason
+                .chars()
+                .all(|letter| letter.is_ascii_lowercase() || letter == '-'),
+            "reason 은 소문자와 붙임표뿐인 고정 낱말이다: {reason}"
+        );
+    }
+
     /// fixtures 의 1x1 자리표시자 WebP 34바이트를 base64 로 적은 값.
     const FIXTURE_WEBP_BASE64: &str = "UklGRhoAAABXRUJQVlA4TA0AAAAvAAAAEAcQERGIiP4HAA==";
 
@@ -1359,6 +1454,28 @@ mod tests {
         assert!(is_extension_shaped_error(&reply), "{reply}");
         // 파이프라인을 띄우지 않았으므로 자발 알림도 없다.
         assert!(drain(&sink).is_empty());
+    }
+
+    #[test]
+    fn a_router_for_tests_never_takes_the_cli_path_from_the_environment() {
+        // 이 PC 에 실제 CLI 경로가 잡혀 있어도 시험용 라우터는 그것을 쓰지 않는다.
+        // 쓰면 cargo test 한 번으로 파이프라인이 뜨고 실제 호출이 나가 과금된다
+        // (Gate C2 사고 · crates/providers/README.md 의 비용 안전 규칙).
+        let _guard = EnvGuard::set(
+            TutorSources::CLAUDE_CLI_ENV,
+            "C:/nowhere/not-a-real-tutor-runner",
+        );
+        let dir = temp_dir("env-cli");
+        let (mut router, sink) = router_with(&dir);
+
+        let reply = router.handle(tutor_ask_request());
+
+        assert_eq!(reply["reason"], "provider-unavailable", "{reply}");
+        assert_eq!(reply["received"], "tutor.ask");
+        assert!(
+            drain(&sink).is_empty(),
+            "파이프라인을 띄우면 안 된다 — 자발 알림이 하나도 없어야 한다"
+        );
     }
 
     #[test]
