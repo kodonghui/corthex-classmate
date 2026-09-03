@@ -73,17 +73,27 @@ interface Harness {
   reconnects: number;
   warnings: string[];
   log: PeriodLog;
+  /** 끝난 교시들입니다. `onPeriodEnd` 훅이 여기 담습니다. */
+  endedPeriods: string[];
   /** 다음 `send` 한 번의 답을 정해 둡니다. */
   replyOnce(result: HostSendResult): void;
 }
 
-function makeHarness(settings: Partial<ClassmateSettings> = {}): Harness {
+interface HarnessOptions {
+  /** 교시 로그 통을 밖에서 넣습니다(상한을 작게 두어 밀려남을 시험할 때 씁니다). */
+  log?: PeriodLog;
+  /** 설정 읽기를 늦춥니다. 겹쳐 부르기를 시험할 때 씁니다. */
+  gate?: () => Promise<void>;
+}
+
+function makeHarness(settings: Partial<ClassmateSettings> = {}, options: HarnessOptions = {}): Harness {
   const sent: HostEnvelope[] = [];
   const warnings: string[] = [];
   const controls = { tiro: 0, capture: 0 };
   const queuedReplies: HostSendResult[] = [];
   const panel = new FakePanel();
-  const log = new PeriodLog();
+  const log = options.log ?? new PeriodLog();
+  const endedPeriods: string[] = [];
   let reconnects = 0;
 
   const connectorControls: ConnectorControls = {
@@ -107,19 +117,22 @@ function makeHarness(settings: Partial<ClassmateSettings> = {}): Harness {
       },
     },
     settings: {
-      read: () =>
-        Promise.resolve({
+      read: async () => {
+        await (options.gate?.() ?? Promise.resolve());
+        return {
           periodNumber: 3,
           subject: 'IoC 컨테이너와 의존성 주입',
           provider: 'claude',
           ...settings,
-        }),
+        };
+      },
     },
     controls: connectorControls,
     log,
     ids: new EventIdFactory('1a2b3c4d'),
     now: () => NOW,
     warn: (message) => warnings.push(message),
+    onPeriodEnd: (periodId) => endedPeriods.push(periodId),
   });
 
   return {
@@ -138,6 +151,7 @@ function makeHarness(settings: Partial<ClassmateSettings> = {}): Harness {
     },
     warnings,
     log,
+    endedPeriods,
     replyOnce: (result) => queuedReplies.push(result),
   };
 }
@@ -154,6 +168,23 @@ describe('clampUtf8', () => {
     const clamped = clampUtf8('가나다', 4);
     expect(clamped).toBe('가');
     expect(new TextEncoder().encode(clamped).length).toBeLessThanOrEqual(4);
+  });
+
+  it('서로게이트 쌍 한가운데도 자르지 않습니다 (짝 없는 반쪽은 JSON 을 깨뜨립니다)', () => {
+    // 이모지 하나는 UTF-16 두 칸·UTF-8 네 바이트입니다. 7바이트 상한이면 이모지 하나(4)에
+    // 세 바이트가 남는데, 짝의 앞 칸(0xD83D)만 남기면 TextEncoder 가 그것을 U+FFFD(3바이트)로
+    // 세어 "딱 맞는다" 고 판정합니다. 그렇게 남은 반쪽이 JSON 을 깨뜨립니다.
+    const clamped = clampUtf8('😀😀', 7);
+
+    expect(clamped).toBe('😀');
+    expect(clamped.length).toBe(2);
+    for (let i = 0; i < clamped.length; i += 1) {
+      const code = clamped.charCodeAt(i);
+      const isLoneHigh = code >= 0xd800 && code <= 0xdbff && i === clamped.length - 1;
+      expect(isLoneHigh).toBe(false);
+    }
+    // 짝 없는 서로게이트가 남으면 여기에 `\ud83d` 가 실려 호스트의 JSON 해석이 깨집니다.
+    expect(JSON.stringify(clamped)).not.toMatch(/\\ud[89ab][0-9a-f]{2}/i);
   });
 });
 
@@ -444,19 +475,21 @@ describe('Router · 패널이 보내는 말', () => {
     expect(ask).not.toHaveProperty('question');
   });
 
-  it('호스트가 not-implemented 로 답하면 connector.status {provider, off} 를 냅니다', async () => {
+  it('봉투가 틀렸다는 거절(envelope-invalid)은 paused 입니다 — 제공자는 살아 있습니다', async () => {
+    // 고정 계약에서 `not-implemented` 는 사라졌습니다. 꺼짐으로 보는 이유는
+    // `provider-unavailable` 하나뿐입니다.
     harness.replyOnce({
       status: 'replied',
-      message: { type: 'error', message: 'tutor is not wired yet', reason: 'not-implemented', received: 'tutor.ask' },
+      message: { type: 'error', message: 'bad envelope', reason: 'envelope-invalid', received: 'tutor.ask' },
     });
 
     await harness.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest() });
 
     const status = harness.appended().find((event) => event.type === 'connector.status');
-    expect(status?.payload).toEqual({ connector: 'provider', state: 'off', reason: 'not-implemented' });
+    expect(status?.payload).toEqual({ connector: 'provider', state: 'paused', reason: 'envelope-invalid' });
   });
 
-  it('provider-unavailable 도 off 입니다', async () => {
+  it('provider-unavailable 만 off 입니다', async () => {
     harness.replyOnce({
       status: 'replied',
       message: { type: 'error', message: 'no provider', reason: 'provider-unavailable', received: 'tutor.ask' },
@@ -476,6 +509,57 @@ describe('Router · 패널이 보내는 말', () => {
 
     const status = harness.appended().find((event) => event.type === 'connector.status');
     expect(status?.payload).toMatchObject({ connector: 'provider', state: 'paused', reason: 'question-too-long' });
+  });
+
+  it('도우미가 꺼져 질문이 버려지면 그때만 question.asked 를 붙입니다', async () => {
+    // 온라인일 때는 호스트 기록본이 정본이라 붙이지 않습니다. 꺼져 있을 때 붙이지 않으면
+    // 붙잡은 질문이 확장 기록에도 호스트 세션 파일에도 남지 않습니다.
+    harness.replyOnce({ status: 'dropped', reason: 'host-offline' });
+
+    await harness.router.handlePanelMessage({
+      type: PANEL_ASK,
+      request: askRequest({ questionId: 'q-offline' }),
+    });
+
+    const asked = harness.appended().find((event) => event.type === 'question.asked');
+    expect(asked?.payload).toMatchObject({ questionId: 'q-offline', kind: 'missed', hostOffline: true });
+    // 물어본 패널은 자기 사건을 이미 압니다. 되돌려 보내면 스토어가 두 번 받습니다.
+    expect(harness.panel.eventTypes()).not.toContain('question.asked');
+  });
+
+  it('도우미가 살아 있으면 question.asked 를 붙이지 않습니다', async () => {
+    harness.replyOnce({
+      status: 'replied',
+      message: { type: 'tutor.accepted', periodId: PERIOD, questionId: 'q-p3-001' },
+    });
+
+    await harness.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest() });
+
+    expect(harness.appended().some((event) => event.type === 'question.asked')).toBe(false);
+  });
+
+  it('모양이 틀린 panel.ask 는 맡지 않습니다 (질문이 조용히 사라지지 않게)', async () => {
+    // `question` 이 문자열이 아니면 라우터의 clampUtf8 뒤 `question.length` 에서 TypeError 가
+    // 나고, 서비스 워커에서는 그것이 처리되지 않은 약속 거부로 끝납니다.
+    const handled = await harness.router.handlePanelMessage({
+      type: PANEL_ASK,
+      request: { questionId: 'q-bad', kind: 'missed', provider: 'claude', question: null, snapshot: null },
+    });
+
+    expect(handled).toBe(false);
+    expect(harness.sent).toEqual([]);
+  });
+
+  it('패널이 낸 사건도 교시 로그에 남아 닫았다 열면 돌아옵니다', async () => {
+    await harness.router.handlePanelMessage({
+      type: PANEL_EVENT,
+      event: panelEvent('state.changed', { from: 'CAPTURE', to: 'ANSWER_MINIMAL' }),
+    });
+
+    const second = new FakePanel();
+    await harness.router.openPanel(second);
+
+    expect(second.eventTypes()).toContain('state.changed');
   });
 
   it('4096바이트를 넘는 질문은 앞부분만 보내고 한 줄 남깁니다', async () => {
@@ -563,6 +647,22 @@ describe('Router · 호스트 push', () => {
 
     expect(harness.sent).toEqual([]);
     expect(harness.panel.eventTypes()).toEqual(['answer.completed']);
+  });
+
+  it('앞 교시의 늦은 push 는 새 교시에 섞지 않습니다', async () => {
+    const harness = makeHarness();
+    await harness.router.openPanel(harness.panel);
+    harness.sent.length = 0;
+    harness.panel.received.length = 0;
+
+    await harness.router.handleHostPush({
+      type: 'tutor.event',
+      periodId: '2026-09-02-p2',
+      event: { ...panelEvent('answer.completed', { questionId: 'q-old' }), periodId: '2026-09-02-p2' },
+    });
+
+    expect(harness.panel.received).toEqual([]);
+    expect(harness.warnings.some((line) => line.includes('앞 교시'))).toBe(true);
   });
 
   it('도우미 연결 상태를 connector.status {native-host, …} 로 알립니다', async () => {
@@ -713,5 +813,129 @@ describe('Router · 교시', () => {
     harness.sent.length = 0;
     await harness.router.endPeriod();
     expect(harness.sent).toEqual([]);
+  });
+
+  it('교시가 바뀌는 사이에 겹쳐 불러도 새 교시를 한 번만 시작합니다', async () => {
+    // 앞 교시를 끝내는 `period.ended` 를 호스트가 늦게 받는 사이가 빈틈입니다. 잠금이
+    // 없으면 그 사이에 들어온 두 번째 부름이 `currentPeriodId === null` 을 보고 새 교시를
+    // 먼저 시작하고, 뒤늦게 깨어난 첫 부름이 **또** 시작해 질문·전사·커넥터 기억을 지웁니다.
+    let periodNumber = 3;
+    const sent: HostEnvelope[] = [];
+    const router = new Router({
+      host: {
+        send: (envelope) => {
+          sent.push(envelope);
+          const slow =
+            envelope.type === 'event.append' && envelope.event.type === 'period.ended';
+          if (!slow) return Promise.resolve<HostSendResult>({ status: 'queued' });
+          return new Promise<HostSendResult>((resolve) => {
+            setTimeout(() => resolve({ status: 'queued' }), 5);
+          });
+        },
+        reconnectNow: () => {},
+      },
+      settings: { read: () => Promise.resolve({ periodNumber, subject: '수업', provider: 'claude' }) },
+      controls: { restartTiro: () => {}, restartCapture: () => {} },
+      log: new PeriodLog(),
+      ids: new EventIdFactory('1a2b3c4d'),
+      now: () => NOW,
+      warn: () => {},
+    });
+
+    await router.openPanel(new FakePanel());
+    periodNumber = 4;
+
+    // 패널 연결과 tiro.segment 가 겹치는 자리입니다.
+    await Promise.all([router.ensurePeriod(), router.ensurePeriod()]);
+
+    const startedP4 = sent.filter(
+      (envelope) =>
+        envelope.type === 'event.append' &&
+        envelope.event.type === 'period.started' &&
+        envelope.event.payload['index'] === 4,
+    );
+    expect(startedP4).toHaveLength(1);
+    expect(router.periodId).toBe('2026-09-02-p4');
+  });
+
+  it('교시가 끝나면 onPeriodEnd 로 알립니다 (앞 교시 프레임을 버리는 자리)', async () => {
+    const harness = makeHarness();
+    await harness.router.openPanel(harness.panel);
+    await harness.router.endPeriod();
+
+    expect(harness.endedPeriods).toEqual([PERIOD]);
+  });
+
+  it('교시 로그가 밀려 period.started 가 빠져도 새 패널에 다시 보냅니다', async () => {
+    // 프레임은 1초에 한 장이라 500건 상한을 8분이면 채웁니다. 그러면 period.started 가
+    // 맨 앞에서 밀려나 되풀이에 없고, 화면이 과목명·교시 번호를 기본값으로 그립니다.
+    const harness = makeHarness({}, { log: new PeriodLog(2) });
+    const first = new FakePanel();
+    await harness.router.openPanel(first);
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(1) });
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(2) });
+    await harness.router.closePanel(first);
+
+    // 로그에는 period.started 가 남아 있지 않습니다.
+    const replayed = harness.log
+      .replay()
+      .filter((message): message is Extract<LiveInboundMessage, { type: typeof LIVE_EVENT }> =>
+        message.type === LIVE_EVENT,
+      )
+      .map((message) => message.event.type);
+    expect(replayed).not.toContain('period.started');
+
+    const second = new FakePanel();
+    await harness.router.openPanel(second);
+
+    expect(second.eventTypes()[0]).toBe('period.started');
+  });
+
+  it('워커가 다시 떠도 되살린 교시에 period.started 를 또 붙이지 않습니다', async () => {
+    // 앞 세대 워커가 남긴 상태입니다.
+    const before = makeHarness();
+    await before.router.openPanel(before.panel);
+    await before.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest({ questionId: 'q-1' }) });
+    before.router.noteFrameStored();
+    before.router.noteFrameStored();
+    const saved = JSON.parse(JSON.stringify(before.router.snapshot())) as unknown;
+
+    // 30초를 놀아 내려갔다 tiro.segment 로 다시 뜬 워커입니다.
+    const after = makeHarness();
+    expect(after.router.restore(saved)).toBe(true);
+    await after.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(1) });
+
+    expect(after.appended().filter((event) => event.type === 'period.started')).toEqual([]);
+    expect(after.router.periodId).toBe(PERIOD);
+
+    // 교시 끝의 셈도 앞 세대 몫을 이어 갑니다.
+    after.router.noteFrameStored();
+    await after.router.endPeriod();
+    const ended = after.appended().find((event) => event.type === 'period.ended');
+    expect(ended?.payload).toEqual({ periodId: PERIOD, questionCount: 1, frameCount: 3 });
+  });
+
+  it('되살린 워커에 패널이 붙으면 period.started 를 화면에 다시 보냅니다', async () => {
+    const before = makeHarness();
+    await before.router.openPanel(before.panel);
+    const saved = JSON.parse(JSON.stringify(before.router.snapshot())) as unknown;
+
+    const after = makeHarness();
+    after.router.restore(saved);
+    const panel = new FakePanel();
+    await after.router.openPanel(panel);
+
+    const started = panel.received.find(
+      (message): message is Extract<LiveInboundMessage, { type: typeof LIVE_EVENT }> =>
+        message.type === LIVE_EVENT && message.event.type === 'period.started',
+    );
+    expect(started?.event.payload).toMatchObject({ periodId: PERIOD, index: 3 });
+  });
+
+  it('상한 값은 되살리지 않습니다 (모양이 상하면 그냥 false)', () => {
+    const harness = makeHarness();
+    expect(harness.router.restore(null)).toBe(false);
+    expect(harness.router.restore({ periodId: 7 })).toBe(false);
+    expect(harness.router.periodId).toBe(null);
   });
 });

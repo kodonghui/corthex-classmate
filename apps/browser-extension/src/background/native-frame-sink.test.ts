@@ -40,6 +40,8 @@ class FakePort implements FrameStorePort {
   private outcomes: FrameStoreOutcome[] = [];
   private fallback: FrameStoreOutcome = { kind: 'stored', bytes: 16, seq: 1 };
   private throwOnce = false;
+  /** 봉투를 하나 받을 때마다 부릅니다. 재전송 도중에 새 장을 끼워 넣는 자리입니다. */
+  onSeen: ((message: FrameStoreMessage) => void) | null = null;
 
   queue(...outcomes: FrameStoreOutcome[]): this {
     this.outcomes.push(...outcomes);
@@ -62,7 +64,11 @@ class FakePort implements FrameStorePort {
       this.throwOnce = false;
       return Promise.reject(new Error('Attempting to use a disconnected port object'));
     }
-    return Promise.resolve(this.outcomes.shift() ?? this.fallback);
+    // 결말을 **먼저** 집고 나서 알립니다. 순서가 반대이면 끼워 넣은 장이 이 봉투의 결말을
+    // 가로챕니다.
+    const outcome = this.outcomes.shift() ?? this.fallback;
+    this.onSeen?.(message);
+    return Promise.resolve(outcome);
   }
 
   /** 본 봉투들의 프레임 id 만입니다. */
@@ -184,5 +190,77 @@ describe('NativeHostFrameSink', () => {
 
   it('상한은 0 보다 커야 합니다', () => {
     expect(() => new NativeHostFrameSink(new FakePort(), { maxFallbackFrames: 0 })).toThrow(RangeError);
+  });
+
+  it('다시 보내는 도중에 들어온 새 장이 남은 것보다 앞서지 않습니다', async () => {
+    const port = new FakePort().always({ kind: 'offline' });
+    const sink = new NativeHostFrameSink(port, { warn: () => {} });
+    await sink.store(frame(1), bytes());
+    await sink.store(frame(2), bytes());
+
+    // 첫 장은 들어가고 둘째에서 또 끊깁니다. 그 사이에 새 장(3)이 들어옵니다.
+    port.queue({ kind: 'stored', bytes: 16, seq: 1 }, { kind: 'offline' }).always({ kind: 'offline' });
+    port.onSeen = (message) => {
+      if (message.frame.id !== 'sf-p3-001') return;
+      port.onSeen = null;
+      void sink.store(frame(3), bytes());
+    };
+    await sink.flushWaiting();
+
+    // 남은 둘째가 새로 들어온 셋째보다 먼저 서야 화면 순서가 뒤집히지 않습니다.
+    port.always({ kind: 'stored', bytes: 16, seq: 2 });
+    await sink.flushWaiting();
+    expect(port.ids.slice(-2)).toEqual(['sf-p3-002', 'sf-p3-003']);
+  });
+
+  it('다시 보내는 도중에 새로 들어온 장도 같은 회차에 이어 보냅니다', async () => {
+    const port = new FakePort().always({ kind: 'offline' });
+    const sink = new NativeHostFrameSink(port, { warn: () => {} });
+    await sink.store(frame(1), bytes());
+
+    // 첫 장은 들어가고, 그 사이에 들어온 새 장은 마침 그때 또 끊겨 통에 담깁니다.
+    port.queue({ kind: 'stored', bytes: 16, seq: 1 }, { kind: 'offline' }).always({
+      kind: 'stored',
+      bytes: 16,
+      seq: 2,
+    });
+    port.onSeen = (message) => {
+      if (message.frame.id !== 'sf-p3-001') return;
+      port.onSeen = null;
+      // 이 장은 통이 비어 있는 사이에 들어옵니다. 한 바퀴 더 돌지 않으면 다음 재연결까지
+      // 갇힙니다.
+      void sink.store(frame(2), bytes());
+    };
+    await sink.flushWaiting();
+
+    expect(sink.stats()).toMatchObject({ waiting: 0 });
+  });
+
+  it('stats().bytes 는 원본 바이트입니다 (MemoryFrameSink 와 같은 단위)', async () => {
+    const port = new FakePort().always({ kind: 'offline' });
+    const sink = new NativeHostFrameSink(port, { warn: () => {} });
+
+    await sink.store(frame(1), bytes(30));
+
+    // base64 글자 수(40)가 아니라 원본 30바이트여야 두 통의 수를 견줄 수 있습니다.
+    expect(sink.stats().bytes).toBe(30);
+  });
+
+  it('이름표가 계약과 다른 장은 던지지 않고 건너뜁니다', async () => {
+    const warnings: string[] = [];
+    const port = new FakePort();
+    const sink = new NativeHostFrameSink(port, { warn: (line) => warnings.push(line) });
+
+    // 교시 식별자가 계약 모양(2026-09-02-p3)이 아닙니다. 그대로 두면 호스트가 한 교시치
+    // 프레임을 통째로 거절합니다.
+    await expect(
+      sink.store({ ...frame(1), periodId: '오늘-3교시' }, bytes()),
+    ).resolves.toBeUndefined();
+    // 프레임 식별자 쪽도 같습니다.
+    await expect(sink.store({ ...frame(2), id: 'frame-2' }, bytes())).resolves.toBeUndefined();
+
+    expect(port.seen).toEqual([]);
+    expect(sink.stats()).toMatchObject({ skippedInvalid: 2, stored: 0, waiting: 0 });
+    expect(warnings.filter((line) => line.includes('이름표'))).toHaveLength(2);
   });
 });

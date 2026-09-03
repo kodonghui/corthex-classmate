@@ -11,22 +11,19 @@ import {
 import type { CaptureStartMessage, CaptureStreamMessage } from '../src/capture/messages';
 import { toScreenFrame } from '../src/capture/frame-store';
 import { NativeHostFrameSink } from '../src/capture/frame-sink';
-import type { FrameStoreOutcome, FrameStorePort } from '../src/capture/frame-sink';
 import { fromBase64 } from '../src/capture/host-messages';
-import type { FrameStoreMessage } from '../src/capture/host-messages';
 import type { CaptureFrameMessage } from '../src/capture/messages';
 
 import { EventIdFactory, makeWorkerToken } from '../src/background/ids';
+import { createFrameStorePort } from '../src/background/frame-port';
 import { NativeHostClient } from '../src/background/host-client';
 import type { NativePortLike } from '../src/background/host-client';
-import {
-  NATIVE_HOST_NAME,
-  isFrameStoredMessage,
-  isHostErrorMessage,
-} from '../src/background/host-messages';
+import { NATIVE_HOST_NAME } from '../src/background/host-messages';
 import { PeriodLog } from '../src/background/period-log';
 import { Router } from '../src/background/router';
 import type { PanelPortLike } from '../src/background/router';
+import { pickSessionArea } from '../src/background/session-area';
+import type { StorageNamespaceLike } from '../src/background/session-area';
 import { createStorageSettings, PERIOD_NUMBER_STORAGE_KEY } from '../src/background/settings';
 import {
   TIRO_START_REQUEST,
@@ -50,6 +47,9 @@ const PERIOD_IDLE_MINUTES = 30;
 
 /** 교시 로그를 서비스 워커가 내려갔다 떠도 잃지 않게 담아 두는 자리입니다. */
 const PERIOD_LOG_KEY = 'classmate.periodLog';
+
+/** 라우터 상태(교시 식별자·질문 수·화면 장 수·커넥터)를 같은 이유로 담아 두는 자리입니다. */
+const ROUTER_STATE_KEY = 'classmate.routerState';
 
 // 백그라운드(MV3 서비스 워커).
 // WXT 규칙상 실행 코드는 반드시 defineBackground 의 콜백 안에만 둡니다.
@@ -116,21 +116,10 @@ export default defineBackground(() => {
    * 1라운드의 `MemoryFrameSink` 자리를 그대로 이어받았습니다. 위쪽 코드(파이프라인·offscreen)는
    * 한 줄도 바뀌지 않았습니다 — 두 통이 같은 `FrameSink` 를 지키기 때문입니다.
    * 1 MiB 크기 판정은 여전히 이 통이 안에서 합니다(불변 원칙 §4-1: 로컬 도우미로만 나갑니다).
+   *
+   * 결말을 옮기는 판단은 `src/background/frame-port.ts` 에 있습니다(여기는 vitest 밖입니다).
    */
-  const framePort: FrameStorePort = {
-    async store(message: FrameStoreMessage): Promise<FrameStoreOutcome> {
-      const result = await host.send(message);
-      if (result.status !== 'replied') return { kind: 'offline' };
-      const reply = result.message;
-      if (isFrameStoredMessage(reply)) {
-        return { kind: 'stored', bytes: reply.bytes, seq: reply.seq };
-      }
-      if (isHostErrorMessage(reply)) {
-        return { kind: 'rejected', reason: reply.reason };
-      }
-      return { kind: 'rejected', reason: 'unexpected-reply' };
-    },
-  };
+  const framePort = createFrameStorePort(host);
 
   const frameSink = new NativeHostFrameSink(framePort, {
     onStored: () => {
@@ -159,40 +148,59 @@ export default defineBackground(() => {
     onPanelCountChange: (count) => {
       void syncPeriodIdleAlarm(count);
     },
+    onPeriodEnd: () => {
+      // 앞 교시의 보류 프레임을 버립니다. 그대로 두면 도우미가 돌아왔을 때 옛 `periodId` 로
+      // 새 교시에 흘러들고, 호스트가 거절하면 새 교시의 화면 커넥터가 호박색이 됩니다.
+      frameSink.clear();
+    },
   });
 
-  // ── 교시 로그 되살리기 ──────────────────────────────────────────────────
+  // ── 교시 로그·라우터 상태 되살리기 ──────────────────────────────────────
   //
   // MV3 서비스 워커는 30초를 놀면 내려갑니다. 다시 뜬 워커가 이것을 읽지 않으면 사이드패널을
-  // 다시 열었을 때 화면이 백지가 됩니다(Gate D 「사이드패널 닫기 → 열기」).
-  // `storage.session` 은 브라우저를 닫으면 사라지고 디스크에 적히지 않아 수업 데이터를
-  // 담기에 알맞습니다(불변 원칙 §4-1).
+  // 다시 열었을 때 화면이 백지가 되고(Gate D 「사이드패널 닫기 → 열기」), 같은 교시에
+  // `period.started` 가 한 번 더 붙습니다.
+  //
+  // 자리는 `storage.session` **하나뿐** 입니다. 없다고 `storage.local` 로 물러서면 전사 본문이
+  // 디스크에 남아 불변 원칙 §4-1 과 어긋납니다(`src/background/session-area.ts`).
 
-  const sessionArea = chrome.storage.session ?? chrome.storage.local;
+  const sessionArea = pickSessionArea(chrome.storage as unknown as StorageNamespaceLike);
   let logSaveTimer: number | null = null;
   let logRestored = false;
 
-  const restoreLog = sessionArea
-    .get(PERIOD_LOG_KEY)
-    .then((bag: Record<string, unknown>) => {
-      const saved = bag[PERIOD_LOG_KEY];
-      if (saved !== undefined) log.restore(saved);
-    })
-    .catch(() => {
-      // 못 읽으면 빈 통으로 시작합니다. 복원 하나 때문에 워커가 멈추면 손해가 더 큽니다.
-    })
-    .finally(() => {
-      logRestored = true;
-    });
+  const restoreLog =
+    sessionArea === null
+      ? Promise.resolve().then(() => {
+          console.warn('[classmate] storage.session 이 없어 복원을 건너뜁니다');
+          logRestored = true;
+        })
+      : sessionArea
+          .get([PERIOD_LOG_KEY, ROUTER_STATE_KEY])
+          .then((bag: Record<string, unknown>) => {
+            const saved = bag[PERIOD_LOG_KEY];
+            if (saved !== undefined) log.restore(saved);
+            // 로그보다 **뒤에** 되살립니다. 라우터가 교시 식별자를 되찾으면 `ensurePeriod` 가
+            // 같은 교시를 그대로 돌려주어 `period.started` 가 다시 나가지 않습니다.
+            const state = bag[ROUTER_STATE_KEY];
+            if (state !== undefined) router.restore(state);
+          })
+          .catch(() => {
+            // 못 읽으면 빈 통으로 시작합니다. 복원 하나 때문에 워커가 멈추면 손해가 더 큽니다.
+          })
+          .finally(() => {
+            logRestored = true;
+          });
 
-  /** 로그를 저장소에 옮겨 적습니다. 1초에 한 번으로 묶어 쓰기를 줄입니다. */
+  /** 로그와 라우터 상태를 저장소에 옮겨 적습니다. 1초에 한 번으로 묶어 쓰기를 줄입니다. */
   function scheduleLogSave(): void {
-    if (!logRestored || logSaveTimer !== null) return;
+    if (sessionArea === null || !logRestored || logSaveTimer !== null) return;
     logSaveTimer = setTimeout(() => {
       logSaveTimer = null;
-      sessionArea.set({ [PERIOD_LOG_KEY]: log.snapshot() }).catch(() => {
-        // 저장소가 꽉 찼거나 문맥이 내려갔습니다. 다음 기회에 다시 적습니다.
-      });
+      sessionArea
+        .set({ [PERIOD_LOG_KEY]: log.snapshot(), [ROUTER_STATE_KEY]: router.snapshot() })
+        .catch(() => {
+          // 저장소가 꽉 찼거나 문맥이 내려갔습니다. 다음 기회에 다시 적습니다.
+        });
     }, 1000) as unknown as number;
   }
 
@@ -397,15 +405,38 @@ export default defineBackground(() => {
 
     const panel: PanelPortLike = { postMessage: (message) => port.postMessage(message) };
 
+    // `.catch` 가 없으면 처리되지 않은 약속 거부가 되어 **질문 하나가 조용히 사라집니다.**
+    // 무엇이 실패했는지 한 줄이라도 남겨야 손 시험에서 찾을 수 있습니다.
     port.onMessage.addListener((message: unknown) => {
-      void router.handlePanelMessage(message).then(scheduleLogSave);
+      void router
+        .handlePanelMessage(message)
+        .then(scheduleLogSave)
+        .catch((error: unknown) => {
+          console.warn(
+            '[classmate] 패널이 보낸 말을 처리하지 못했어요',
+            error instanceof Error ? error.message : String(error),
+          );
+        });
     });
     port.onDisconnect.addListener(() => {
-      void router.closePanel(panel).then(scheduleLogSave);
+      void router
+        .closePanel(panel)
+        .then(scheduleLogSave)
+        .catch(() => {
+          // 패널이 닫히는 길입니다. 여기서 더 할 일은 없습니다.
+        });
     });
 
     // 저장소에서 로그를 되살린 **뒤에** 되풀이해야 닫았다 연 화면이 복원됩니다.
-    void restoreLog.then(() => router.openPanel(panel)).then(scheduleLogSave);
+    void restoreLog
+      .then(() => router.openPanel(panel))
+      .then(scheduleLogSave)
+      .catch((error: unknown) => {
+        console.warn(
+          '[classmate] 사이드패널을 열지 못했어요',
+          error instanceof Error ? error.message : String(error),
+        );
+      });
   });
 
   // ── 알람 ────────────────────────────────────────────────────────────────
@@ -441,7 +472,12 @@ export default defineBackground(() => {
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
     if (!(PERIOD_NUMBER_STORAGE_KEY in changes)) return;
-    void router.ensurePeriod().then(scheduleLogSave);
+    void restoreLog
+      .then(() => router.ensurePeriod())
+      .then(scheduleLogSave)
+      .catch(() => {
+        // 교시를 바꾸지 못해도 다음 부름이 다시 봅니다.
+      });
   });
 
   // ── 손 시험 갈래 (제거 조건은 README 「서비스 워커 구조」 절에 있습니다) ──
@@ -499,8 +535,12 @@ export default defineBackground(() => {
 
     // 라우터가 맡은 것(tiro.* · capture.stats · capture.error)을 먼저 봅니다.
     // 답을 기다리는 부탁이 아니므로 응답 없이 흘려보냅니다.
-    void router
-      .handleRuntimeMessage(message)
+    //
+    // **복원을 기다린 뒤에** 넘깁니다. 워커는 `tiro.segment` 하나에 다시 깨어나기도 하는데,
+    // 그때 곧바로 넘기면 라우터가 교시를 잃은 채로 보고 같은 교시에 `period.started` 를
+    // 한 번 더 붙입니다(저장소 읽기 한 번만큼 늦어질 뿐입니다).
+    void restoreLog
+      .then(() => router.handleRuntimeMessage(message))
       .then((handled) => {
         if (handled) scheduleLogSave();
       })

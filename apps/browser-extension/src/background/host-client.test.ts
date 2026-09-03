@@ -202,6 +202,23 @@ describe('NativeHostClient · 왕복', () => {
     expect(harness.warnings.filter((line) => line.includes('부탁하지 않은 답'))).toEqual([]);
   });
 
+  it('모양이 다른 말은 대기열을 건드리지 않고 버립니다', async () => {
+    const harness = makeHarness();
+    harness.client.start();
+    harness.handshake();
+
+    const sending = harness.client.send(appendEnvelope('ev-1'));
+
+    // `tutor.event` 인데 `event` 가 문자열입니다. push 로도 답으로도 볼 수 없는 말입니다.
+    // 이것이 답으로 소비되면 이 뒤의 모든 짝이 한 칸씩 밀려 영구히 어긋납니다.
+    harness.port().reply({ type: 'tutor.event', periodId: PERIOD, event: '답이 아닙니다' });
+    harness.port().reply({ type: 'event.ack', periodId: PERIOD, seq: 7, id: 'ev-1' });
+
+    expect(harness.pushes).toEqual([]);
+    expect(await sending).toMatchObject({ status: 'replied', message: { id: 'ev-1', seq: 7 } });
+    expect(harness.warnings.some((line) => line.includes('모양이 다른 말'))).toBe(true);
+  });
+
   it('답이 오지 않으면 그 부탁만 포기하고 뒤엣것의 짝은 그대로 맞습니다', async () => {
     const harness = makeHarness();
     harness.client.start();
@@ -346,6 +363,29 @@ describe('NativeHostClient · 끊김과 재연결', () => {
     });
 
     expect(result).toEqual({ status: 'dropped', reason: 'host-offline' });
+    expect(harness.client.stats().queued).toBe(0);
+  });
+
+  it('resend:false 인 부탁은 들고 있지 않습니다 (프레임은 통이 따로 들고 있습니다)', async () => {
+    const harness = makeHarness();
+    harness.client.start();
+    harness.port().die();
+
+    const result = await harness.client.send(appendEnvelope('ev-frameish'), { resend: false });
+
+    expect(result).toEqual({ status: 'dropped', reason: 'host-offline' });
+    expect(harness.client.stats().queued).toBe(0);
+  });
+
+  it('resend:false 인 부탁은 보내는 중에 끊겨도 되돌리지 않습니다', async () => {
+    const harness = makeHarness();
+    harness.client.start();
+    harness.handshake();
+
+    const sending = harness.client.send(appendEnvelope('ev-frameish'), { resend: false });
+    harness.port().die();
+
+    expect(await sending).toEqual({ status: 'dropped', reason: 'disconnected' });
     expect(harness.client.stats().queued).toBe(0);
   });
 

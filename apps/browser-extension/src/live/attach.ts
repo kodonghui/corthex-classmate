@@ -123,6 +123,12 @@ export function attachLive(
   let detached = false;
 
   function receive(message: unknown): void {
+    // 말이 한 번이라도 왔으면 왕복이 성립한 것입니다. 그때 회차를 0 으로 되돌립니다.
+    // 포트가 생긴 순간에 되돌리면, 붙자마자 끊기는 상황에서 지연이 계속 1초라 백오프가
+    // 자라지 않고 1Hz 재접속 루프가 됩니다(서비스 워커가 뜨자마자 죽는 자리).
+    // 서비스 워커는 붙는 즉시 `period.started` 와 `panel.opened` 를 보내므로,
+    // 성한 연결이면 첫 왕복이 곧바로 성립합니다.
+    attempts = 0;
     if (!isLiveInboundMessage(message)) return;
     const typed: LiveInboundMessage = message;
     switch (typed.type) {
@@ -167,7 +173,6 @@ export function attachLive(
       return;
     }
     port = opened;
-    attempts = 0;
 
     opened.onMessage.addListener(receive);
     opened.onDisconnect.addListener(function onGone(): void {
