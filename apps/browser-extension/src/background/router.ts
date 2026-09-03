@@ -234,7 +234,7 @@ export class Router {
   /** 이번 교시에 붙잡은 질문들입니다. 패널과 호스트가 같은 질문을 알려도 한 번만 셉니다. */
   private readonly questionIds = new Set<string>();
   /**
-   * 이번 교시에 본 전사 조각입니다. `조각 id → "<상태> <본문>"`.
+   * 이번 교시에 본 전사 조각입니다. `조각 id → "<상태>\u0000<본문>"`.
    *
    * **공유 페이지를 새로고침하면 커넥터가 새로 태어나 `seq` 가 1부터 다시 셉니다**
    * (`src/tiro/share-observer.ts` 의 `defaultMakeId` 가 `ts-001` 부터 짓습니다). 그러면 이미
@@ -655,7 +655,7 @@ export class Router {
    * 한 번 더 기록될 뿐 잃는 것은 없습니다).
    */
   private isDuplicateSegment(segment: TranscriptSegment): boolean {
-    const fingerprint = `${segment.state} ${segment.text}`;
+    const fingerprint = `${segment.state}\u0000${segment.text}`;
     if (this.seenSegments.get(segment.id) === fingerprint) return true;
     // 다시 넣기 전에 지웁니다. `Map` 은 이미 있는 키를 덮어써도 **처음 넣은 자리**를 지키기
     // 때문에, 지우지 않으면 방금 자란 문단이 가장 오래된 것으로 몰려 먼저 잊힙니다.
