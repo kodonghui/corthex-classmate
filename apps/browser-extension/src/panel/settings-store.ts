@@ -106,6 +106,30 @@ function asSubject(value: unknown): string {
   return typeof value === "string" && value.trim().length > 0 ? value : DEFAULT_SETTINGS.subject;
 }
 
+/**
+ * 주제 칸에 친 글을 **저장할 값**으로 다듬습니다.
+ *
+ * 다 지우면 저장소에는 `""` 가 들어가는데 `asSubject` 는 읽을 때만 기본값으로 되살립니다.
+ * 그래서 화면은 빈칸, 다음에 패널을 열면 "수업" 으로 어긋납니다. 빈 값(공백뿐인 값 포함)은
+ * 처음부터 기본값으로 맞춰 화면과 저장소를 같게 둡니다.
+ */
+export function subjectInput(value: string): string {
+  return value.trim().length === 0 ? DEFAULT_SETTINGS.subject : value;
+}
+
+/**
+ * 저장소에서 늦게 도착한 값을 지금 화면 값에 얹을지 정합니다.
+ *
+ *     읽기 시작 ─────(수십 ms)─────▶ 값 도착
+ *                  └ 그 사이 사용자가 스위치를 눌렀으면 **누른 값이 이깁니다**
+ *
+ * 아직 아무것도 건드리지 않았을 때(= 값이 기본값 그 객체 그대로)만 채웁니다. `changeSetting` 은
+ * 늘 새 객체를 만들므로 한 번이라도 눌렀으면 이 검사가 걸러 냅니다.
+ */
+export function mergeLoadedSettings(previous: Settings, loaded: Settings): Settings {
+  return previous === DEFAULT_SETTINGS ? loaded : previous;
+}
+
 /** 저장소에서 읽어 온 날것을 설정 한 벌로 다듬습니다. 모르는 값은 기본값이 됩니다. */
 export function normalizeSettings(raw: Record<string, unknown>): Settings {
   return {

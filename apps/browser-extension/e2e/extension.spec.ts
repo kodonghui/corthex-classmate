@@ -205,6 +205,16 @@ async function goto(checkpoint: Checkpoint): Promise<void> {
   }, checkpoint);
 }
 
+/*
+  폭 시험(13·14)이 뷰포트를 바꾼 채로 끝나면 뒤 시험이 360/520 폭에서 찍힙니다. 15 가 사실상
+  정리를 맡고 있어, `-g '14'` 처럼 걸러 돌리거나 13·14 중 하나가 timeout 으로 죽으면 그 정리가
+  일어나지 않습니다. 시험마다 기본 폭으로 되돌려 정리를 한 자리에 둡니다.
+  (파일 안 모든 시험에 걸립니다 — 나머지는 이미 기본 폭이라 하는 일이 없습니다.)
+*/
+test.afterEach(async () => {
+  await page?.setViewportSize(VIEWPORT);
+});
+
 test('10 G 기록 — 바닥줄 "기록 1" 로 들어가 교시 묶음과 붙잡은 순간 한 줄', async () => {
   await reopen();
   await goto('answer');
@@ -285,6 +295,9 @@ test('14 폭 520 — 여백 20px, 가로 스크롤 없음', async () => {
 });
 
 test('15 폭 380 — 기본 폭의 여백은 16px', async () => {
+  // 앞의 폭 시험(14)이 520 으로 바꾼 뷰포트는 test.afterEach 가 이미 되돌려 놓았습니다.
+  // 이 줄이 깨지면 정리가 사라진 것이고, 뒤 시험들이 엉뚱한 폭에서 찍히고 있다는 뜻입니다.
+  expect(page.viewportSize()).toEqual(VIEWPORT);
   await page.setViewportSize(VIEWPORT);
   await reopen();
   await goto('listening');

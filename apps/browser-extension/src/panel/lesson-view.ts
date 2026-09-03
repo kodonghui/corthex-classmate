@@ -29,7 +29,7 @@ import { formatAgo } from "../lib/format-time";
 import { clockOfIso, clockOfMs } from "./clock";
 import { evidenceType } from "./evidence";
 import type { GoldenBundle } from "./golden-bundle";
-import { guessesForLine } from "./golden-bundle";
+import { guessesForLine, LIVE_EDITOR_PLACEHOLDER_ID } from "./golden-bundle";
 import type { ReconnectTarget } from "./ports";
 import type { Moment, Reply, ReplayState } from "./replay-store";
 
@@ -198,13 +198,21 @@ function latestMs(items: readonly { at: number }[], untilMs: number): number | n
   return best;
 }
 
-/** 세 자료의 나이(초)입니다. 아직 온 자료가 없으면 null 입니다. */
+/**
+ * 세 자료의 나이(초)입니다. 아직 온 자료가 없으면 null 입니다.
+ *
+ * 편집기 자리는 라이브 자리표시(`ec-live-none`)를 세지 않습니다. 자리표시의 `capturedAt` 은
+ * 패널을 연 시각이라, 그대로 세면 IntelliJ 에서 아무것도 오지 않았는데 바닥줄이 "IntelliJ 0초 전"
+ * 이라고 말합니다. 같은 화면 메모(`preparingSources`)는 봉인의 `editorSec = null` 을 읽어 "—" 를
+ * 보이므로 서로 어긋나기도 합니다.
+ */
 export function sourceAges(bundle: GoldenBundle, nowMs: number): Record<(typeof SOURCE_ORDER)[number], number | null> {
   const age = (ms: number | null): number | null => (ms === null ? null : Math.floor((nowMs - ms) / 1_000));
+  const editorArrived = bundle.editor.id !== LIVE_EDITOR_PLACEHOLDER_ID;
   return {
     tiro: age(latestMs(bundle.transcript.map((s) => ({ at: parseIso(s.arrivedAt) })), nowMs)),
     meet: age(latestMs(bundle.frames.map((f) => ({ at: parseIso(f.capturedAt) })), nowMs)),
-    intellij: age(latestMs([{ at: parseIso(bundle.editor.capturedAt) }], nowMs)),
+    intellij: editorArrived ? age(latestMs([{ at: parseIso(bundle.editor.capturedAt) }], nowMs)) : null,
   };
 }
 

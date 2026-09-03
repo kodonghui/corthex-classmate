@@ -154,6 +154,13 @@ body {
   margin-top: 4px;
 }
 
+/* 아직 배선되지 않은 칸 아래에 다는 한 줄 설명입니다(끈 까닭을 그 자리에서 말합니다). */
+.cm-set__note {
+  margin: 0;
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+}
+
 /*
   개인정보 세 칸 — 불변 원칙 §5 의 문구를 그대로 씁니다. 정본 디자인에는 없는 자리라
   색·글꼴은 캡션 토큰만 씁니다(docs/design-map.md §6 의 ⚠️ 항목).
