@@ -80,6 +80,11 @@ export type NoteView =
       readonly term: string;
       readonly time: string;
       readonly conclusion: string;
+      /**
+       * 결론 바로 아래에 그 자리에서 보여 줄 답 본문의 첫 문단입니다(U-33).
+       * 칩을 눌러 결론 자리가 이미 본문으로 바뀐 동안에는 null 입니다 — 같은 글이 두 번 나옵니다.
+       */
+      readonly body: string | null;
       readonly evidence: readonly EvidenceItem[];
       readonly chips: readonly NoteChip[];
       readonly collapseText: string;
@@ -357,6 +362,27 @@ export function chipContent(answer: Answer, chip: string | null, moment: Moment 
   return { text: answer.conclusion, evidence: evidenceOf(answer, moment) };
 }
 
+/**
+ * 결론 아래에 그대로 보여 줄 답 본문의 첫 문단입니다(U-33).
+ *
+ * 학습자 말 그대로 「한 줄로 설명해줘서 뭐 도움이 안돼」 — 40자 결론만으로는 못 알아듣습니다.
+ * 「자세히 보기」를 눌러야 나오던 `details.why` 의 첫 문단을 메모 안으로 끌어옵니다.
+ * 설정 `answerLength(short|full)` 는 아직 읽는 곳이 0줄이라 이 단위는 **full 로 고정**합니다.
+ * 칩이 눌려 있으면 결론 칸이 이미 그 칩의 본문이므로 겹쳐 쓰지 않습니다.
+ */
+export function noteBody(answer: Answer, chip: string | null): string | null {
+  if (chip !== null) return null;
+  const why = answer.details?.why;
+  if (why === undefined) return null;
+  return firstParagraph(why);
+}
+
+/** 빈 줄로 나뉜 첫 덩어리입니다. 빈 줄이 없으면 글 전체가 한 문단입니다. */
+function firstParagraph(text: string): string | null {
+  const first = text.split(/\n\s*\n/)[0]?.trim() ?? "";
+  return first === "" ? null : first;
+}
+
 /** 지금까지 온 답 중 "지금 · …" 줄이 있는 가장 최근 것입니다. */
 export function pinnedNow(bundle: GoldenBundle, nowMs: number): string | null {
   let best: { at: number; line: string } | null = null;
@@ -442,6 +468,7 @@ function noteOf(bundle: GoldenBundle, state: ReplayState): NoteView {
     term: moment.term,
     time: moment.time,
     conclusion: text,
+    body: noteBody(answer, state.chip),
     evidence,
     chips: answer.chips.map((label) => ({ id: chipId(label), label, selected: state.chip === chipId(label) })),
     collapseText: foldNotice(view.foldsInSec),

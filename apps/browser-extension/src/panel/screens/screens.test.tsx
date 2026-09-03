@@ -21,6 +21,11 @@ const noop = (): void => {};
 function homeHtml(checkpoint: Checkpoint): string {
   const store = new ReplayStore(GOLDEN_BUNDLE);
   store.goto(checkpoint);
+  return renderHome(store);
+}
+
+/** 스토어가 지금 어느 자리에 있든 그대로 듣는 중 화면을 그립니다. */
+function renderHome(store: ReplayStore): string {
   const state = store.getState();
   const view = listeningView(GOLDEN_BUNDLE, state, store.lines(state.now));
   return renderToStaticMarkup(
@@ -322,6 +327,25 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("자세히 보기");
     expect(html).toContain("17초 뒤 접혀요 · 기록에 남아요");
     expect(html).toContain("지금 · 생성자 주입 코드로 넘어갔어요");
+  });
+
+  it("C 한 줄 답변: 결론 바로 아래에 답 본문 첫 문단이 그 자리에 있다 (U-33)", () => {
+    const html = homeHtml("answer");
+    expect(html).toContain("cm-note__b");
+    // 「자세히 보기」를 눌러야 나오던 details.why 입니다. 한 줄 결론만으로는 도움이 안 됩니다.
+    expect(html).toContain("new 로 직접 만들면 어떤 구현을 쓸지가 클래스 안에 박혀요.");
+    // 길은 남습니다 — 나머지 절(내 코드와 비교 · 선생님이 말한 부분)로 가는 문입니다.
+    expect(html).toContain("자세히 보기");
+  });
+
+  it("답이 떠 있는 채로 문장을 다시 붙잡아도 짐작 목록이 그려진다 (U-10)", () => {
+    const store = new ReplayStore(GOLDEN_BUNDLE);
+    store.goto("answer");
+    const last = store.lines().at(-1);
+    if (last === undefined) throw new Error("전사 줄이 하나는 있어야 해요");
+    store.catchSentence(last.id);
+    const html = renderHome(store);
+    expect(html).toContain("혹시 이게 막혔나요?");
   });
 
   it("E 접힌 메모: cm-note--collapsed 한 줄", () => {

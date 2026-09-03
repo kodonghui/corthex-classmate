@@ -370,6 +370,35 @@ describe("답이 돌아오는 길", () => {
     });
   });
 
+  it("본문이 딸린 답은 결론 아래에 첫 문단이 붙고, 30초를 밀어도 접히지 않는다 (U-33)", () => {
+    const bench = asked();
+    const body: Answer = {
+      ...answerBody("ans-live-002", "q-2026-09-02-p9-xtesttok0-001", "new 는 만들 책임까지 떠안는 말이에요", 8),
+      details: {
+        why: "직접 new 로 만들면 어떤 구현을 쓸지가 클래스 안에 박혀요.\n\n둘째 문단은 메모에 오지 않고 자세히에만 남습니다.",
+      },
+    };
+    bench.store.pushEvent(
+      event("ev-x-031", 8, "answer.completed", {
+        questionId: "q-2026-09-02-p9-xtesttok0-001",
+        answerId: "ans-live-002",
+        evidence: "confirmed",
+        provider: "mock",
+        answer: body,
+      }),
+    );
+    expect(home(bench.store).note).toMatchObject({
+      kind: "ready",
+      conclusion: "new 는 만들 책임까지 떠안는 말이에요",
+      body: "직접 new 로 만들면 어떤 구현을 쓸지가 클래스 안에 박혀요.",
+      // 시계를 안 걸었으므로 "N초 뒤 접혀요" 가 아닙니다.
+      collapseText: "기록에 남아요",
+    });
+    bench.tickAt(38);
+    expect(bench.store.getState().machine.note).toBe("minimal");
+    expect(home(bench.store).note.kind).toBe("ready");
+  });
+
   it("answer.failed 하나로 대기 화면(H)이 되고 answer.queued 가 뒤따라도 그대로다", () => {
     const { store } = asked();
     store.pushEvent(

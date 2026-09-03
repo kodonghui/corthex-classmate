@@ -163,3 +163,8 @@ button.cm-sf__r:hover{color:var(--ink-700);text-decoration:underline}
 .cm-stuck__bar::after{content:"";position:absolute;inset:0;width:40%;background:rgba(255,255,255,.85);animation:cm-sweep 1400ms var(--ease-in-out) infinite}
 .cm-stuck__sub{font:var(--type-caption);color:var(--text-tertiary);text-align:center;padding:0 8px}
 .cm-stuck__sub b{font-weight:500;color:var(--text-secondary)}
+
+/* 정본 밖 — Classmate 확장이 더한 것입니다. 위 블록들은 design/ 의 각 jsx 원문 그대로여야
+   하므로(test/css-parity.test.ts) 사이에 끼워 넣지 않고 여기에 모읍니다. */
+/* cm-note__b — 붙잡기 메모에서 결론 바로 아래에 그리는 답 본문 첫 문단입니다(U-33). */
+.cm-note__b{display:block;margin-top:8px;font:var(--type-body);letter-spacing:normal;color:var(--text-secondary);word-break:keep-all;white-space:pre-line}

@@ -1014,7 +1014,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
         asks.push(effect);
       }
     }
-    this.#set({ machine: next, emitted });
+    this.#set({ machine: this.#holdFold(next), emitted });
     for (const event of fresh) {
       for (const listener of this.#emitListeners) listener(event);
     }
@@ -1022,6 +1022,25 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       this.#onAsk(ask, next.now);
     }
     return effects;
+  }
+
+  /**
+   * 읽는 중에 접히지 않게 접힘 시계를 그 자리에서 풉니다 (U-33 · U-24 흡수).
+   *
+   * 메모가 결론 아래에 답 본문을 그리게 되었으므로(U-33) 18초로는 다 못 읽습니다. 자세히 화면이
+   * 열려 있는 동안 답이 늦게 오면 minimal 로 되돌리며 시계를 다시 거는데, 그 18초가 지나면
+   * note 만 folded 로 가고 screen 은 detail 에 남아 어긋납니다(U-24). 두 경우 모두 풉니다.
+   *
+   * **라이브에서만 겁니다.** 재생(fixture)은 골든 장면 아홉을 그대로 재현해야 하고, 고정된
+   * fixture 자체가 `state.changed ANSWER_MINIMAL→CAPTURE` 접힘 사건을 기록하고 있습니다.
+   * 재생에서까지 시계를 풀면 제품이 대본과 어긋납니다(같은 갈림은 lesson-view 의
+   * LIVE_VISIBLE 이 먼저 쓴 규칙입니다).
+   */
+  #holdFold(machine: MachineState): MachineState {
+    if (this.#live === null || machine.foldDeadline === null) return machine;
+    const answer = machine.answerId === null ? undefined : this.#bundle.answers[machine.answerId];
+    const reading = this.#state.screen === "detail" || answer?.details?.why !== undefined;
+    return reading ? { ...machine, foldDeadline: null } : machine;
   }
 
   /**

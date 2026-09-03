@@ -293,7 +293,8 @@ describe("손짓", () => {
     store.goto("answer");
     store.chip("why");
     const view = home(store);
-    expect(view.note).toMatchObject({ kind: "ready", conclusion: ANSWER_1?.details?.why, collapseText: "18초 뒤 접혀요 · 기록에 남아요" });
+    // 결론 칸이 이미 그 칩의 본문이므로 body 는 비웁니다 — 같은 글을 두 번 그리지 않습니다(U-33).
+    expect(view.note).toMatchObject({ kind: "ready", conclusion: ANSWER_1?.details?.why, body: null, collapseText: "18초 뒤 접혀요 · 기록에 남아요" });
     if (view.note.kind !== "ready") return;
     expect(view.note.evidence).toEqual([{ type: "verified", source: "tiro", time: "10:32" }]);
     expect(view.note.chips.find((c) => c.id === "why")?.selected).toBe(true);

@@ -294,7 +294,19 @@ export function ListeningScreen({
               term={note.term}
               time={note.time}
               state="ready"
-              conclusion={note.conclusion}
+              // 결론 한 줄 **다음에** 답 본문 첫 문단을 그 자리에 둡니다(U-33). MarginNote 의
+              // children 은 헤더와 결론 사이라 순서가 뒤집히므로, 새 prop 을 만들지 않고
+              // 결론 칸에 함께 싣습니다 — 접힘·칩·자세히 갈래는 지금 그대로 둡니다.
+              conclusion={
+                note.body === null ? (
+                  note.conclusion
+                ) : (
+                  <>
+                    {note.conclusion}
+                    <span className="cm-note__b">{note.body}</span>
+                  </>
+                )
+              }
               evidence={[...note.evidence]}
               chips={[...note.chips]}
               onChip={onChip}
