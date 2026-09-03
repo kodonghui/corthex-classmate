@@ -6,8 +6,29 @@
 //! <data_dir>/
 //! ├─ 2026-09-02-p3.sqlite            ← 기록(events)과 프레임 메타(frames)
 //! └─ 2026-09-02-p3/frames/
-//!    ├─ sf-p3-001.webp               ← 파일 이름은 호스트가 id 로 다시 만든다
-//!    └─ sf-p3-002.webp
+//!    ├─ sf-p3-001.webp               ← 이름은 호스트가 id 로, 확장자는 **바이트**로 정한다
+//!    └─ sf-p3-002.jpg
+//! ```
+//!
+//! 확장자는 이름이 아니라 바이트가 정합니다
+//! ----------------------------------------
+//! 계약의 `ScreenFrame.path` 는 `frames/<id>.webp` 한 가지입니다. 그런데 실제로 들어오는
+//! 바이트는 WebP 가 아닐 수 있습니다 — 질문에 붙는 한 장은 `chrome.tabs.captureVisibleTab`
+//! 이 찍고, 그 API 가 낼 수 있는 형식은 `jpeg` 와 `png` 뿐입니다
+//! (`apps/browser-extension/src/capture/snapshot.ts`).
+//!
+//! `.webp` 라는 이름에 JPEG 바이트를 담아 두면, 그 경로를 받아 그림을 여는 쪽이 확장자로
+//! 형식을 정할 때 못 읽거나 깨집니다. 그래서 **파일 이름의 확장자는 바이트 앞머리(매직
+//! 넘버)로 정합니다**([`frame_extension_for`]). 아는 형식이 아니면 저장을 거절합니다 —
+//! 무엇인지 모르는 바이트를 디스크에 두지 않습니다.
+//!
+//! ```text
+//!   요청의 frame.path ──▶ frame_path_for(id) 와 대조만    (계약 · 표 · 응답은 `.webp` 그대로)
+//!   요청의 bytes      ──▶ frame_extension_for(bytes)      (실제 파일 이름의 확장자)
+//!                            FF D8 FF          → jpg
+//!                            89 PNG 0D 0A 1A 0A → png
+//!                            RIFF ???? WEBP     → webp
+//!                            그 밖             → 거절
 //! ```
 //!
 //! 왜 경로를 다시 계산하는가 (Gate D 결정)
@@ -68,8 +89,16 @@ const FRAME_ID_PREFIX: &str = "sf-";
 /// 머리(`sf-`)를 뺀 나머지의 글자 수 상한.
 const FRAME_ID_TAIL_MAX: usize = 60;
 
-/// 프레임 파일의 확장자. 계약이 WebP 한 가지로 못 박아 두었습니다.
+/// **계약 경로**(`ScreenFrame.path`)의 확장자. 계약이 WebP 한 가지로 못 박아 두었습니다.
+///
+/// 디스크에 놓이는 파일의 확장자는 이것이 아니라 [`frame_extension_for`] 가 정합니다.
 const FRAME_EXTENSION: &str = "webp";
+
+/// 디스크에 놓이는 파일이 가질 수 있는 확장자 전부입니다.
+///
+/// 이 순서가 곧 [`find_frame_file`] 이 찾아보는 순서입니다. 계약이 `.webp` 를 정본으로 두고
+/// 있으므로 그것을 먼저 봅니다.
+pub const FRAME_FILE_EXTENSIONS: &[&str] = &["webp", "jpg", "png"];
 
 /// 계약이 허락하는 `source` 값 전부.
 ///
@@ -159,6 +188,10 @@ impl SessionStore {
         if bytes.is_empty() {
             return Err(StoreError::MalformedFrame("bytesBase64"));
         }
+        // 무엇인지 모르는 바이트는 디스크에 두지 않습니다. 아는 형식이어야 이름을 지을 수
+        // 있고, 이름이 내용과 맞아야 나중에 그 경로를 받은 쪽이 그림을 엽니다.
+        let extension = frame_extension_for(bytes)
+            .ok_or(StoreError::MalformedFrame("bytesBase64 (그림 형식)"))?;
         if self.frame_exists(&frame.id)? {
             return Err(StoreError::DuplicateFrame);
         }
@@ -167,8 +200,11 @@ impl SessionStore {
         let directory = self.frames_dir();
         fs::create_dir_all(&directory)
             .map_err(|error| StoreError::Io("프레임 폴더 만들기", error.kind()))?;
-        let final_path = directory.join(format!("{}.{FRAME_EXTENSION}", frame.id));
-        let part_path = directory.join(format!("{}.{FRAME_EXTENSION}.part", frame.id));
+        // 이름을 짓는 규칙은 `frame_file_in` 한 곳입니다. 위에서 id 도 확장자도 이미
+        // 검사했으므로 `None` 이 나올 일은 없지만, 같은 규칙을 두 벌 적지 않으려고 부릅니다.
+        let final_path =
+            frame_file_in(&directory, &frame.id, extension).ok_or(StoreError::InvalidFrameId)?;
+        let part_path = directory.join(format!("{}.{extension}.part", frame.id));
         write_then_rename(&part_path, &final_path, bytes)?;
 
         // (4) 표 한 줄과 기록 한 줄은 같은 트랜잭션입니다. 실패하면 파일도 되돌립니다.
@@ -317,6 +353,58 @@ impl SessionStore {
 /// 호스트가 `id` 로 다시 만드는 계약 경로. 확장이 준 문자열은 여기에 섞이지 않습니다.
 pub fn frame_path_for(id: &str) -> String {
     format!("frames/{id}.{FRAME_EXTENSION}")
+}
+
+/// 바이트 앞머리(매직 넘버)로 그림 형식을 알아내 **파일 이름에 쓸 확장자**를 냅니다.
+///
+/// | 형식 | 앞머리 | 확장자 |
+/// |---|---|---|
+/// | JPEG | `FF D8 FF` | `jpg` |
+/// | PNG | `89 50 4E 47 0D 0A 1A 0A` | `png` |
+/// | WebP | `RIFF` + 네 바이트 길이 + `WEBP` | `webp` |
+///
+/// 이 셋이 아니면 `None` 입니다. 파일 이름을 믿지 않고 바이트만 봅니다 — 확장이 준 이름이
+/// 무엇이든 디스크에 놓이는 이름은 여기서 정해집니다.
+pub fn frame_extension_for(bytes: &[u8]) -> Option<&'static str> {
+    if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+        return Some("jpg");
+    }
+    if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]) {
+        return Some("png");
+    }
+    // RIFF 컨테이너는 `RIFF` 네 바이트 · 길이 네 바이트 · 종류 네 바이트로 시작합니다.
+    // 종류가 `WEBP` 여야 그림입니다(`WAVE` 같은 다른 RIFF 도 있습니다).
+    if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+        return Some("webp");
+    }
+    None
+}
+
+/// 프레임 파일이 **실제로 놓이는 자리**. 이름을 짓는 규칙은 이 함수 하나뿐입니다.
+///
+/// `frame_path_for` 와 같은 까닭입니다(위 "왜 경로를 다시 계산하는가"). 확장이 준 `path`
+/// 문자열을 쓰지 않고 `id` 로 이름을 다시 만들고, `id` 가 계약 모양이 아니면 **경로를 아예
+/// 만들지 않고** `None` 을 냅니다. `..` 한 조각이 교시 폴더 바깥을 가리키는 길이 없습니다.
+/// 확장자도 [`FRAME_FILE_EXTENSIONS`] 에 있는 것만 받습니다.
+///
+/// 파일이 그 자리에 있는지는 보지 않습니다. 그것은 부르는 쪽이 정합니다.
+pub fn frame_file_in(frames_dir: &Path, id: &str, extension: &str) -> Option<PathBuf> {
+    if !is_contract_frame_id(id) || !FRAME_FILE_EXTENSIONS.contains(&extension) {
+        return None;
+    }
+    Some(frames_dir.join(format!("{id}.{extension}")))
+}
+
+/// 그 자리에 **실제로 놓여 있는** 프레임 파일을 찾습니다.
+///
+/// 확장자가 바이트로 정해지므로 이름만 보고는 어느 것인지 알 수 없습니다. 그래서
+/// [`FRAME_FILE_EXTENSIONS`] 순서대로 하나씩 있는지 봅니다. 한 id 에 파일은 하나뿐이라
+/// (`store_frame` 이 같은 id 를 두 번 받지 않습니다) 먼저 찾은 것이 그것입니다.
+pub fn find_frame_file(frames_dir: &Path, id: &str) -> Option<PathBuf> {
+    FRAME_FILE_EXTENSIONS
+        .iter()
+        .filter_map(|extension| frame_file_in(frames_dir, id, extension))
+        .find(|candidate| candidate.is_file())
 }
 
 /// 프레임 id 가 `^sf-[A-Za-z0-9_-]{1,60}$` 인지 봅니다(정규식 crate 없이 손으로).
@@ -861,5 +949,113 @@ mod tests {
             .join("../../fixtures/synthetic-class/golden-ioc/screen-frames.json");
         let text = fs::read_to_string(&path).expect("fixtures 를 읽을 수 있어야 한다");
         serde_json::from_str(&text).expect("fixture 가 계약과 같아야 한다")
+    }
+
+    // ------------------------------------------------------------ 확장자는 바이트가 정한다
+
+    /// JPEG 한 장의 앞머리입니다. 시험이 보는 것은 매직 넘버뿐이라 뒤는 채우지 않습니다.
+    fn jpeg_bytes() -> Vec<u8> {
+        let mut bytes = vec![0xFF, 0xD8, 0xFF, 0xE0];
+        bytes.extend_from_slice(b"\x00\x10JFIF\x00");
+        bytes
+    }
+
+    /// PNG 한 장의 앞머리입니다.
+    fn png_bytes() -> Vec<u8> {
+        let mut bytes = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+        bytes.extend_from_slice(b"\x00\x00\x00\rIHDR");
+        bytes
+    }
+
+    #[test]
+    fn the_extension_comes_from_the_magic_number_not_from_the_name() {
+        assert_eq!(frame_extension_for(&jpeg_bytes()), Some("jpg"));
+        assert_eq!(frame_extension_for(&png_bytes()), Some("png"));
+        assert_eq!(frame_extension_for(&fixture_bytes()), Some("webp"));
+
+        // 아는 형식이 아닙니다.
+        assert_eq!(frame_extension_for(b"not-an-image-at-all"), None);
+        assert_eq!(frame_extension_for(&[]), None);
+        // RIFF 이지만 WebP 가 아닙니다(WAVE 소리 파일).
+        assert_eq!(frame_extension_for(b"RIFF\x24\x08\x00\x00WAVEfmt "), None);
+        // 앞머리가 잘렸습니다.
+        assert_eq!(frame_extension_for(&[0xFF, 0xD8]), None);
+    }
+
+    #[test]
+    fn a_jpeg_lands_as_jpg_while_the_contract_path_stays_webp() {
+        // 질문에 붙는 한 장이 실제로 지나는 길입니다. captureVisibleTab 은 JPEG 만 냅니다.
+        let dir = temp_dir("jpeg");
+        let store = SessionStore::open(&dir, FIXTURE_PERIOD).expect("열려야 한다");
+        let bytes = jpeg_bytes();
+
+        let stored = store
+            .store_frame(&frame("sf-p3-001"), &bytes)
+            .expect("저장되어야 한다");
+
+        // 계약·표·응답은 그대로 `.webp` 입니다(fixtures 와 스키마가 그렇게 적혀 있습니다).
+        assert_eq!(stored.path, "frames/sf-p3-001.webp");
+        assert_eq!(store.list_frames().expect("읽기")[0].meta.path, stored.path);
+
+        // 디스크의 이름만 내용을 따라갑니다.
+        let frames_dir = store.frames_dir();
+        assert!(frames_dir.join("sf-p3-001.jpg").is_file());
+        assert!(!frames_dir.join("sf-p3-001.webp").exists());
+        assert_eq!(
+            fs::read(frames_dir.join("sf-p3-001.jpg")).expect("읽기"),
+            bytes
+        );
+
+        // 그림을 찾는 쪽은 이름을 몰라도 됩니다.
+        assert_eq!(
+            find_frame_file(&frames_dir, "sf-p3-001"),
+            Some(frames_dir.join("sf-p3-001.jpg"))
+        );
+    }
+
+    #[test]
+    fn a_png_lands_as_png_and_a_webp_lands_as_webp() {
+        let dir = temp_dir("png-webp");
+        let store = SessionStore::open(&dir, FIXTURE_PERIOD).expect("열려야 한다");
+
+        store
+            .store_frame(&frame("sf-p3-001"), &png_bytes())
+            .expect("PNG 도 저장된다");
+        store
+            .store_frame(&frame("sf-p3-002"), &fixture_bytes())
+            .expect("WebP 도 저장된다");
+
+        let frames_dir = store.frames_dir();
+        assert!(frames_dir.join("sf-p3-001.png").is_file());
+        assert!(frames_dir.join("sf-p3-002.webp").is_file());
+    }
+
+    #[test]
+    fn bytes_of_an_unknown_format_are_refused_and_leave_nothing_behind() {
+        let dir = temp_dir("unknown-format");
+        let store = SessionStore::open(&dir, FIXTURE_PERIOD).expect("열려야 한다");
+
+        let refused = store.store_frame(&frame("sf-p3-001"), b"<html>not an image</html>");
+        assert_eq!(refused.unwrap_err().reason_code(), "malformed-frame");
+
+        // 표에도 기록에도 폴더에도 남는 것이 없습니다.
+        assert_eq!(store.frame_count().expect("셈"), 0);
+        assert_eq!(store.list_since(0, 100).expect("읽기").len(), 0);
+        assert!(!store.frames_dir().exists(), "폴더조차 만들지 않는다");
+    }
+
+    #[test]
+    fn finding_a_frame_file_refuses_ids_that_leave_the_folder() {
+        let dir = temp_dir("find-guard");
+        let frames_dir = dir.join("frames");
+        fs::create_dir_all(&frames_dir).expect("만들어야 한다");
+
+        // 없는 장은 None 입니다.
+        assert_eq!(find_frame_file(&frames_dir, "sf-p3-404"), None);
+        // 계약 모양이 아닌 id 는 경로를 아예 만들지 않습니다.
+        assert_eq!(find_frame_file(&frames_dir, "../../secret"), None);
+        assert_eq!(frame_file_in(&frames_dir, "../../secret", "webp"), None);
+        // 목록에 없는 확장자도 받지 않습니다.
+        assert_eq!(frame_file_in(&frames_dir, "sf-p3-001", "exe"), None);
     }
 }

@@ -166,13 +166,13 @@ Chrome 확장                     classmate-host.exe
 짧아서 문제가 없지만, 임시 폴더에서 cargo 를 돌릴 때는
 `CARGO_TARGET_DIR=C:/Users/<이름>/AppData/Local/Temp/ccsq` 처럼 짧은 경로를 지정하세요.
 
-### 2-5. 화면 프레임 (`frames` 표 + `.webp` 파일)
+### 2-5. 화면 프레임 (`frames` 표 + 그림 파일)
 
-화면이 바뀐 순간의 WebP 한 장은 **파일 하나 · 표 한 줄 · 기록 한 줄** 세 자리에 함께 남습니다.
+화면 한 장은 **파일 하나 · 표 한 줄 · 기록 한 줄** 세 자리에 함께 남습니다.
 확장이 `{"type":"frame.store","periodId":"…","frame":{ScreenFrame 아홉 칸},"bytesBase64":"…"}` 를
 보내면 호스트는 `{"type":"frame.stored","periodId":"…","id":"sf-p3-001","path":"frames/sf-p3-001.webp","bytes":34,"seq":10}`
 으로 답하고, 실패하면 `{"type":"error","message":"frame store failed","reason":"<고정 낱말>","received":"frame.store"}`
-로 답한 뒤 **프로세스는 계속 삽니다**. 파일은 `%LOCALAPPDATA%\CorthexClassmate\sessions\<periodId>\frames\<id>.webp`
+로 답한 뒤 **프로세스는 계속 삽니다**. 파일은 `%LOCALAPPDATA%\CorthexClassmate\sessions\<periodId>\frames\<id>.<확장자>`
 에 놓이고, 같은 교시의 `<periodId>.sqlite` 안 `frames` 표에 메타(`id` PK · `period_id` · `captured_at` ·
 `path` · `width` · `height` · `hash` · `changed_from_prev` · `source` · `bytes` · `seq`)가,
 `events` 표에는 `screen.frame` 한 줄(payload `{"screenFrameId":…,"changedFromPrev":…}`)이 **같은
@@ -181,7 +181,14 @@ Chrome 확장                     classmate-host.exe
 `ev-<프레임 id>` 로 지으면 확장이 그 이름을 먼저 쓴 순간 `frames` 행만 남고 기록이 사라지기
 때문입니다. 그 이름마저 이미 쓰이고 있으면 한 줄도 넣지 못한 것이므로 **트랜잭션째 되감아**
 `duplicate-frame` 으로 거절합니다 — 표와 기록은 둘 다 있거나 둘 다 없습니다.
-검사는 전부 파일을 만들기 전에 끝내고, 파일은 `<id>.webp.part` 에 다 쓴 뒤 `rename` 으로 옮기며,
+**파일 이름의 확장자는 바이트가 정합니다.** 계약의 `path` 는 `frames/<id>.webp` 한 가지지만,
+디스크에 놓이는 이름은 매직 넘버로 고릅니다 — `FF D8 FF` 면 `.jpg`, `89 PNG…` 면 `.png`,
+`RIFF…WEBP` 면 `.webp` 이고 그 밖은 `malformed-frame` 으로 **거절**합니다. 질문에 붙는 한 장은
+`chrome.tabs.captureVisibleTab` 이 찍어 실제로 JPEG 이므로, 이름을 `.webp` 로 고정해 두면 그
+경로를 받아 그림을 여는 쪽이 확장자로 형식을 정할 때 못 읽습니다(`store::frames::frame_extension_for`).
+표·응답·계약 검사는 그대로 `frames/<id>.webp` 를 씁니다.
+
+검사는 전부 파일을 만들기 전에 끝내고, 파일은 `<id>.<확장자>.part` 에 다 쓴 뒤 `rename` 으로 옮기며,
 쓰기·flush·옮기기 중 어디서 실패하든 `.part` 를 지우고 트랜잭션이 실패하면 방금 옮긴 파일도
 지웁니다. 그래서 **표에 있는데 파일이 없는 프레임은 생기지 않습니다**(반대로 강제 종료 순간의
 짝 없는 파일 한 장은 남을 수 있고, 아무 데서도
@@ -357,7 +364,7 @@ rustup 이 GNU 툴체인에 자체 링커(`rust-mingw`)를 함께 내려 주므�
 | `src/store/mod.rs` | 교시별 SQLite(WAL) 저장소 `SessionStore` · `SessionEvent` · 단위 테스트 |
 | `src/store/clock.rs` | `at` 을 적고 읽는 ISO 8601(밀리초) 변환 |
 | `src/store/base64.rs` | std 만으로 쓴 RFC 4648 디코더(`frame.store` 의 `bytesBase64`) |
-| `src/store/frames.rs` | `frames` 표 + `.webp` 파일 저장(`.part` → rename → 한 트랜잭션) · id/path 대조 |
+| `src/store/frames.rs` | `frames` 표 + 그림 파일 저장(`.part` → rename → 한 트랜잭션) · id/path 대조 · 매직 넘버로 확장자 결정 |
 | `tests/recovery.rs` | 강제 종료 → 재시작 손실 창 측정(Gate D) |
 | `scripts/register-host.mjs` | 매니페스트 작성과 HKCU 등록/해제 |
 | `scripts/register-host.test.mjs` | 매니페스트 모양·dry-run 무쓰기·제거 계획 시험(`node --test`) |

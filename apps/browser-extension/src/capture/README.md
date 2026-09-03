@@ -95,11 +95,12 @@ panel.ask
 4. **그림을 로그에 남기지 않습니다.** dataURL 을 `console.log` 하면 수업 화면이 통째로 서비스
    워커 콘솔에 박힙니다. 사람에게 남기는 것은 까닭 낱말과 길이 숫자뿐입니다.
 
-**알아 둘 것 · 파일 이름과 내용이 어긋납니다.** 호스트가 파일 이름을 `frames/<id>.webp` 로
-고정해 두었는데(`apps/native-host/src/store/frames.rs` 의 `FRAME_EXTENSION`) 이 길이 담는
-바이트는 JPEG 입니다. `captureVisibleTab` 이 낼 수 있는 형식이 `jpeg`·`png` 뿐이고, 호스트를
-고치는 일은 이 갈래의 몫이 아니라 그대로 두었습니다. 뷰어는 바이트를 보고 형식을 정하므로
-그림은 보이지만, 나중에 호스트 쪽에서 확장자를 형식에 맞추는 일이 남아 있습니다.
+**알아 둘 것 · 보내는 `path` 와 디스크의 파일 이름은 다릅니다.** 계약의 `path` 는
+`frames/<id>.webp` 한 가지라 여기서 그대로 보냅니다. 이 길이 담는 바이트는 JPEG 인데
+(`captureVisibleTab` 이 낼 수 있는 형식이 `jpeg`·`png` 뿐입니다), 호스트가 **바이트의 매직
+넘버로** 실제 파일 이름의 확장자를 골라 `<id>.jpg` 로 놓습니다
+(`apps/native-host/src/store/frames.rs` 의 `frame_extension_for`). 이름과 내용이 어긋나던
+자리는 그렇게 닫혔습니다.
 
 ## 설정값
 
