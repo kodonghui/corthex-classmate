@@ -13,6 +13,7 @@
  *              │                                      │  답도 보낸 순서대로 옵니다
  *              │                                      ▼
  *              │                              onMessage ── tutor.event? ──▶ 구독자(자발 push)
+ *              │                                        ├─ tutor.delta? ──▶ 조각 구독자(자발 push)
  *              │                                        └─ 그 밖 ─────────▶ 대기열 맨 앞과 짝
  *              │
  *              └─ 끊김 ──┬─ 다시 보낼 것(event.append · frame.store) ──▶ 보류 대기열
@@ -34,9 +35,16 @@ import type {
   FrameStoreMessage,
   HostEnvelope,
   HostReply,
+  TutorDeltaPush,
   TutorEventPush,
 } from './host-messages';
-import { isHelloReply, isHostReply, isResendable, isTutorEventPush } from './host-messages';
+import {
+  isHelloReply,
+  isHostReply,
+  isResendable,
+  isTutorDeltaPush,
+  isTutorEventPush,
+} from './host-messages';
 
 /** 포트에서 우리가 쓰는 부분만 적었습니다. `chrome.runtime.Port` 가 이 모양을 만족합니다. */
 export interface NativePortLike {
@@ -79,6 +87,14 @@ export interface NativeHostClientOptions {
   onStatus?: (state: HostConnectionState, reason?: string) => void;
   /** 호스트가 스스로 민 `tutor.event` 를 받습니다. */
   onPush?: (push: TutorEventPush) => void;
+  /**
+   * 호스트가 스스로 민 `tutor.delta`(답이 만들어지는 동안 흐르는 조각)를 받습니다.
+   *
+   * `onPush` 와 따로 두는 까닭: 조각은 `SessionEvent` 가 아니라 저장소에 붙지 않고, 받는
+   * 쪽이 하는 일도 다릅니다(사건은 기록·화면 둘 다, 조각은 화면 하나). 한 문으로 합치면
+   * 부르는 쪽이 매번 `type` 을 다시 갈라야 합니다.
+   */
+  onDelta?: (delta: TutorDeltaPush) => void;
   /**
    * 사람이 읽을 한 줄입니다. 기본은 `console.warn`.
    *
@@ -140,6 +156,7 @@ export class NativeHostClient {
   private readonly warn: (message: string) => void;
   private readonly onStatus: (state: HostConnectionState, reason?: string) => void;
   private readonly onPush: (push: TutorEventPush) => void;
+  private readonly onDelta: (delta: TutorDeltaPush) => void;
 
   private port: NativePortLike | null = null;
   /** 이 포트가 지금 우리 것인지입니다. 옛 포트의 늦은 콜백을 걸러 냅니다. */
@@ -167,6 +184,7 @@ export class NativeHostClient {
     this.warn = options.warn ?? ((message) => console.warn(`[classmate] ${message}`));
     this.onStatus = options.onStatus ?? (() => {});
     this.onPush = options.onPush ?? (() => {});
+    this.onDelta = options.onDelta ?? (() => {});
   }
 
   /** 지금 왕복이 성립하는 상태인지입니다(`hello` 를 받은 뒤). */
@@ -340,6 +358,12 @@ export class NativeHostClient {
     // 자발 push 는 부탁에 대한 답이 아닙니다. 대기열을 건드리지 않습니다.
     if (isTutorEventPush(message)) {
       this.onPush(message);
+      return;
+    }
+    // 답이 만들어지는 동안 흐르는 조각입니다. 한 회차에 수십 건이 오므로 **경고를 찍지
+    // 않습니다** — 여기가 열리기 전에는 조각마다 "모양이 다른 말" 한 줄이 쌓였습니다.
+    if (isTutorDeltaPush(message)) {
+      this.onDelta(message);
       return;
     }
 

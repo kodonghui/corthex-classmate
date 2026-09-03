@@ -14,7 +14,7 @@ import { toScreenFrame } from '../src/capture/frame-store';
 import { NativeHostFrameSink } from '../src/capture/frame-sink';
 import { fromBase64 } from '../src/capture/host-messages';
 import type { CaptureFrameMessage } from '../src/capture/messages';
-import type { SnapshotChromeLike } from '../src/capture/snapshot';
+import type { SnapshotChromeLike, SnapshotFailure } from '../src/capture/snapshot';
 import { buildSnapshotFrame, captureMeetTab } from '../src/capture/snapshot';
 
 import { EventIdFactory, makeWorkerToken } from '../src/background/ids';
@@ -111,6 +111,11 @@ export default defineBackground(() => {
     onPush: (push) => {
       void router.handleHostPush(push);
     },
+    onDelta: (delta) => {
+      // 답이 만들어지는 동안 흐르는 조각입니다. 저장소에 붙이지 않고 패널로만 흘립니다
+      // (`Router.handleHostDelta` 의 주석 참고). 기다릴 것이 없어 `void` 도 없습니다.
+      router.handleHostDelta(delta);
+    },
   });
 
   /**
@@ -139,6 +144,8 @@ export default defineBackground(() => {
   // 감싸 넘깁니다. 전역을 통째로 넘기지 않는 까닭은 그 파일이 무엇을 만질 수 있는지가
   // 이 몇 줄로 눈에 보이게 하기 위해서입니다.
   const snapshotChrome: SnapshotChromeLike = {
+    // `url` 무늬로 **모든 창**에서 찾습니다. `tabs` 권한이 늘지 않습니다 — 이 필터는 그 탭의
+    // 호스트 권한이 있으면 듣고, 우리는 `https://meet.google.com/*` 하나를 이미 받았습니다.
     tabs: {
       query: (info) => chrome.tabs.query(info),
       captureVisibleTab: (windowId, options) => chrome.tabs.captureVisibleTab(windowId, options),
@@ -171,8 +178,18 @@ export default defineBackground(() => {
    */
   const screen: ScreenSnapshotSource = {
     capture: async (periodId: string): Promise<string | null> => {
-      const shot = await captureMeetTab(snapshotChrome);
-      if (shot === null) return null;
+      // 못 얻은 까닭을 라우터로 넘겨 바닥줄의 `meet` 자리에 드러나게 합니다. 넘어가는 것은
+      // **낱말 하나**뿐입니다 — dataURL·화면 내용·탭 주소는 어디에도 싣지 않습니다.
+      let failure: SnapshotFailure | null = null;
+      const shot = await captureMeetTab(snapshotChrome, {
+        onFail: (reason) => {
+          failure = reason;
+        },
+      });
+      if (shot === null) {
+        void router.noteScreenMissing(failure ?? 'capture-failed');
+        return null;
+      }
 
       askFrameSequence += 1;
       let frame: ScreenFrame;
@@ -188,16 +205,22 @@ export default defineBackground(() => {
           '[classmate] 질문에 붙일 화면의 이름표를 짓지 못했어요',
           error instanceof Error ? error.message : String(error),
         );
+        void router.noteScreenMissing('capture-failed');
         return null;
       }
 
       // 담긴 것이 확인된 장만 질문이 가리킵니다. 폴백 대기열에 들어간 장은 아직 파일이
       // 없어서, 가리키면 튜터가 없는 그림을 찾습니다.
       const stored = await frameSink.storeAndReport(frame, shot.bytes);
-      if (!stored) return null;
+      if (!stored) {
+        // 찍기는 했는데 도우미가 파일로 남기지 못했습니다(꺼져 있거나 거절).
+        void router.noteScreenMissing('host-offline');
+        return null;
+      }
 
       // 패널이 "지금 무엇이 보이는지" 를 그릴 수 있게 화면도 흘려 줍니다.
       router.pushFrame(frame);
+      void router.noteScreenCaptured();
       return frame.id;
     },
   };

@@ -21,6 +21,7 @@
  *
  *   호스트가 스스로 미는 것 (부탁에 대한 답이 아님)
  *   tutor.event {periodId, event}
+ *   tutor.delta {periodId, questionId, seq, chars, text?}
  * ```
  *
  * 보안 메모 (불변 원칙 §4-2 · §4-7): 이 봉투에 인증정보·토큰·Tiro URL 을 싣지 않습니다.
@@ -48,6 +49,15 @@ export const TUTOR_ASK = 'tutor.ask';
 export const TUTOR_RETRY = 'tutor.retry';
 export const TUTOR_ACCEPTED = 'tutor.accepted';
 export const TUTOR_EVENT = 'tutor.event';
+/**
+ * 답이 만들어지는 **동안** 흐르는 조각입니다. 호스트가 스스로 밉니다.
+ *
+ * 정본은 `apps/native-host/src/tutor/delta.rs` 와 `crates/transport` 의 `PUSH_TUTOR_DELTA`
+ * 입니다. `tutor.event` 와 달리 **`SessionEvent` 를 싣지 않습니다** — 저장소에 붙지 않고
+ * `packages/contracts` 에도 없는, 잃어도 되는 화면 갱신 알림입니다. 정본은 언제나 뒤따르는
+ * `answer.completed` 입니다.
+ */
+export const TUTOR_DELTA = 'tutor.delta';
 
 /** 사람이 적은 질문 문장의 상한입니다. 호스트가 `question-too-long` 으로 거절하는 경계입니다. */
 export const MAX_QUESTION_BYTES = 4096;
@@ -123,6 +133,31 @@ export interface TutorEventPush {
   event: SessionEvent;
 }
 
+/**
+ * 답이 만들어지는 동안 흐르는 조각 하나입니다. 이것도 대기열을 쓰지 않습니다.
+ *
+ * ```text
+ *   {"type":"tutor.delta","periodId":"…","questionId":"…","seq":0,"chars":7,"text":"그는 \"n"}
+ *                                                          │      │        └ 지금까지 해독한 결론 **전체**
+ *                                                          │      └ 지금까지 받은 날 본문 글자 수
+ *                                                          └ 이 회차의 몇 번째 조각인지 (0 부터)
+ * ```
+ *
+ * **`text` 는 증분이 아니라 그때까지의 결론 전체입니다.** 이어 붙이지 말고 갈아 끼웁니다.
+ * 조각 하나를 놓쳐도 다음 조각이 화면을 올바르게 덮습니다.
+ *
+ * **`text` 는 없을 수 있습니다.** 모델이 아직 JSON 의 `conclusion` 칸에 닿지 않았다는 뜻이고,
+ * 그때도 `chars` 는 자라므로 "무언가 오고 있다" 를 그릴 수 있습니다.
+ */
+export interface TutorDeltaPush {
+  type: typeof TUTOR_DELTA;
+  periodId: string;
+  questionId: string;
+  seq: number;
+  chars: number;
+  text?: string;
+}
+
 /** 호스트가 보내는 것 전부입니다. */
 export type HostReply =
   | HelloReply
@@ -159,7 +194,31 @@ export function isTutorEventPush(value: unknown): value is TutorEventPush {
   return typeof value['periodId'] === 'string' && isRecord(value['event']);
 }
 
-/** 호스트가 보낸 값이 우리가 아는 답 가운데 하나인지입니다. */
+/**
+ * 답이 만들어지는 동안 흐르는 조각인지입니다.
+ *
+ * `seq` 와 `chars` 가 **반드시** 있어야 합니다. 둘 중 하나라도 숫자가 아니면 화면이
+ * `NaN` 으로 되감기 판정을 하게 되므로 여기서 막습니다. `text` 는 없어도 됩니다(아직
+ * 결론 칸에 닿지 않은 조각).
+ */
+export function isTutorDeltaPush(value: unknown): value is TutorDeltaPush {
+  if (!isRecord(value) || value['type'] !== TUTOR_DELTA) return false;
+  if (typeof value['periodId'] !== 'string') return false;
+  if (typeof value['questionId'] !== 'string' || value['questionId'].length === 0) return false;
+  if (typeof value['seq'] !== 'number' || !Number.isFinite(value['seq'])) return false;
+  if (typeof value['chars'] !== 'number' || !Number.isFinite(value['chars'])) return false;
+  const text = value['text'];
+  return text === undefined || typeof text === 'string';
+}
+
+/**
+ * 호스트가 보낸 값이 우리가 아는 **답** 가운데 하나인지입니다.
+ *
+ * **자발 push 두 가지(`tutor.event` · `tutor.delta`)는 여기에 넣지 않습니다.** 이 함수가
+ * 참을 내면 `host-client.ts` 의 `receive` 가 그 값을 대기열 맨 앞 부탁의 답으로 소비합니다.
+ * push 는 부탁에 대한 답이 아니라서 한 번만 섞여도 그 뒤의 `event.ack`·`tutor.accepted`·
+ * `error` 가 영구히 한 칸씩 밀립니다. push 는 `receive` 가 이 문지기보다 **먼저** 갈라냅니다.
+ */
 export function isHostReply(value: unknown): value is HostReply {
   return (
     isHelloReply(value) ||

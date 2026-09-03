@@ -1000,3 +1000,290 @@ describe("이어 물은 질문의 되밀기", () => {
     expect(state.received.some((item) => item.id === "ev-host-0100")).toBe(true);
   });
 });
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 답이 만들어지는 **동안** 흐르는 조각 (tutor.delta → pushDelta)
+//
+// 2026-09-03 실측: 질문 뒤 21~25초 동안 화면이 비어 학습자가 9초에 네 번 더 눌렀습니다.
+// 조각은 호스트가 이미 보내고 있었고 확장이 버리고 있었을 뿐입니다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("흐르는 조각", () => {
+  /** 낱말 하나를 붙잡아 답을 기다리는 자리까지 갑니다. */
+  function waiting(): { store: ReplayStore; questionId: string } {
+    const { store } = rig();
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
+    store.catchTerm("ts-live-001", 1, "new");
+    return { store, questionId: store.getState().machine.questionId ?? "" };
+  }
+
+  it("조각이 순서대로 오면 화면의 결론이 자란다", () => {
+    const { store, questionId } = waiting();
+
+    store.pushDelta({ questionId, seq: 0, chars: 15 });
+    store.pushDelta({ questionId, seq: 1, chars: 21, text: "생성 책임을" });
+    store.pushDelta({ questionId, seq: 2, chars: 32, text: "생성 책임을 나눠요" });
+
+    const note = home(store).note;
+    expect(note.kind).toBe("preparing");
+    expect(note.kind === "preparing" ? note.stream : null).toEqual({
+      text: "생성 책임을 나눠요",
+      chars: 32,
+    });
+  });
+
+  it("text 없이 chars 만 와도 죽지 않고 진행도만 보인다", () => {
+    const { store, questionId } = waiting();
+
+    store.pushDelta({ questionId, seq: 0, chars: 7 });
+
+    const note = home(store).note;
+    expect(note.kind === "preparing" ? note.stream : null).toEqual({ text: null, chars: 7 });
+  });
+
+  it("늦게 온 조각(더 작은 seq)은 화면을 뒤로 돌리지 않는다", () => {
+    const { store, questionId } = waiting();
+
+    store.pushDelta({ questionId, seq: 2, chars: 32, text: "생성 책임을 나눠요" });
+    store.pushDelta({ questionId, seq: 1, chars: 21, text: "생성 책임을" });
+    // 같은 seq 도 다시 그릴 것이 없어 버립니다.
+    store.pushDelta({ questionId, seq: 2, chars: 99, text: "엉뚱한 글" });
+
+    const note = home(store).note;
+    expect(note.kind === "preparing" ? note.stream : null).toEqual({
+      text: "생성 책임을 나눠요",
+      chars: 32,
+    });
+  });
+
+  it("다른 질문의 조각은 섞이지 않는다", () => {
+    const { store, questionId } = waiting();
+
+    store.pushDelta({ questionId, seq: 0, chars: 10, text: "이 질문의 결론" });
+    store.pushDelta({ questionId: "q-남의-질문", seq: 9, chars: 900, text: "남의 결론" });
+
+    const note = home(store).note;
+    expect(note.kind === "preparing" ? note.stream : null).toEqual({ text: "이 질문의 결론", chars: 10 });
+    expect(store.getState().deltas["q-남의-질문"]).toBeDefined();
+  });
+
+  it("답이 도착하면 조각 자리가 사라지고 진짜 답이 그 자리에 온다", () => {
+    const { store, questionId } = waiting();
+    store.pushDelta({ questionId, seq: 0, chars: 20, text: "생성 책임을" });
+
+    store.pushEvent(
+      event("ev-x-900", 9, "answer.completed", {
+        questionId,
+        answerId: "an-live-001",
+        answer: answerBody("an-live-001", questionId, "생성 책임을 컨테이너에 맡겨요", 9),
+      }),
+    );
+
+    const note = home(store).note;
+    expect(note.kind).toBe("ready");
+    expect(note.kind === "ready" ? note.conclusion : null).toBe("생성 책임을 컨테이너에 맡겨요");
+    // 겹쳐 보이지 않게 조각 칸이 비었습니다.
+    expect(store.getState().deltas[questionId]).toBeUndefined();
+  });
+
+  it("튜터가 멈춰도(answer.failed) 조각 자리는 비운다", () => {
+    const { store, questionId } = waiting();
+    store.pushDelta({ questionId, seq: 0, chars: 20, text: "쓰다 만 결론" });
+
+    store.pushEvent(
+      event("ev-x-901", 9, "answer.failed", { questionId, provider: "claude", message: ASK_TIMEOUT_MESSAGE }),
+    );
+
+    expect(store.getState().deltas[questionId]).toBeUndefined();
+    const note = home(store).note;
+    expect(note.kind === "preparing" ? note.stream : "없음").toBeNull();
+  });
+
+  it("대화 칸에 적어 물은 줄에도 자라는 결론이 붙는다", () => {
+    const { store } = rig();
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
+    store.askTyped(PERIOD, "지금 이거 왜 필요해요?");
+    const asked = store.getState().threads[PERIOD]?.[0]?.id ?? "";
+
+    store.pushDelta({ questionId: asked, seq: 0, chars: 12, text: "직접 만들면 갈아 끼우기 어려워요" });
+
+    const asks = home(store).asks;
+    expect(asks[0]?.loading).toBe(true);
+    expect(asks[0]?.stream).toEqual({ text: "직접 만들면 갈아 끼우기 어려워요", chars: 12 });
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 앞 질문의 답을 기다리는 중에도 다음 문단을 붙잡을 수 있어야 합니다.
+//
+// 2026-09-03 실측: 15:14:13 질문 뒤 4분 32초 동안 `question.asked` 가 0건. 그동안 학습자는
+// 계속 문단을 눌렀습니다. 스토어는 멀쩡했고 `noteOf` 가 짐작을 안 내주고 있었습니다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("답을 기다리는 중에 다음 문단 붙잡기", () => {
+  function rigWithTwoLines(): ReturnType<typeof rig> {
+    const bench = rig();
+    bench.store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
+    bench.store.pushSegment(segment(2, "context.getBean 으로 꺼내 씁니다", 7));
+    return bench;
+  }
+
+  it("답을 기다리는 중(preparing)에 문단을 누르면 짐작 목록이 보인다", () => {
+    const bench = rigWithTwoLines();
+    bench.store.catchTerm("ts-live-001", 1, "new");
+    expect(home(bench.store).note.kind).toBe("preparing");
+
+    bench.store.catchSentence("ts-live-002");
+
+    const view = home(bench.store);
+    // 앞 질문의 대기 메모는 그대로 남습니다.
+    expect(view.note.kind).toBe("preparing");
+    // 방금 누른 문단의 짐작이 따로 나옵니다.
+    expect(view.choosing?.lineId).toBe("ts-live-002");
+    expect(view.choosing?.options.length).toBeGreaterThan(0);
+  });
+
+  it("튜터가 멈춘 중(waiting)에 문단을 눌러도 보인다", () => {
+    const bench = rigWithTwoLines();
+    bench.store.catchTerm("ts-live-001", 1, "new");
+    const questionId = bench.store.getState().machine.questionId ?? "";
+    bench.store.pushEvent(
+      event("ev-x-910", 9, "answer.failed", { questionId, provider: "claude", message: ASK_TIMEOUT_MESSAGE }),
+    );
+    const before = home(bench.store).note;
+    expect(before.kind === "preparing" ? before.waitingText : null).toBe(WAITING_NOTE_LINE);
+
+    bench.store.catchSentence("ts-live-002");
+
+    expect(home(bench.store).choosing?.lineId).toBe("ts-live-002");
+  });
+
+  it("그 상태에서 짐작을 고르면 새 질문이 나간다", () => {
+    const bench = rigWithTwoLines();
+    bench.store.catchTerm("ts-live-001", 1, "new");
+    bench.store.catchSentence("ts-live-002");
+
+    bench.store.chooseGuess("g1");
+
+    expect(bench.asks).toHaveLength(2);
+    expect(bench.asks[1]?.word).toBe("context.getBean");
+    // 고르고 나면 짐작 목록은 사라지고 새 질문이 메모 자리를 차지합니다.
+    const view = home(bench.store);
+    expect(view.choosing).toBeNull();
+    expect(view.note.kind).toBe("preparing");
+  });
+
+  it("앞 질문의 답이 나중에 도착해도 버려지지 않고 대화 칸에 남는다", () => {
+    const bench = rigWithTwoLines();
+    bench.store.catchTerm("ts-live-001", 1, "new");
+    const first = bench.store.getState().machine.questionId ?? "";
+    bench.store.catchSentence("ts-live-002");
+    bench.store.chooseGuess("g1");
+    expect(bench.store.getState().machine.questionId).not.toBe(first);
+
+    bench.store.pushEvent(
+      event("ev-x-920", 12, "answer.completed", {
+        questionId: first,
+        answerId: "an-live-first",
+        answer: answerBody("an-live-first", first, "직접 new 하면 갈아 끼우기 어려워요", 12),
+      }),
+    );
+
+    const asks = home(bench.store).asks;
+    expect(asks.map((item) => item.id)).toContain(first);
+    expect(asks.find((item) => item.id === first)).toMatchObject({
+      loading: false,
+      conclusion: "직접 new 하면 갈아 끼우기 어려워요",
+    });
+  });
+
+  it("옮겨 둔 앞 질문의 조각도 대화 칸에서 자란다", () => {
+    const bench = rigWithTwoLines();
+    bench.store.catchTerm("ts-live-001", 1, "new");
+    const first = bench.store.getState().machine.questionId ?? "";
+    bench.store.catchSentence("ts-live-002");
+    bench.store.chooseGuess("g1");
+
+    bench.store.pushDelta({ questionId: first, seq: 0, chars: 9, text: "갈아 끼우기 어려워요" });
+
+    const row = home(bench.store).asks.find((item) => item.id === first);
+    expect(row?.stream).toEqual({ text: "갈아 끼우기 어려워요", chars: 9 });
+  });
+
+  it("앞 질문이 답을 이미 받았으면 대화 칸으로 옮기지 않는다", () => {
+    const bench = rigWithTwoLines();
+    bench.store.catchTerm("ts-live-001", 1, "new");
+    const first = bench.store.getState().machine.questionId ?? "";
+    bench.store.pushEvent(
+      event("ev-x-930", 9, "answer.completed", {
+        questionId: first,
+        answerId: "an-live-done",
+        answer: answerBody("an-live-done", first, "한 줄 결론", 9),
+      }),
+    );
+
+    bench.store.catchTerm("ts-live-002", 0, "context.getBean");
+
+    // 답이 이미 화면에 떴던 질문입니다. 대화 칸에 한 번 더 적을 까닭이 없습니다.
+    expect(home(bench.store).asks).toHaveLength(0);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 화면이 안 찍히고 있다는 것이 바닥줄에서 보여야 합니다.
+// 2026-09-03: 하루 종일 0장이었는데 `meet` 자리에 `—` 만 떠 있었습니다.
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("바닥줄 · 수업 화면이 안 찍힐 때", () => {
+  function withMeet(state: string, reason: string) {
+    const { store } = rig();
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
+    store.pushEvent(event("ev-x-940", 6, "connector.status", { connector: "meet-tab", state, reason }));
+    return home(store).footer;
+  }
+
+  it("Meet 탭이 없으면 까닭까지 적어 알린다", () => {
+    const footer = withMeet("off", "no-meet-tab");
+    expect(footer.warn?.title).toBe("수업 화면을 못 찍고 있어요.");
+    expect(footer.warn?.description).toContain("Meet 탭이 열려 있지 않아요.");
+    // 화면이 없어도 질문·전사는 계속 돕니다. 그 말을 함께 둡니다.
+    expect(footer.warn?.description).toContain("질문과 전사는 그대로 기록해요.");
+    expect(footer.warn?.reconnect).toBe("meet-tab");
+  });
+
+  it("Meet 이 뒤에 있으면 앞으로 꺼내라고 말한다", () => {
+    expect(withMeet("paused", "not-active").warn?.description).toContain("앞으로 꺼내 주세요");
+  });
+
+  it("모르는 까닭에는 글을 지어내지 않는다", () => {
+    expect(withMeet("paused", "낯선-까닭").warn?.description).toContain("까닭을 알 수 없어요.");
+  });
+
+  it("멀쩡하면 아무 말도 하지 않는다", () => {
+    const { store } = rig();
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
+    store.pushEvent(event("ev-x-941", 6, "connector.status", { connector: "meet-tab", state: "connected" }));
+    expect(home(store).footer.warn).toBeNull();
+  });
+
+  it("아직 아무 보고도 없으면 멈춤으로 보지 않는다", () => {
+    // 패널을 연 첫 순간에 호박색을 띄우면 시작도 안 한 것을 고장이라 말하게 됩니다.
+    const { store } = rig();
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
+    expect(home(store).footer.warn).toBeNull();
+    expect(home(store).footer.sources[1]).toMatchObject({ key: "meet", state: "live" });
+  });
+
+  it("전사 멈춤처럼 더 급한 것이 있으면 그쪽을 먼저 보이되 점은 남긴다", () => {
+    const { store } = rig();
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
+    store.pushEvent(event("ev-x-942", 6, "connector.status", { connector: "meet-tab", state: "off", reason: "no-meet-tab" }));
+    store.pushEvent(event("ev-x-943", 7, "connector.status", { connector: "tiro-share", state: "paused", reason: "selector-broken" }));
+
+    const footer = home(store).footer;
+    expect(footer.warn?.title).toBe("전사가 잠시 멈췄어요.");
+    // 안내는 하나뿐이라 밀렸지만 `meet` 자리의 점은 꺼진 채로 남습니다.
+    expect(footer.sources[1]).toMatchObject({ key: "meet", state: "off" });
+  });
+});

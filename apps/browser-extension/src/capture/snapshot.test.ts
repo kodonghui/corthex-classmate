@@ -8,14 +8,18 @@
 import { describe, expect, it } from 'vitest';
 
 import { toBase64 } from './host-messages';
-import type { SnapshotChromeLike, SnapshotTabLike } from './snapshot';
+import type { SnapshotChromeLike, SnapshotFailure, SnapshotTabLike } from './snapshot';
 import {
+  MAX_SNAPSHOT_BYTES,
+  MEET_URL_PATTERN,
   SNAPSHOT_JPEG_QUALITY,
+  SNAPSHOT_QUALITY_LADDER,
   buildSnapshotFrame,
   captureMeetTab,
   contentFingerprint,
   decodeJpegDataUrl,
   isMeetUrl,
+  pickMeetTab,
   readJpegSize,
 } from './snapshot';
 
@@ -50,40 +54,77 @@ function jpegDataUrl(width: number, height: number, tail = 0): string {
   return `data:image/jpeg;base64,${toBase64(jpegBytes(width, height, tail))}`;
 }
 
+/** 표지는 제대로 놓고 **크기만 부풀린** 껍데기입니다. 봉투 상한 시험에 씁니다. */
+function jpegDataUrlOfSize(total: number): string {
+  const head = jpegBytes(1920, 1080);
+  const bytes = new Uint8Array(Math.max(total, head.length));
+  bytes.set(head, 0);
+  return `data:image/jpeg;base64,${toBase64(bytes)}`;
+}
+
 interface FakeChrome extends SnapshotChromeLike {
   /** `captureVisibleTab` 이 받은 인자들입니다. 한 번도 안 불렸으면 빈 배열입니다. */
   readonly shots: { windowId: number; format: string; quality: number }[];
+  /** `tabs.query` 가 받은 인자들입니다. 창을 가리지 않고 물었는지 봅니다. */
+  readonly queries: { url: string }[];
 }
 
 interface FakeChromeOptions {
-  tab?: SnapshotTabLike | undefined;
-  /** 활성 탭이 하나도 없게 합니다. */
-  noTab?: boolean;
-  dataUrl?: string;
+  /** 질의에 걸리는 탭들입니다. 기본은 Meet 탭 하나(7번 창의 활성 탭). */
+  tabs?: readonly SnapshotTabLike[];
   /** `tabs.query` 가 던지게 합니다. */
   queryThrows?: boolean;
-  /** `captureVisibleTab` 이 던지게 합니다. */
-  captureThrows?: boolean;
+  /** `captureVisibleTab` 이 던지게 합니다. 숫자면 그 번째(1부터) 부름만 던집니다. */
+  captureThrows?: boolean | number;
+  dataUrl?: string;
+  /** 품질마다 다른 그림을 돌려줍니다. 사다리 시험이 씁니다. */
+  dataUrlFor?: (quality: number) => string;
+}
+
+/** 7번 창에서 앞에 있는 Meet 탭 하나입니다. */
+function meetTab(over: Partial<SnapshotTabLike> = {}): SnapshotTabLike {
+  return { url: MEET_URL, windowId: 7, active: true, ...over };
 }
 
 function fakeChrome(options: FakeChromeOptions = {}): FakeChrome {
   const shots: { windowId: number; format: string; quality: number }[] = [];
-  const tab: SnapshotTabLike = options.tab ?? { url: MEET_URL, windowId: 7 };
+  const queries: { url: string }[] = [];
+  const tabs = options.tabs ?? [meetTab()];
 
   return {
     shots,
+    queries,
     tabs: {
-      query: async () => {
+      query: async (info) => {
+        queries.push(info);
         if (options.queryThrows === true) throw new Error('탭을 읽지 못했어요');
-        return options.noTab === true ? [] : [tab];
+        // 진짜 `chrome.tabs.query` 처럼 무늬에 맞는 것만 돌려줍니다.
+        return tabs.filter((tab) => (tab.url ?? '').startsWith('https://meet.google.com/'));
       },
       captureVisibleTab: async (windowId, imageOptions) => {
         shots.push({ windowId, format: imageOptions.format, quality: imageOptions.quality });
-        if (options.captureThrows === true) throw new Error('activeTab 권한이 없어요');
+        const throwsOn = options.captureThrows;
+        if (throwsOn === true || (typeof throwsOn === 'number' && throwsOn === shots.length)) {
+          throw new Error('activeTab 권한이 없어요');
+        }
+        if (options.dataUrlFor !== undefined) return options.dataUrlFor(imageOptions.quality);
         return options.dataUrl ?? jpegDataUrl(1280, 720);
       },
     },
   };
+}
+
+/** 못 찍은 까닭을 모으며 한 장 찍기를 돌립니다. */
+async function capture(
+  chromeLike: FakeChrome,
+): Promise<{ shot: Awaited<ReturnType<typeof captureMeetTab>>; reasons: SnapshotFailure[]; warnings: string[] }> {
+  const reasons: SnapshotFailure[] = [];
+  const warnings: string[] = [];
+  const shot = await captureMeetTab(chromeLike, {
+    warn: (message) => warnings.push(message),
+    onFail: (reason) => reasons.push(reason),
+  });
+  return { shot, reasons, warnings };
 }
 
 // ── 순수 함수 ─────────────────────────────────────────────────────────────
@@ -198,79 +239,214 @@ describe('buildSnapshotFrame', () => {
 
 // ── captureMeetTab ────────────────────────────────────────────────────────
 
+describe('pickMeetTab', () => {
+  it('자기 창에서 앞에 있는 탭만 고릅니다', () => {
+    const back = meetTab({ windowId: 3, active: false });
+    const front = meetTab({ windowId: 9, active: true });
+
+    expect(pickMeetTab([back, front])).toBe(front);
+  });
+
+  it('앞에 있는 것이 하나도 없으면 null 입니다', () => {
+    expect(pickMeetTab([meetTab({ active: false }), meetTab({ windowId: 8, active: false })])).toBeNull();
+  });
+
+  it('`active` 칸이 아예 없으면 후보로 세지 않습니다', () => {
+    // 모르는 것을 "앞에 있다" 로 보면 다른 화면이 찍히는 길이 열립니다.
+    expect(pickMeetTab([{ url: MEET_URL, windowId: 7 }])).toBeNull();
+  });
+
+  it('여럿이면 가장 최근에 본 것입니다 (lastAccessed)', () => {
+    const older = meetTab({ windowId: 3, lastAccessed: 1_000 });
+    const newer = meetTab({ windowId: 9, lastAccessed: 2_000 });
+
+    expect(pickMeetTab([older, newer])).toBe(newer);
+    expect(pickMeetTab([newer, older])).toBe(newer);
+  });
+
+  it('lastAccessed 가 없는 크롬에서는 목록의 첫 번째입니다', () => {
+    const first = meetTab({ windowId: 3 });
+    const second = meetTab({ windowId: 9 });
+
+    expect(pickMeetTab([first, second])).toBe(first);
+  });
+
+  it('창 번호가 없으면 찍을 창을 몰라 세지 않습니다', () => {
+    expect(pickMeetTab([{ url: MEET_URL, active: true }])).toBeNull();
+  });
+});
+
 describe('captureMeetTab', () => {
-  it('활성 탭이 Meet 이면 JPEG 한 장을 찍습니다', async () => {
-    const chromeLike = fakeChrome({ dataUrl: jpegDataUrl(1920, 1080) });
+  it('창을 가리지 않고 Meet 주소 무늬로 찾습니다', async () => {
+    const chromeLike = fakeChrome();
 
-    const shot = await captureMeetTab(chromeLike);
+    await capture(chromeLike);
 
-    expect(shot).not.toBeNull();
+    // `active`·`currentWindow` 를 묻지 않습니다 — 서비스 워커에는 "지금 창" 이 없습니다.
+    expect(chromeLike.queries).toEqual([{ url: MEET_URL_PATTERN }]);
+  });
+
+  it('Meet 탭이 다른 창에 있어도 찾아서 찍습니다', async () => {
+    // 학습자 실제 배치: Tiro 창이 앞에 있고 Meet 은 다른 창에서 앞에 있습니다.
+    const chromeLike = fakeChrome({
+      tabs: [
+        { url: 'https://tiro.example/share/abc', windowId: 1, active: true },
+        meetTab({ windowId: 42, active: true }),
+      ],
+      dataUrl: jpegDataUrl(1920, 1080),
+    });
+
+    const { shot, reasons } = await capture(chromeLike);
+
     expect(shot?.width).toBe(1920);
-    expect(shot?.height).toBe(1080);
-    expect(shot?.bytes.byteLength).toBeGreaterThan(0);
+    expect(reasons).toEqual([]);
     expect(chromeLike.shots).toEqual([
-      { windowId: 7, format: 'jpeg', quality: SNAPSHOT_JPEG_QUALITY },
+      { windowId: 42, format: 'jpeg', quality: SNAPSHOT_JPEG_QUALITY },
     ]);
   });
 
-  it('활성 탭이 Meet 이 아니면 **찍지 않고** null 입니다', async () => {
-    const chromeLike = fakeChrome({ tab: { url: 'https://www.notion.so/secret', windowId: 7 } });
+  it('Meet 탭이 하나도 없으면 no-meet-tab 으로 남기고 찍지 않습니다', async () => {
+    const chromeLike = fakeChrome({
+      tabs: [{ url: 'https://www.notion.so/secret', windowId: 7, active: true }],
+    });
 
-    expect(await captureMeetTab(chromeLike)).toBeNull();
+    const { shot, reasons } = await capture(chromeLike);
+
+    expect(shot).toBeNull();
+    expect(reasons).toEqual(['no-meet-tab']);
     // 셔터 자체를 누르지 않았습니다. 다른 사이트가 한 장도 남지 않는 자리입니다.
     expect(chromeLike.shots).toEqual([]);
   });
 
+  it('Meet 이 그 창에서 뒤에 있으면 not-active 로 남기고 찍지 않습니다', async () => {
+    // 찍으면 그 창에서 **앞에 있는 다른 화면**(은행·메신저)이 담깁니다.
+    const chromeLike = fakeChrome({ tabs: [meetTab({ active: false })] });
+
+    const { shot, reasons } = await capture(chromeLike);
+
+    expect(shot).toBeNull();
+    expect(reasons).toEqual(['not-active']);
+    expect(chromeLike.shots).toEqual([]);
+  });
+
+  it('Meet 을 사칭하는 주소는 전부 거절합니다', async () => {
+    const liars: SnapshotTabLike[] = [
+      { url: 'https://evil.example/?next=https://meet.google.com/x', windowId: 1, active: true },
+      { url: 'https://meet.google.com.evil.example/x', windowId: 2, active: true },
+      { url: 'http://meet.google.com/x', windowId: 3, active: true },
+    ];
+
+    for (const tab of liars) {
+      const chromeLike = fakeChrome({ tabs: [tab] });
+      const { shot, reasons } = await capture(chromeLike);
+
+      expect(shot).toBeNull();
+      expect(reasons).toEqual(['no-meet-tab']);
+      expect(chromeLike.shots).toEqual([]);
+    }
+  });
+
   it('탭 주소가 안 보이면(호스트 권한 없음) 찍지 않습니다', async () => {
-    const chromeLike = fakeChrome({ tab: { windowId: 7 } });
+    const chromeLike = fakeChrome({ tabs: [{ windowId: 7, active: true }] });
 
-    expect(await captureMeetTab(chromeLike)).toBeNull();
+    const { shot, reasons } = await capture(chromeLike);
+
+    expect(shot).toBeNull();
+    expect(reasons).toEqual(['no-meet-tab']);
     expect(chromeLike.shots).toEqual([]);
   });
 
-  it('활성 탭이 아예 없으면 null 입니다', async () => {
-    const chromeLike = fakeChrome({ noTab: true });
-
-    expect(await captureMeetTab(chromeLike)).toBeNull();
-    expect(chromeLike.shots).toEqual([]);
-  });
-
-  it('탭을 읽다 실패해도 던지지 않고 null 입니다', async () => {
-    const warnings: string[] = [];
+  it('탭을 읽다 실패해도 던지지 않고 no-meet-tab 입니다', async () => {
     const chromeLike = fakeChrome({ queryThrows: true });
 
-    expect(await captureMeetTab(chromeLike, { warn: (m) => warnings.push(m) })).toBeNull();
+    const { shot, reasons, warnings } = await capture(chromeLike);
+
+    expect(shot).toBeNull();
+    expect(reasons).toEqual(['no-meet-tab']);
     expect(warnings).toHaveLength(1);
   });
 
-  it('찍다 실패해도 던지지 않고 null 입니다', async () => {
-    const warnings: string[] = [];
+  it('찍다 실패해도 던지지 않고 capture-failed 입니다', async () => {
     const chromeLike = fakeChrome({ captureThrows: true });
 
-    expect(await captureMeetTab(chromeLike, { warn: (m) => warnings.push(m) })).toBeNull();
+    const { shot, reasons, warnings } = await capture(chromeLike);
+
+    expect(shot).toBeNull();
+    expect(reasons).toEqual(['capture-failed']);
     expect(warnings).toHaveLength(1);
   });
 
-  it('JPEG dataURL 이 아니면 null 이고, 로그에 그림이 남지 않습니다', async () => {
-    const warnings: string[] = [];
+  it('JPEG dataURL 이 아니면 capture-failed 이고, 로그에 그림이 남지 않습니다', async () => {
     const png = 'data:image/png;base64,iVBORw0KGgo=';
     const chromeLike = fakeChrome({ dataUrl: png });
 
-    expect(await captureMeetTab(chromeLike, { warn: (m) => warnings.push(m) })).toBeNull();
+    const { shot, reasons, warnings } = await capture(chromeLike);
+
+    expect(shot).toBeNull();
+    expect(reasons).toEqual(['capture-failed']);
     // 남은 한 줄에 그림 값이 통째로 들어 있으면 로그를 복사하는 순간 화면이 새어 나갑니다.
     expect(warnings).toHaveLength(1);
     expect(warnings[0]).not.toContain('iVBORw0KGgo');
     expect(warnings[0]).toContain('글자');
   });
 
-  it('크기를 못 읽는 그림이면 null 입니다', async () => {
-    const warnings: string[] = [];
+  it('크기를 못 읽는 그림이면 capture-failed 입니다', async () => {
     // 표지가 SOI 뿐이라 가로·세로를 적어 둔 자리가 없습니다.
     const broken = `data:image/jpeg;base64,${toBase64(new Uint8Array([0xff, 0xd8, 0xff, 0xd9]))}`;
     const chromeLike = fakeChrome({ dataUrl: broken });
 
-    expect(await captureMeetTab(chromeLike, { warn: (m) => warnings.push(m) })).toBeNull();
+    const { shot, reasons, warnings } = await capture(chromeLike);
+
+    expect(shot).toBeNull();
+    expect(reasons).toEqual(['capture-failed']);
     expect(warnings).toHaveLength(1);
+  });
+
+  // ── 봉투 상한 (HiDPI 함정) ──────────────────────────────────────────────
+
+  it('너무 크면 품질을 낮춰 한 번 더 찍습니다', async () => {
+    const [first, second] = SNAPSHOT_QUALITY_LADDER;
+    const chromeLike = fakeChrome({
+      dataUrlFor: (quality) =>
+        quality === first ? jpegDataUrlOfSize(MAX_SNAPSHOT_BYTES + 1) : jpegDataUrl(1920, 1080),
+    });
+
+    const { shot, reasons } = await capture(chromeLike);
+
+    expect(shot).not.toBeNull();
+    expect(shot?.bytes.byteLength).toBeLessThanOrEqual(MAX_SNAPSHOT_BYTES);
+    expect(reasons).toEqual([]);
+    expect(chromeLike.shots.map((one) => one.quality)).toEqual([first, second]);
+  });
+
+  it('품질을 낮춰도 크면 too-large 로 남기고 포기합니다', async () => {
+    const chromeLike = fakeChrome({ dataUrlFor: () => jpegDataUrlOfSize(MAX_SNAPSHOT_BYTES + 1) });
+
+    const { shot, reasons, warnings } = await capture(chromeLike);
+
+    expect(shot).toBeNull();
+    expect(reasons).toEqual(['too-large']);
+    // 사다리 칸 수만큼만 셔터를 누릅니다(초당 두 번 할당량).
+    expect(chromeLike.shots).toHaveLength(SNAPSHOT_QUALITY_LADDER.length);
+    // 남는 것은 숫자뿐입니다. base64 한 조각도 새어 나가면 안 됩니다.
+    for (const line of warnings) {
+      expect(line).not.toContain('data:image');
+      expect(line).not.toContain('/9j/');
+      expect(line.length).toBeLessThan(200);
+    }
+  });
+
+  it('두 번째 셔터가 할당량에 걸려도 까닭은 too-large 입니다', async () => {
+    // 첫 장이 이미 너무 컸으므로 "못 찍음" 이 아니라 "너무 큼" 이 사람이 고칠 거리입니다.
+    const chromeLike = fakeChrome({
+      captureThrows: 2,
+      dataUrlFor: () => jpegDataUrlOfSize(MAX_SNAPSHOT_BYTES + 1),
+    });
+
+    const { shot, reasons } = await capture(chromeLike);
+
+    expect(shot).toBeNull();
+    expect(reasons).toEqual(['too-large']);
   });
 });
 

@@ -13,6 +13,7 @@
  *                       │ live.segment → inbox.pushSegment
  *                       │ live.frame   → inbox.pushFrame
  *                       │ live.editor  → inbox.pushEditor
+ *                       │ live.delta   → inbox.pushDelta   (답이 만들어지는 동안 흐르는 조각)
  *                       │
  *      나가는 것 ───────┤ outbox.subscribeEmitted → panel.event
  *                       │ ask(req)                → panel.ask
@@ -33,6 +34,7 @@
 import type { AskPort, AskRequest, PanelInbox, PanelOutbox, ReconnectTarget } from '../panel/ports';
 import type { LiveInboundMessage, LiveOutboundMessage } from './messages';
 import {
+  LIVE_DELTA,
   LIVE_EDITOR,
   LIVE_EVENT,
   LIVE_FRAME,
@@ -143,6 +145,10 @@ export function attachLive(
         return;
       case LIVE_EDITOR:
         targets.inbox.pushEditor(typed.context);
+        return;
+      case LIVE_DELTA:
+        // 조각은 사건이 아닙니다. 스토어에 넘기기만 하고 기록으로 되돌리지 않습니다.
+        targets.inbox.pushDelta(typed.delta);
         return;
       default:
         return;

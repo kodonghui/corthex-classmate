@@ -42,6 +42,7 @@ import type { FooterWarnView, ListeningView } from "../lesson-view";
 import type { ReconnectTarget } from "../ports";
 import { FOLLOW_UP_WAITING_LINE } from "../replay-store";
 import { useStickToBottom } from "../use-stick-to-bottom";
+import { AnswerStream } from "./AnswerStream";
 
 export interface ListeningScreenProps {
   readonly view: ListeningView;
@@ -226,13 +227,35 @@ export function ListeningScreen({
     />
   );
 
+  /**
+   * 앞 질문의 메모가 자리를 차지한 채로 새로 문장을 붙잡았을 때의 짐작 목록입니다.
+   *
+   * 앞 질문의 메모 **아래**에 둡니다. 위아래는 이 화면의 다른 자리(전사 · 대화 칸)와 같은
+   * 규칙, 곧 시간 순서입니다 — 먼저 물은 것이 위, 방금 한 행동이 아래(글 칸 가까이)입니다.
+   * 목록이 가려지는 일은 없습니다. 두 덩어리가 같은 줄 아래 나란히 놓입니다.
+   */
+  const renderChoosing = (lineId: string): React.ReactNode => {
+    const choosing = view.choosing;
+    if (choosing === null || choosing.lineId !== lineId) return null;
+    return (
+      <MarginNote term="문장" time={choosing.time} state="choosing" style={{ marginTop: 12 }}>
+        <GuessList
+          options={[...choosing.options]}
+          {...(choosing.value === undefined ? {} : { value: choosing.value })}
+          onChange={onGuess}
+        />
+      </MarginNote>
+    );
+  };
+
   const renderAfter = (lineId: string): React.ReactNode => {
-    if (note.kind === "none" || note.lineId !== lineId) return null;
+    const guesses = renderChoosing(lineId);
+    if (note.kind === "none" || note.lineId !== lineId) return guesses;
     const after = view.noteNow === null ? null : <NowLine style={{ marginTop: 12 }}>{view.noteNow}</NowLine>;
-    switch (note.kind) {
-      case "choosing":
-        return (
-          <>
+    const block = ((): React.ReactNode => {
+      switch (note.kind) {
+        case "choosing":
+          return (
             <MarginNote term="문장" time={note.time} state="choosing">
               <GuessList
                 options={[...note.options]}
@@ -240,34 +263,33 @@ export function ListeningScreen({
                 onChange={onGuess}
               />
             </MarginNote>
-            {after}
-          </>
-        );
-      case "preparing":
-        return (
-          <>
+          );
+        case "preparing":
+          return (
             <MarginNote
               term={note.term}
               time={note.time}
               state="preparing"
               warn={note.warn}
-              {...(note.waitingText === null ? {} : { waitingText: note.waitingText })}
+              // 답이 흐르고 있으면 대기 한 줄 자리에 **자라는 결론**을 그립니다. 결론 자리
+              // (`cm-note__c`)가 아니라 대기 자리라서, 쓸어내리는 띠가 아래에서 계속 움직입니다.
+              waitingText={
+                note.stream === null ? (
+                  note.waitingText
+                ) : (
+                  <AnswerStream stream={note.stream} idle={note.waitingText ?? "한 줄로 정리하고 있어요"} sweep={false} />
+                )
+              }
             >
               <SourceStatus compact sources={[...note.sources]} />
             </MarginNote>
-            {after}
-          </>
-        );
-      case "collapsed":
-        return (
-          <>
+          );
+        case "collapsed":
+          return (
             <MarginNote term={note.term} time={note.time} state="collapsed" conclusion={note.conclusion} onExpand={onExpand} />
-            {after}
-          </>
-        );
-      case "ready":
-        return (
-          <>
+          );
+        case "ready":
+          return (
             <MarginNote
               term={note.term}
               time={note.time}
@@ -279,10 +301,16 @@ export function ListeningScreen({
               onDetail={onDetail}
               collapseText={note.collapseText}
             />
-            {after}
-          </>
-        );
-    }
+          );
+      }
+    })();
+    return (
+      <>
+        {block}
+        {after}
+        {guesses}
+      </>
+    );
   };
 
   // 전사 맨 아래 안내 글입니다. 묻는 자리가 대화 칸으로 나갔으므로 라이브에서도 줄이지 않습니다.
@@ -336,7 +364,9 @@ export function ListeningScreen({
                 <IconButton icon="x" label="답 닫기" size="sm" onClick={() => setClosed([...closed, item.id])} />
               </div>
               {item.loading ? (
-                <div className="cm-reply__wait">{FOLLOW_UP_WAITING_LINE}</div>
+                <div className="cm-reply__wait">
+                  <AnswerStream stream={item.stream} idle={FOLLOW_UP_WAITING_LINE} />
+                </div>
               ) : item.failure !== null ? (
                 <div className="cm-reply__wait">{item.failure}</div>
               ) : (

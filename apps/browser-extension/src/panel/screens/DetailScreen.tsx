@@ -18,9 +18,10 @@ import { AnswerCard, NowLine, TranscriptFlow } from "@classmate/ui-classmate";
 import { useState } from "react";
 
 import { MAX_ASK_QUESTION_BYTES, utf8ByteLength } from "../ask-text";
-import type { DetailView } from "../lesson-view";
+import type { AnswerStreamView, DetailView } from "../lesson-view";
 import { FOLLOW_UP_WAITING_LINE } from "../replay-store";
 import { useStickToBottom } from "../use-stick-to-bottom";
+import { AnswerStream } from "./AnswerStream";
 
 export interface DetailScreenProps {
   readonly view: DetailView;
@@ -32,6 +33,19 @@ export interface DetailScreenProps {
 
 /** 남은 바이트가 이보다 적을 때만 상한을 알립니다. 평소에는 아무 말도 하지 않습니다. */
 const HINT_BELOW_BYTES = 200;
+
+/**
+ * 뼈대 카드의 대기 한 줄입니다. 조각이 흐르면 그것을, 아직이면 원래 안내를 씁니다.
+ *
+ *   조각 없음        "한 줄로 정리하고 있어요"
+ *   chars 만         "한 줄로 정리하고 있어요 · 128자"   ← 숫자가 자랍니다
+ *   text 있음        "생성 책임을 나눠요"                ← 자라는 결론 그대로
+ */
+export function streamingLine(stream: AnswerStreamView | null, idle: string): string {
+  if (stream === null) return idle;
+  if (stream.text !== null) return stream.text;
+  return `${idle} · ${stream.chars}자`;
+}
 
 export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenProps): React.JSX.Element {
   const [typed, setTyped] = useState("");
@@ -54,7 +68,10 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
       <div className="cm-screen__body" ref={body.ref}>
         {view.line === null ? null : <TranscriptFlow size="md" lines={[view.line]} marked={[...view.marked]} showTimes />}
         {view.loading ? (
-          <AnswerCard loading conclusion="" loadingText={view.loadingText} />
+          // 답이 흐르고 있으면 뼈대 카드의 **대기 한 줄** 자리에 자라는 결론을 보여 줍니다.
+          // 결론 자리(`cm-ans__c`)가 아니라서 쓸어내림이 계속 돌고, 다 쓴 답과 헷갈리지 않습니다.
+          // `AnswerCard.loadingText` 는 문자열만 받으므로 여기서는 한 줄로 이어 붙입니다.
+          <AnswerCard loading conclusion="" loadingText={streamingLine(view.stream, view.loadingText)} />
         ) : (
           <AnswerCard
             conclusion={view.conclusion}
@@ -78,7 +95,9 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
           <div className="cm-reply" key={thread.id}>
             <div className="cm-reply__q">{`${thread.question} · ${thread.time}`}</div>
             {thread.loading ? (
-              <div className="cm-reply__wait">{FOLLOW_UP_WAITING_LINE}</div>
+              <div className="cm-reply__wait">
+                <AnswerStream stream={thread.stream} idle={FOLLOW_UP_WAITING_LINE} />
+              </div>
             ) : thread.failure !== null ? (
               <div className="cm-reply__wait">{thread.failure}</div>
             ) : (

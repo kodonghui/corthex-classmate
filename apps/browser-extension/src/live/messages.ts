@@ -14,6 +14,7 @@
  *   inbox.pushSegment ◀── live.segment  ────────────  전사 조각(확정 · 진행 중)
  *   inbox.pushFrame   ◀── live.frame    ────────────  화면 한 장
  *   inbox.pushEditor  ◀── live.editor   ────────────  편집기 문맥
+ *   inbox.pushDelta   ◀── live.delta    ────────────  답이 만들어지는 동안 흐르는 조각
  *
  *   outbox.subscribeEmitted ── panel.event ─────────▶ 스토어가 낸 사건
  *   AskPort.ask             ── panel.ask   ─────────▶ 질문 재료(라우터가 tutor.ask 봉투로 바꿈)
@@ -30,7 +31,7 @@ import type {
   SessionEvent,
   TranscriptSegment,
 } from '@classmate/contracts';
-import type { AskRequest, ReconnectMessage, ReconnectTarget } from '../panel/ports';
+import type { AnswerDelta, AskRequest, ReconnectMessage, ReconnectTarget } from '../panel/ports';
 
 /** `chrome.runtime.onConnect` 에서 사이드패널을 알아보는 이름입니다. 고정 계약입니다. */
 export const PANEL_PORT_NAME = 'classmate-panel';
@@ -40,6 +41,14 @@ export const LIVE_EVENT = 'live.event';
 export const LIVE_SEGMENT = 'live.segment';
 export const LIVE_FRAME = 'live.frame';
 export const LIVE_EDITOR = 'live.editor';
+/**
+ * 답이 만들어지는 **동안** 흐르는 조각입니다. 호스트의 `tutor.delta` 를 라우터가 이 모양으로
+ * 바꿔 패널로 흘립니다.
+ *
+ * **교시 로그에 담지 않습니다.** 조각은 잃어도 되는 화면 갱신이라, 담아 두면 패널을 닫았다
+ * 열었을 때 이미 답이 온 질문 자리에 옛 조각이 다시 그려집니다.
+ */
+export const LIVE_DELTA = 'live.delta';
 
 /** 패널 → 서비스 워커 */
 export const PANEL_EVENT = 'panel.event';
@@ -66,12 +75,18 @@ export interface LiveEditorMessage {
   context: EditorContext;
 }
 
+export interface LiveDeltaMessage {
+  type: typeof LIVE_DELTA;
+  delta: AnswerDelta;
+}
+
 /** 서비스 워커가 패널로 보내는 것 전부입니다. */
 export type LiveInboundMessage =
   | LiveEventMessage
   | LiveSegmentMessage
   | LiveFrameMessage
-  | LiveEditorMessage;
+  | LiveEditorMessage
+  | LiveDeltaMessage;
 
 export interface PanelEventMessage {
   type: typeof PANEL_EVENT;
@@ -129,6 +144,21 @@ function looksLikeEvent(value: unknown): boolean {
   );
 }
 
+/**
+ * 조각 한 벌이 화면이 쓸 수 있는 모양인지 봅니다.
+ *
+ * `seq` 와 `chars` 가 숫자가 아니면 스토어의 되감기 판정(`seq <= 이전 seq`)이 `NaN` 비교로
+ * 무너져 늦게 온 조각이 화면을 뒤로 돌립니다. 그래서 두 칸은 여기서 반드시 봅니다.
+ */
+function looksLikeDelta(value: unknown): boolean {
+  if (!isRecord(value)) return false;
+  if (typeof value['questionId'] !== 'string' || value['questionId'].length === 0) return false;
+  if (typeof value['seq'] !== 'number' || !Number.isFinite(value['seq'])) return false;
+  if (typeof value['chars'] !== 'number' || !Number.isFinite(value['chars'])) return false;
+  const text = value['text'];
+  return text === undefined || typeof text === 'string';
+}
+
 /** 서비스 워커가 보낸 값인지 좁혀 줍니다. 낯선 모양은 그냥 무시합니다. */
 export function isLiveInboundMessage(value: unknown): value is LiveInboundMessage {
   if (!isRecord(value)) return false;
@@ -141,6 +171,8 @@ export function isLiveInboundMessage(value: unknown): value is LiveInboundMessag
       return isRecord(value['frame']);
     case LIVE_EDITOR:
       return isRecord(value['context']);
+    case LIVE_DELTA:
+      return looksLikeDelta(value['delta']);
     default:
       return false;
   }

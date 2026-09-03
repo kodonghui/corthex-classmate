@@ -6,7 +6,7 @@ import type {
   SessionEvent,
   TranscriptSegment,
 } from '@classmate/contracts';
-import type { PanelInbox, PanelOutbox } from '../panel/ports';
+import type { AnswerDelta, PanelInbox, PanelOutbox } from '../panel/ports';
 import type { LivePortLike, LiveRuntimeLike } from './attach';
 import { attachLive, panelBackoffMs } from './attach';
 import { PANEL_ASK, PANEL_EVENT, PANEL_PORT_NAME, PANEL_RECONNECT } from './messages';
@@ -72,6 +72,7 @@ class FakeInbox implements PanelInbox {
   readonly segments: TranscriptSegment[] = [];
   readonly frames: ScreenFrame[] = [];
   readonly editors: EditorContext[] = [];
+  readonly deltas: AnswerDelta[] = [];
 
   pushEvent(event: SessionEvent): void {
     this.events.push(event);
@@ -84,6 +85,9 @@ class FakeInbox implements PanelInbox {
   }
   pushEditor(context: EditorContext): void {
     this.editors.push(context);
+  }
+  pushDelta(delta: AnswerDelta): void {
+    this.deltas.push(delta);
   }
 }
 
@@ -180,7 +184,7 @@ describe('attachLive · 들어오는 것', () => {
     expect(handle.connected).toBe(true);
   });
 
-  it('live.* 네 가지를 스토어의 알맞은 입구로 넘깁니다', () => {
+  it('live.* 다섯 가지를 스토어의 알맞은 입구로 넘깁니다', () => {
     const harness = makeHarness();
     attachLive({ inbox: harness.inbox, outbox: harness.outbox }, harness.runtime, {
       warn: (m) => harness.warnings.push(m),
@@ -212,11 +216,36 @@ describe('attachLive · 들어오는 것', () => {
     harness.port().deliver({ type: 'live.segment', segment: makeSegment() });
     harness.port().deliver({ type: 'live.frame', frame });
     harness.port().deliver({ type: 'live.editor', context });
+    harness
+      .port()
+      .deliver({ type: 'live.delta', delta: { questionId: 'q-1', seq: 1, chars: 21, text: '생성 책임을' } });
 
     expect(harness.inbox.events).toHaveLength(1);
     expect(harness.inbox.segments[0]?.id).toBe('ts-p3-001');
     expect(harness.inbox.frames[0]?.id).toBe('sf-p3-001');
     expect(harness.inbox.editors[0]?.id).toBe('ec-p3-001');
+    expect(harness.inbox.deltas[0]).toEqual({ questionId: 'q-1', seq: 1, chars: 21, text: '생성 책임을' });
+  });
+
+  it('text 가 없는 조각도 그대로 넘깁니다 (아직 결론 칸에 안 닿은 조각)', () => {
+    const harness = makeHarness();
+    attachLive({ inbox: harness.inbox, outbox: harness.outbox }, harness.runtime);
+
+    harness.port().deliver({ type: 'live.delta', delta: { questionId: 'q-1', seq: 0, chars: 7 } });
+
+    expect(harness.inbox.deltas).toEqual([{ questionId: 'q-1', seq: 0, chars: 7 }]);
+  });
+
+  it('seq·chars 가 숫자가 아닌 조각은 버립니다', () => {
+    // 그대로 넘기면 스토어의 되감기 판정(seq <= 이전 seq)이 NaN 비교로 무너집니다.
+    const harness = makeHarness();
+    attachLive({ inbox: harness.inbox, outbox: harness.outbox }, harness.runtime);
+
+    harness.port().deliver({ type: 'live.delta', delta: { questionId: 'q-1', seq: '0', chars: 7 } });
+    harness.port().deliver({ type: 'live.delta', delta: { questionId: '', seq: 0, chars: 7 } });
+    harness.port().deliver({ type: 'live.delta', delta: { questionId: 'q-1', seq: 0 } });
+
+    expect(harness.inbox.deltas).toEqual([]);
   });
 
   it('낯선 모양은 그냥 무시합니다', () => {

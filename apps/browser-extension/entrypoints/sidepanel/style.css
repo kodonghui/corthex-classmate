@@ -449,6 +449,67 @@ body {
   text-wrap: pretty;
 }
 
+/*
+  답이 만들어지는 동안 흐르는 한 줄(`AnswerStream`).
+
+  결론 자리(.cm-note__c · .cm-reply__a)와 **다르게 보이도록** 대기 글자색을 그대로 쓰고,
+  끝에 깜빡이는 커서와 밑에 쓸어내리는 띠를 둡니다. 다 쓴 답으로 착각하지 않게 하는 자리입니다.
+  띠와 커서는 정본 모션(`packages/design-tokens/src/css/motion.css` 의 cm-sweep · cm-breathe)을
+  그대로 씁니다 — 새 애니메이션을 만들지 않습니다.
+*/
+.cm-stream {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.cm-stream__t {
+  text-wrap: pretty;
+  word-break: keep-all;
+}
+
+/* 아직 결론 글자가 없을 때 자라는 숫자입니다. 글자보다 한 단계 낮춰 둡니다. */
+.cm-stream__n {
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.cm-stream__caret {
+  display: inline-block;
+  width: 2px;
+  height: 0.95em;
+  margin-left: 2px;
+  vertical-align: -1px;
+  background: var(--ink-400);
+  animation: cm-breathe 1100ms var(--ease-in-out) infinite;
+}
+
+.cm-stream__sweep {
+  height: 2px;
+  border-radius: 1px;
+  background: var(--paper-4);
+  overflow: hidden;
+  position: relative;
+}
+
+.cm-stream__sweep::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: var(--ink-400);
+  animation: cm-sweep 1400ms var(--ease-in-out) infinite;
+}
+
+/* 움직임을 줄여 달라고 한 사람에게는 멈춰 둡니다. 자리는 그대로라 뜻은 남습니다. */
+@media (prefers-reduced-motion: reduce) {
+  .cm-stream__caret,
+  .cm-stream__sweep::after {
+    animation: none;
+  }
+}
+
 .cm-reply__ev {
   display: flex;
   flex-wrap: wrap;

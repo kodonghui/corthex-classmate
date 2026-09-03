@@ -369,3 +369,42 @@ describe("자료 나이", () => {
     expect(sourceAges(GOLDEN_BUNDLE, store.clockMs("10:32:18"))).toEqual({ tiro: 4, meet: 2, intellij: 1 });
   });
 });
+
+describe("재생 모드는 흐르는 조각을 받지 않는다", () => {
+  it("pushDelta 는 아무 일도 하지 않는다 — 골든 9장면이 걸려 있습니다", () => {
+    const store = fresh();
+    store.goto("caught");
+    const before = home(store).note;
+
+    store.pushDelta({ questionId: store.getState().machine.questionId ?? "", seq: 0, chars: 99, text: "흐르는 글" });
+
+    expect(store.getState().deltas).toEqual({});
+    expect(home(store).note).toEqual(before);
+  });
+
+  it("답을 기다리는 중 문단을 붙잡으면 재생에서도 짐작이 보인다 (골든 9장면에는 없는 길)", () => {
+    // 체크포인트 9개에는 "답을 기다리는 중에 문단 누르기" 가 없어서 골든 장면은 그대로입니다.
+    // 시연(`?replay=manual`)에서 눌러 보는 사람에게는 라이브와 같게 보이는 편이 맞습니다.
+    const store = fresh();
+    store.goto("caught");
+
+    store.catchSentence("ts-p3-058");
+
+    const view = home(store);
+    expect(view.note.kind).toBe("preparing");
+    expect(view.choosing?.lineId).toBe("ts-p3-058");
+    // 앞 질문을 대화 칸으로 옮기는 길은 라이브 전용입니다(재생에는 대화 칸 자체가 없습니다).
+    expect(view.asks).toEqual([]);
+  });
+
+  it("골든 장면 D(문장 붙잡음)는 note 한 자리에서만 그린다", () => {
+    // `note.kind === "choosing"` 인 자리에서는 `choosing` 을 따로 내지 않습니다.
+    // 내면 같은 짐작 목록이 두 번 그려집니다.
+    const store = fresh();
+    store.goto("sentence");
+
+    const view = home(store);
+    expect(view.note.kind).toBe("choosing");
+    expect(view.choosing).toBeNull();
+  });
+});
