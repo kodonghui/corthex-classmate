@@ -11,6 +11,10 @@
 //
 // 재생(`?replay=`)에는 물을 곳이 없어 칸을 아예 만들지 않습니다(`view.canAsk`). 골든 9장면의
 // 안내 글은 예전 문구 그대로입니다.
+//
+// 바닥에 붙어 따라 내려가는 규칙은 이 파일에 없습니다. `use-stick-to-bottom.ts` 한 곳에 있고
+// 자세히 화면도 같은 것을 씁니다. 이 화면만의 사정은 하나뿐입니다 — 묻는 칸이 스크롤 상자 **안**
+// 에 있어서, 글을 쓰는 동안에는 따라가기를 멈춰야 합니다(`paused: composing`).
 
 import { IconButton, Input, PanelHeader } from "@classmate/ui-base";
 import type { FooterWarn } from "@classmate/ui-classmate";
@@ -21,6 +25,7 @@ import { MAX_ASK_QUESTION_BYTES, utf8ByteLength } from "../ask-text";
 import type { FooterWarnView, ListeningView } from "../lesson-view";
 import type { ReconnectTarget } from "../ports";
 import { FOLLOW_UP_WAITING_LINE } from "../replay-store";
+import { useStickToBottom } from "../use-stick-to-bottom";
 
 export interface ListeningScreenProps {
   readonly view: ListeningView;
@@ -86,6 +91,18 @@ function Kbd({ children }: { readonly children: string }): React.JSX.Element {
   return <kbd className="cm-kbd">{children}</kbd>;
 }
 
+/**
+ * 스크롤을 올려 둔 동안 새 말이 들어왔을 때 바닥 근처에 뜨는 자리 하나입니다.
+ * 상자 안 마지막 아이라 `sticky` 로 스크롤 바닥에 남습니다. 다시 붙으면 사라집니다.
+ */
+function ToBottom({ onClick }: { readonly onClick: () => void }): React.JSX.Element {
+  return (
+    <div style={{ position: "sticky", bottom: 0, alignSelf: "center", zIndex: 1 }}>
+      <IconButton icon="chevron-down" label="새 문장으로 내려가기" size="sm" variant="secondary" onClick={onClick} />
+    </div>
+  );
+}
+
 /** 안내에서 `reconnect` 를 떼어 내고 그 자리에 누를 손짓을 답니다. */
 function warnProps(warn: FooterWarnView, onReconnect: (connector: ReconnectTarget) => void): FooterWarn {
   const { reconnect, ...rest } = warn;
@@ -105,7 +122,6 @@ export function ListeningScreen({
   onReconnect,
   onAsk,
 }: ListeningScreenProps): React.JSX.Element {
-  const bodyRef = useRef<HTMLDivElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
   /** 바로 앞 렌더에서 맨 아래에 있던 줄 id 입니다. 바뀌면 새 문장이 온 것입니다. */
   const lastLineRef = useRef<string | null>(null);
@@ -124,36 +140,35 @@ export function ListeningScreen({
   // 둘을 나눠야 보내고 나서(글이 비어 포커스만 남음) 바로 바닥으로 붙어 답 줄이 보입니다.
   const expanded = view.canAsk && (focused || typed.length > 0);
   const composing = view.canAsk && typed.length > 0;
+  // 전사는 아래에서 흐릅니다(정본 규칙). 문단이 자라는 동안에도 따라가고, 학습자가 일부러 올리면
+  // 그 자리에 둡니다. 규칙은 `use-stick-to-bottom.ts` 한 곳에 있습니다. 글을 쓰는 동안에만 따라가기를
+  // 멈춥니다 — 한 글자 칠 때마다 화면이 튀면 못 씁니다. 글을 비우거나 보내면 멈춤이 풀리고 훅이
+  // 그 자리에서 바닥으로 내려갑니다.
+  const body = useStickToBottom<HTMLDivElement>({ paused: composing });
   const lastLineId = view.lines.at(-1)?.id ?? null;
   const latestAsk = view.asks.filter((item) => !closed.includes(item.id)).at(-1) ?? null;
 
   /** 묻는 칸의 진짜 `<input>` 입니다. ui-base 의 `Input` 은 ref 를 넘겨받지 않아 여기서 찾습니다. */
   const askInput = useCallback((): HTMLInputElement | null => barRef.current?.querySelector("input") ?? null, []);
 
-  const stick = useCallback((): void => {
-    const el = bodyRef.current;
-    if (el !== null) el.scrollTop = el.scrollHeight;
-  }, []);
-
-  // 새 줄이나 메모가 생기면 바닥으로 붙입니다(정본 규칙: 전사는 아래에서 흐릅니다).
-  // 다만 **글을 쓰는 동안에는 붙이지 않습니다.** 한 글자 칠 때마다 화면이 튀면 못 씁니다.
-  // 그 사이에 온 문장은 세어 두었다가 "새 문장 N개" 한 줄로만 조용히 알립니다.
+  // 바닥으로 따라가는 일 자체는 훅이 합니다. 여기서는 글을 쓰는 동안에만 할 두 가지를 합니다.
+  //   ① 그 사이에 온 문장을 세어 "새 문장 N개" 한 줄로만 조용히 알립니다.
+  //   ② 전사가 자라 묻는 칸이 화면 밖으로 밀렸으면 그만큼만 따라 내려갑니다(칸이 안 보이면 못 씁니다).
+  // ② 는 훅이 못 하는 일입니다 — 훅은 상자를 바닥에 맞추지, 상자 안 어떤 아이를 보이게 하지 않습니다.
   useEffect(() => {
     const grew = lastLineId !== null && lastLineId !== lastLineRef.current;
     lastLineRef.current = lastLineId;
-    if (composing) {
-      if (grew) setPending((count) => count + 1);
-      // 전사가 자라 묻는 칸이 화면 밖으로 밀렸으면 그만큼만 따라 내려갑니다(칸이 안 보이면 못 씁니다).
-      const body = bodyRef.current;
-      const field = askInput();
-      if (body === null || field === null) return;
-      const gap = field.getBoundingClientRect().bottom - body.getBoundingClientRect().bottom;
-      if (gap > 0) body.scrollTop += gap;
+    if (!composing) {
+      setPending(0);
       return;
     }
-    setPending(0);
-    stick();
-  }, [lastLineId, view.lines.length, view.asks.length, note.kind, composing, askInput, stick]);
+    if (grew) setPending((count) => count + 1);
+    const el = body.ref.current;
+    const field = askInput();
+    if (el === null || field === null) return;
+    const gap = field.getBoundingClientRect().bottom - el.getBoundingClientRect().bottom;
+    if (gap > 0) el.scrollTop += gap;
+  }, [lastLineId, view.lines.length, view.asks.length, note.kind, composing, askInput, body.ref]);
 
   // 접힌 줄을 눌러 펼쳤으면 그 자리에서 바로 칠 수 있게 칸으로 포커스를 옮깁니다.
   useEffect(() => {
@@ -163,9 +178,9 @@ export function ListeningScreen({
   const send = (): void => {
     if (!ready) return;
     onAsk(typed);
+    // 여기서 바닥으로 붙이지 않습니다. 글이 비면 `composing` 이 꺼지고, 그때 훅이 멈춤을 풀면서 바로
+    // 바닥으로 내려갑니다 — 답 줄이 그 자리에서 보입니다. 밀린 셈도 위 효과가 함께 지웁니다.
     setTyped("");
-    setPending(0);
-    stick();
   };
 
   const renderAfter = (lineId: string): React.ReactNode => {
@@ -270,7 +285,7 @@ export function ListeningScreen({
           style={CATCH_UP_STYLE}
           onClick={() => {
             setPending(0);
-            stick();
+            body.toBottom();
           }}
         >
           {`새 문장 ${pending}개 · 눌러서 따라가기`}
@@ -333,7 +348,7 @@ export function ListeningScreen({
           <NowLine variant="plain">{view.pinnedNow}</NowLine>
         </div>
       )}
-      <div className="cm-screen__body cm-screen__body--flow" ref={bodyRef}>
+      <div className="cm-screen__body cm-screen__body--flow" ref={body.ref}>
         {view.lines.length === 0 ? <p className="cm-empty">아직 들은 문장이 없어요</p> : null}
         <TranscriptFlow
           lines={[...view.lines]}
@@ -344,6 +359,13 @@ export function ListeningScreen({
           renderAfter={renderAfter}
           tip={tip}
         />
+        {/*
+          아래로 내려가라는 표시는 하나만 둡니다. `pending`("새 문장 N개")은 글을 쓰는 중이라 멈춰
+          있다는 뜻이고 `body.hasNew` 는 스크롤을 올려 두어 풀렸다는 뜻이라, 말은 달라도 사람이 할
+          일은 "내려가기" 하나입니다. 글을 쓰는 동안에는 `pending` 쪽이 이깁니다 — 그 줄은 지금 눈이
+          가 있는 묻는 칸 바로 위에 있고, 몇 개가 밀렸는지까지 말해 주기 때문입니다.
+        */}
+        {body.hasNew && !composing ? <ToBottom onClick={body.toBottom} /> : null}
       </div>
       <SourceFooter
         sources={[...view.footer.sources]}

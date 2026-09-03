@@ -15,11 +15,12 @@
 
 import { Button, Evidence, IconButton, Input, PanelHeader } from "@classmate/ui-base";
 import { AnswerCard, NowLine, TranscriptFlow } from "@classmate/ui-classmate";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 
 import { MAX_ASK_QUESTION_BYTES, utf8ByteLength } from "../ask-text";
 import type { DetailView } from "../lesson-view";
 import { FOLLOW_UP_WAITING_LINE } from "../replay-store";
+import { useStickToBottom } from "../use-stick-to-bottom";
 
 export interface DetailScreenProps {
   readonly view: DetailView;
@@ -34,15 +35,12 @@ const HINT_BELOW_BYTES = 200;
 
 export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenProps): React.JSX.Element {
   const [typed, setTyped] = useState("");
-  const bodyRef = useRef<HTMLDivElement>(null);
+  // 이 화면은 답을 위에서부터 읽는 곳이라 열자마자 바닥으로 내리지 않습니다(startStuck: false).
+  // 이어 물은 줄이 하나 늘면 그때 바닥으로 내려가(pinOn), 답이 한 글자씩 길어지는 동안 따라갑니다.
+  // 학습자가 위를 읽으려고 올려 두면 그대로 둡니다. 규칙은 `use-stick-to-bottom.ts` 한 곳입니다.
+  const body = useStickToBottom<HTMLDivElement>({ startStuck: false, pinOn: view.threads.length });
   const left = MAX_ASK_QUESTION_BYTES - utf8ByteLength(typed);
   const ready = typed.trim().length > 0 && left >= 0;
-
-  // 이어 물은 줄이 하나 늘면 바닥으로 붙입니다. 안 그러면 방금 보낸 질문이 접힌 절 아래에 숨습니다.
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (el !== null && view.threads.length > 0) el.scrollTop = el.scrollHeight;
-  }, [view.threads.length]);
 
   const send = (): void => {
     if (!ready) return;
@@ -53,7 +51,7 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
   return (
     <div className="cm-screen">
       <PanelHeader onBack={onBack} strong title={view.term} subtitle={`${view.time} 붙잡음`} />
-      <div className="cm-screen__body" ref={bodyRef}>
+      <div className="cm-screen__body" ref={body.ref}>
         {view.line === null ? null : <TranscriptFlow size="md" lines={[view.line]} marked={[...view.marked]} showTimes />}
         {view.loading ? (
           <AnswerCard loading conclusion="" loadingText={view.loadingText} />
@@ -97,6 +95,12 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
             )}
           </div>
         ))}
+        {/* 올려 둔 동안 새 답이 오면 바닥 근처에 눌러서 내려가는 자리 하나만 둡니다. */}
+        {body.hasNew ? (
+          <div style={{ position: "sticky", bottom: 0, alignSelf: "center", zIndex: 1 }}>
+            <IconButton icon="chevron-down" label="새 답으로 내려가기" size="sm" variant="secondary" onClick={body.toBottom} />
+          </div>
+        ) : null}
       </div>
       <div className="cm-screen__bar">
         {view.nowLine === null ? null : (
