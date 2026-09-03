@@ -770,7 +770,7 @@ describe("자세히 화면에서 이어 묻기", () => {
     expect(asks[1]?.question).toBe(
       '앞선 답은 "new 는 만들 책임까지 떠안는 말이에요" 이었어요. 이어서 물어요 — 그럼 언제 써요?',
     );
-    // 봉인은 지금 자료로 새로 뜹니다.
+    // 봉인은 앞 질문이 보던 자리를 그대로 잇습니다(`live-snapshot.test.ts` 가 그 규칙을 봅니다).
     expect(asks[1]?.snapshot?.transcriptSegmentIds).toEqual(["ts-live-001"]);
 
     const threads = threadsOf(store, parentId);
