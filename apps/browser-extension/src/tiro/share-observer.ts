@@ -7,8 +7,9 @@
  *
  * 시각과 id 는 밖에서 넣습니다(`now`, `makeId`). 그래야 시험이 시계에 흔들리지 않습니다.
  *
- * 시각 문자열은 `toLocalIso` 로 **로컬 오프셋 표기**(`+09:00`)로 적습니다. `toISOString()` 의
- * `Z` 표기를 쓰면 패널 시계가 UTC 시각을 그대로 잘라 써 9시간 어긋납니다(`src/tiro/iso-time.ts`).
+ * 시각 문자열은 `toLocalIso` 로 **수업 시간대(KST) 오프셋 표기**(`+09:00`)로 적습니다.
+ * `toISOString()` 의 `Z` 표기를 쓰면 패널 시계가 UTC 시각을 그대로 잘라 써 9시간
+ * 어긋납니다(`src/tiro/iso-time.ts`).
  */
 import { toLocalIso } from './iso-time';
 import { domShapeLine, parseSharePage } from './share-parser';

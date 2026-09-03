@@ -1,8 +1,8 @@
-// 수업 시계 문구 — 보는 사람의 시간대로 옮겨 `HH:MM:SS` 를 냅니다.
+// 수업 시계 문구 — 수업 시간대(KST)로 옮겨 `HH:MM:SS` 를 냅니다.
 //
-// 보는 사람의 오프셋을 인자로 넣어, 이 시험은 어느 컴퓨터에서 돌려도 답이 같습니다.
+// 오프셋을 인자로 넣어, 이 시험은 어느 컴퓨터에서 돌려도 답이 같습니다.
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { atClock, clockOfIso, clockOfMs } from "./clock";
 
@@ -35,14 +35,14 @@ describe("clockOfIso", () => {
     expect(clockOfIso("2026-09-03T11:20:46+0900", 0)).toBe("02:20:46");
   });
 
-  it("시간대가 안 적혀 있으면 이미 보는 사람의 벽시계로 봅니다", () => {
+  it("시간대가 안 적혀 있으면 이미 화면이 쓰는 벽시계로 봅니다", () => {
     expect(clockOfIso("2026-09-03T11:20:46", KST)).toBe("11:20:46");
     expect(clockOfIso("2026-09-03T11:20:46", NEW_YORK)).toBe("11:20:46");
   });
 
-  it("기본값은 이 컴퓨터의 시간대입니다", () => {
-    const here = -new Date().getTimezoneOffset();
-    expect(clockOfIso("2026-09-03T02:20:46.959Z")).toBe(clockOfIso("2026-09-03T02:20:46.959Z", here));
+  it("기본값은 이 컴퓨터가 아니라 수업 시간대(KST)입니다", () => {
+    // 이 컴퓨터의 시간대를 따르면 KST 밖에서 헤더와 전사 줄이 어긋납니다(아래 시험).
+    expect(clockOfIso("2026-09-03T02:20:46.959Z")).toBe(clockOfIso("2026-09-03T02:20:46.959Z", KST));
   });
 
   it("ISO 모양이 아니면 막습니다", () => {
@@ -54,6 +54,24 @@ describe("clockOfIso", () => {
 describe("clockOfMs", () => {
   it("밀리초 시각은 KST 로 읽습니다 (재생 화면이 컴퓨터마다 흔들리지 않게)", () => {
     expect(clockOfMs(Date.parse("2026-09-02T10:32:18+09:00"))).toBe("10:32:18");
+  });
+});
+
+describe("한 화면의 시간대는 하나입니다", () => {
+  it("KST 밖 컴퓨터에서도 헤더(clockOfMs)와 전사 줄(clockOfIso)이 같은 시각을 냅니다", () => {
+    // 예전에는 `clockOfIso` 만 이 컴퓨터의 시간대를 따랐습니다. 뉴욕(-04:00) 화면에서
+    // 헤더는 KST, 전사 줄은 뉴욕 시각이 되어 같은 순간이 한 화면에서 13시간 어긋났습니다.
+    // 이 시험은 컴퓨터의 시간대를 뉴욕으로 흉내 내고 두 함수의 답이 같은지 봅니다.
+    const spy = vi.spyOn(Date.prototype, "getTimezoneOffset").mockReturnValue(-NEW_YORK);
+    try {
+      const iso = "2026-09-03T02:20:46.959Z";
+      const header = clockOfMs(Date.parse(iso));
+      const line = clockOfIso(iso);
+      expect(line).toBe(header);
+      expect(header).toBe("11:20:46");
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
 

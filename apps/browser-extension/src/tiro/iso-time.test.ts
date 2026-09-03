@@ -1,6 +1,6 @@
 // 확장이 찍는 시각 표기 — 오프셋을 넣어 어느 컴퓨터에서 돌려도 답이 같게 합니다.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { isoOffsetLabel, toLocalIso } from './iso-time';
 
@@ -35,8 +35,17 @@ describe('toLocalIso', () => {
     expect(toLocalIso(AT, 330)).toBe('2026-09-03T07:50:46.959+05:30');
   });
 
-  it('기본값은 이 컴퓨터의 오프셋입니다', () => {
-    expect(toLocalIso(AT)).toBe(toLocalIso(AT, -AT.getTimezoneOffset()));
+  it('기본값은 이 컴퓨터가 아니라 수업 시간대(KST)입니다', () => {
+    // 이 컴퓨터의 오프셋을 따르면 KST 밖 PC 에서 한 사건 안에 `at: …+09:00`(라우터의
+    // `toKstIso`)과 `arrivedAt: …-05:00`(여기)이 함께 실립니다. 뉴욕(-04:00) 을 흉내 내고
+    // 그래도 +09:00 으로 적히는지 봅니다.
+    const spy = vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(240);
+    try {
+      expect(toLocalIso(AT)).toBe('2026-09-03T11:20:46.959+09:00');
+      expect(toLocalIso(AT)).toBe(toLocalIso(AT, 540));
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('읽을 수 없는 시각은 막습니다', () => {
