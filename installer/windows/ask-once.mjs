@@ -3,7 +3,7 @@
 //
 // smoke-host.mjs 와 정반대 자리입니다.
 //   smoke-host.mjs  : 자식 환경에서 CLASSMATE_CLAUDE_CLI 를 지워 절대 돈을 쓰지 않습니다.
-//   ask-once.mjs    : CLASSMATE_CLAUDE_CLI 를 자식에게 **넘겨서** 진짜 답이 오는지 봅니다. 돈이 듭니다.
+//   ask-once.mjs    : CLASSMATE_CLAUDE_CLI 를 자식에게 **넘겨서** 진짜 답이 오는지 봅니다. 구독 한도를 씁니다(ANTHROPIC_API_KEY 가 있으면 과금).
 //
 // 그래서 세 겹으로 막아 둡니다.
 //   ① `--i-accept-cost` 가 없으면 아무것도 띄우지 않고 1 로 끝납니다.
@@ -241,7 +241,7 @@ export function askForReal(exePath, ask, env, { timeoutMs = ANSWER_TIMEOUT_MS, o
 }
 
 function printUsage() {
-  console.log(`사용법 (사람만 · 돈이 듭니다)
+  console.log(`사용법 (사람만 · 구독 한도를 씁니다)
   node installer/windows/ask-once.mjs ${COST_FLAG} [--word <낱말> | --question <문장>] [--cli <경로>] [--model <이름>]
 
 하는 일
@@ -275,7 +275,7 @@ export async function main(argv, { env = process.env } = {}) {
     return 0;
   }
   if (!options.accept) {
-    console.error(`${COST_FLAG} 가 없어 아무것도 띄우지 않았어요. 이 스크립트는 실제 제공자를 불러 돈이 듭니다.`);
+    console.error(`${COST_FLAG} 가 없어 아무것도 띄우지 않았어요. 이 스크립트는 실제 제공자를 불러 구독 한도(API 키가 있으면 돈)를 씁니다.`);
     console.error(`읽고 동의하면 ${COST_FLAG} 를 붙여 다시 돌려 주세요.`);
     return 1;
   }
@@ -306,7 +306,7 @@ export async function main(argv, { env = process.env } = {}) {
   console.log(`교시       ${ask.periodId} · 저장 폴더 ${dataDir}${ownDataDir ? ' (끝나면 지움)' : ''}`);
   console.log(`질문       kind=${ask.kind} ${ask.question ? `question="${ask.question}"` : `word="${ask.word}"`} · 전사·화면·편집기 자료는 없음`);
   console.log('');
-  console.log('실제 제공자를 부릅니다. 돈이 듭니다. 답 사건이 오면 자동으로 끝납니다.');
+  console.log('실제 제공자를 부릅니다. 구독 한도를 씁니다(API 키가 있으면 과금). 답 사건이 오면 자동으로 끝납니다.');
   console.log('');
 
   const started = Date.now();

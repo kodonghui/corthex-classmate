@@ -149,6 +149,6 @@
 - [x] 로컬 도우미 레지스트리 등록 `node installer/windows/install.mjs --apply` — 2026-09-03 오전 사용자가 직접 실행 · `reg query HKCU\Software\Google\Chrome\NativeMessagingHosts\com.corthex.classmate` 가 `dist/com.corthex.classmate.json` 을 가리킴 (해제는 `--remove --apply`)
 - [!] 깨끗한 Windows 11 VM 에서 `docs/first-class.md` §2~§4 를 처음부터 1회 · 65분 리허설 1회 + §4-2 다섯 항목 기록
 - [x] Chrome 안 실제 왕복 손 시험 — 2026-09-03 10:49 dev 확장(id `meldoohgnggckjahcchmfjnngpafcjon`)을 얹고 사이드패널 '수업 · 2교시' 를 열자 도우미가 `%LOCALAPPDATA%\CorthexClassmate\sessions\2026-09-03-p2.sqlite` 를 만듦(패널 → 워커 → `connectNative` → `period.started` → SQLite). `tutor.ask` → `tutor.event` 는 실제 첫 호출 항목과 함께
-- [!] 실제 `claude` 첫 호출 — 길 A: 수업 중 Tiro 전사로 낱말 붙잡기 / 길 B: `installer/windows/ask-once.mjs --i-accept-cost --word 생성자`(`b5d73e9` · 플래그 없으면 거부 · 1999-01-02-p1 · 임시 폴더) — `CLASSMATE_CLAUDE_CLI` 를 절대 경로로 두고 질문 1건(비용 승인 뒤 · `installer/windows/smoke-host.mjs` 는 자식 환경에서 CLI 변수를 지우고 임시 데이터 폴더·1999년 교시 id 로 돌므로 스모크로는 실제 CLI 가 불리지 않음, 검토 수정 `ff74cf3`) · Chrome Web Store 업로드 · 코드 서명 인증서 구입 여부
+- [!] 실제 `claude` 첫 호출 — 길 A: 수업 중 Tiro 전사로 낱말 붙잡기 / 길 B: `installer/windows/ask-once.mjs --i-accept-cost --word 생성자`(`b5d73e9` · 플래그 없으면 거부 · 1999-01-02-p1 · 임시 폴더) — 2026-09-03 사용자 "모두 승인" · `ANTHROPIC_API_KEY` 없음 = 구독 한도 사용(과금 아님) · `CLASSMATE_CLAUDE_CLI` 를 절대 경로로 두고 질문 1건(승인 뒤 · `installer/windows/smoke-host.mjs` 는 자식 환경에서 CLI 변수를 지우고 임시 데이터 폴더·1999년 교시 id 로 돌므로 스모크로는 실제 CLI 가 불리지 않음, 검토 수정 `ff74cf3`) · Chrome Web Store 업로드 · 코드 서명 인증서 구입 여부
 - [!] `design/_to_delete/` 삭제 여부
 - [!] `%TEMP%/ccsq`(스크래치 Rust target 폴더) 삭제 여부

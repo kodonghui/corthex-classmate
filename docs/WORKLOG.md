@@ -64,3 +64,10 @@
 - 위험: 대시보드 첫 워크플로가 `model` 생략으로 세션 모델(fable)을 물려받아 중단·재실행(끝난 초안 4개 재사용 · 남은 5단계 sonnet) — 규칙으로 굳힘 · 근거 대조에서 요구 §3-7 "자세히 화면 자유 텍스트 입력창" 미구현과 라이브 점선 낱말 원천 없음이 드러남(TASKS) · 세션 스냅샷은 긴 경로에서 `WinError 206` → 짧은 경로 필수 · 실제 첫 호출은 `.cmd` 래퍼를 도우미가 푸는 경로라 첫 실행 때 stderr 를 봐야 함 · 대시보드 본문에 `&lt;` 1건 잔존(사소)
 - 미결·블로커(사람 결정 '대기'): 실제 `claude` 첫 호출 — 길 A(수업 중 Tiro 전사) / 길 B(`ask-once.mjs`) 선택과 비용 승인 대기 · '논의·정렬' 탭 결정 6건(재시도 표 정본 · 캡처 버튼 자리 · Phase 3 시작 시점 · 교시 중간 변경 · 텍스트 입력창 · 첫 호출 비용 상한) · 나머지 대기 11건(VM·리허설 · Tiro OAuth/결제 · Gate A/B/C 실측 · C2 비용 · Drive · origin · Web Store · 서명 · Codex) — push · 배포 · 공개 전환 없음
 - 다음 행동: 사용자가 길과 승인을 정하면 `ask-once.mjs --i-accept-cost` 실행을 안내하고 결과(answer.completed 한 줄 · 소요 · 비용)로 TASKS·대시보드 '내가 할 일' 3번을 갱신
+
+## 2026-09-03 11:10 — 사용자 "모두 승인" · 비용 전제 정정(구독 한도 · API 키 없음) · 오늘 바로 쓰는 절차 안내
+- 변경: 사용자가 '논의·정렬' 결정 6건과 실제 claude 첫 호출을 모두 승인 → 대시보드 답 칸 채우고 재배포 · `ask-once.mjs`·README §9·TASKS·회고의 "돈이 듭니다/1.25 USD 지출" 을 "구독 한도 사용 · `total_cost_usd` 는 참고 숫자" 로 정정(이 PC 에 `ANTHROPIC_API_KEY` 없음 실측) · 오늘 바로 쓰는 절차(setx 2개 → Chrome 재시작 → ask-once → 수업 때 Tiro 공유 탭 + 패널) 안내
+- 검증: `[ -n "$ANTHROPIC_API_KEY" ]` → no · `docs/spikes/gate-c2-provider.md` 의 비용 표가 `result.total_cost_usd` 합임을 확인 · `node --test installer/windows/ask-once.test.mjs` 6 pass · `git diff --check` 0
+- 위험: 세션 모델(fable) 한도 소진으로 오케스트레이터 응답이 끊길 수 있음 — 진도는 WORKLOG·`.kdh-sessions/`·대시보드에 있음 · 실제 첫 호출은 이 세션 안에서 돌리면 `CLAUDECODE=1` 중첩 차단에 걸리므로 사용자 PowerShell 에서 · 라이브 전사에는 점선 낱말이 거의 없어 문장 클릭·Alt+S 로 물어야 함
+- 미결·블로커: 첫 호출 결과(answer.completed 한 줄) 보고 대기 · Meet 캡처 버튼·복습 페이지는 3라운드
+- 다음 행동: 첫 호출 결과를 받으면 TASKS `[x]` · 대시보드 '내가 할 일' 3번 완료 → /batch 3라운드 계획(텍스트 입력창 · 점선 낱말 원천 · 캡처 버튼 · Phase 3)
