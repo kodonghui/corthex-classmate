@@ -112,6 +112,14 @@ export interface RouterOptions {
   warn?: (message: string) => void;
   /** 열려 있는 패널 수가 바뀔 때 부릅니다. 30분 알람을 켜고 끄는 자리입니다. */
   onPanelCountChange?: (count: number) => void;
+  /**
+   * 교시가 끝났을 때 부릅니다. 앞 교시의 보류 프레임을 버리는 자리입니다.
+   *
+   * 왜 필요한가: 프레임 통(`NativeHostFrameSink`)은 도우미가 꺼져 있는 동안 봉투를 들고
+   * 있습니다. 교시가 끝난 뒤에 도우미가 돌아오면 그 봉투들이 **앞 교시의 `periodId`** 로
+   * 새 교시에 흘러들어, 호스트가 거절하면 새 교시의 화면 커넥터가 호박색이 됩니다.
+   */
+  onPeriodEnd?: (periodId: string) => void;
 }
 
 /** 새로고침 중복을 거르려고 기억해 두는 전사 조각 수의 상한입니다. */
@@ -131,6 +139,10 @@ export function emptySnapshot(): QuestionSnapshot {
  * 호스트는 4096바이트를 넘는 질문을 `question-too-long` 으로 거절합니다. 거절당해 질문이
  * 통째로 사라지는 것보다, 앞부분이라도 튜터에게 가는 편이 낫다고 보고 여기서 자릅니다.
  * 자른 사실은 부르는 쪽이 `text.length !== clamped.length` 로 압니다.
+ *
+ * **서로게이트 쌍 한가운데도 자르지 않습니다.** 자바스크립트 문자열은 UTF-16 코드 유닛
+ * 배열이라 이모지 하나가 두 칸(`0xD83D 0xDE00`)입니다. 앞 칸만 남기면 JSON 에 `\ud83d` 라는
+ * 짝 없는 서로게이트로 실리고, 호스트의 `serde_json` 이 봉투 전체를 거절합니다.
  */
 export function clampUtf8(text: string, maxBytes: number): string {
   const encoder = new TextEncoder();
@@ -142,6 +154,9 @@ export function clampUtf8(text: string, maxBytes: number): string {
     if (encoder.encode(text.slice(0, mid)).length <= maxBytes) low = mid;
     else high = mid - 1;
   }
+  // 마지막 칸이 짝의 앞쪽(high surrogate)이면 뒤쪽 짝이 잘려 나간 것이므로 함께 뺍니다.
+  const last = low > 0 ? text.charCodeAt(low - 1) : 0;
+  if (last >= 0xd800 && last <= 0xdbff) low -= 1;
   return text.slice(0, low);
 }
 
@@ -169,6 +184,27 @@ interface ConnectorSnapshot {
   reason: string | undefined;
 }
 
+/**
+ * 서비스 워커가 내려갔다 다시 떠도 잃지 않아야 하는 라우터 상태입니다.
+ *
+ * MV3 서비스 워커는 30초를 놀면 내려갑니다. 이것을 `chrome.storage.session` 에 옮겨 적어
+ * 두지 않으면 다시 뜬 워커가 `currentPeriodId === null` 을 보고 같은 교시에 `period.started`
+ * 를 한 번 더 붙이고, 교시 끝의 `period.ended {questionCount, frameCount}` 가 마지막
+ * 세대 몫만 셉니다.
+ *
+ * 전사 조각 기억(`seenSegments`)은 담지 않습니다. 최대 2,000줄의 본문이라 담는 값이
+ * 커지고, 잃어도 같은 문단이 한 번 더 기록될 뿐입니다.
+ */
+export interface RouterSnapshot {
+  periodId: string | null;
+  frameCount: number;
+  questionIds: string[];
+  pendingQuestionId: string | null;
+  connectors: [ReconnectTarget, ConnectorSnapshot][];
+  /** 이번 교시의 `period.started` 그대로입니다. 되살린 워커가 다시 만들지 않게 합니다. */
+  periodStarted: SessionEvent | null;
+}
+
 export class Router {
   private readonly host: HostGateway;
   private readonly settings: SettingsSource;
@@ -178,6 +214,7 @@ export class Router {
   private readonly now: () => Date;
   private readonly warn: (message: string) => void;
   private readonly onPanelCountChange: (count: number) => void;
+  private readonly onPeriodEnd: (periodId: string) => void;
 
   private readonly panels = new Set<PanelPortLike>();
   private readonly connectors = new Map<ReconnectTarget, ConnectorSnapshot>();
@@ -202,6 +239,17 @@ export class Router {
   private frameCount = 0;
   /** 아직 답이 오지 않은 마지막 질문입니다. `classmate.reconnect {provider}` 가 이것을 씁니다. */
   private pendingQuestionId: string | null = null;
+  /**
+   * 이번 교시의 `period.started` 사건입니다.
+   *
+   * 교시 로그는 최근 500건만 들고 있어서, 화면이 자주 바뀌면 이 사건이 맨 앞에서 밀려납니다.
+   * 그러면 패널을 닫았다 열 때 되풀이에 교시가 없어 과목명·교시 번호가 기본값으로 그려집니다.
+   * 그래서 **사건 그대로** 들고 있다가 새 패널에 한 번 더 보냅니다. 스토어는 `event.id` 로
+   * 같은 사건을 거르므로(`ReplayStore.pushEvent`) 로그에 아직 남아 있어도 두 번 그리지 않습니다.
+   */
+  private periodStartedEvent: SessionEvent | null = null;
+  /** 진행 중인 `ensurePeriod` 하나입니다. 겹쳐 부르면 이것을 함께 기다립니다. */
+  private ensuring: Promise<string> | null = null;
 
   constructor(options: RouterOptions) {
     this.host = options.host;
@@ -212,6 +260,7 @@ export class Router {
     this.now = options.now ?? (() => new Date());
     this.warn = options.warn ?? ((message) => console.warn(`[classmate] ${message}`));
     this.onPanelCountChange = options.onPanelCountChange ?? (() => {});
+    this.onPeriodEnd = options.onPeriodEnd ?? (() => {});
   }
 
   /** 지금 교시입니다. 아직 시작하지 않았으면 null 입니다. */
@@ -231,8 +280,26 @@ export class Router {
    *
    * 교시 식별자는 **오늘 날짜 + 저장소의 교시 번호**로 정합니다(`2026-09-02-p3`).
    * 계약 `PeriodId` 의 정규식이 이 모양이고 호스트가 이 이름으로 세션 파일을 만듭니다.
+   *
+   * **겹쳐 불러도 한 번만 시작합니다.** 안쪽의 `settings.read()` 가 기다림이라, 잠금이 없으면
+   * 워커가 뜬 직후 패널 연결과 `tiro.segment` 가 둘 다 `currentPeriodId === null` 을 보고
+   * 각각 교시를 시작합니다. 그러면 `period.started` 가 두 번 나가고 뒤엣것이 질문·전사·
+   * 커넥터 기억을 도로 지웁니다. 그래서 진행 중인 약속 하나를 물고 있다가 함께 기다립니다.
    */
   async ensurePeriod(): Promise<string> {
+    const running = this.ensuring;
+    if (running !== null) return running;
+
+    const started = this.resolvePeriod();
+    this.ensuring = started;
+    try {
+      return await started;
+    } finally {
+      if (this.ensuring === started) this.ensuring = null;
+    }
+  }
+
+  private async resolvePeriod(): Promise<string> {
     const settings = await this.settings.read();
     this.provider = settings.provider;
     const periodId = makePeriodId(this.now(), settings.periodNumber);
@@ -262,20 +329,20 @@ export class Router {
     this.connectors.clear();
     this.frameCount = 0;
     this.pendingQuestionId = null;
-    await this.publish(
-      this.makeEvent(periodId, 'period.started', {
-        periodId,
-        subject: settings.subject,
-        index: settings.periodNumber,
-      }),
-      true,
-    );
+    const started = this.makeEvent(periodId, 'period.started', {
+      periodId,
+      subject: settings.subject,
+      index: settings.periodNumber,
+    });
+    this.periodStartedEvent = started;
+    await this.publish(started, true);
   }
 
   private async finishPeriod(): Promise<void> {
     const periodId = this.currentPeriodId;
     if (periodId === null) return;
     this.currentPeriodId = null;
+    this.periodStartedEvent = null;
     await this.publish(
       this.makeEvent(periodId, 'period.ended', {
         periodId,
@@ -284,6 +351,70 @@ export class Router {
       }),
       true,
     );
+    this.onPeriodEnd(periodId);
+  }
+
+  // ── 워커가 내려갔다 다시 뜰 때 ───────────────────────────────────────────
+
+  /** 저장소에 옮겨 적을 상태 한 벌입니다. */
+  snapshot(): RouterSnapshot {
+    return {
+      periodId: this.currentPeriodId,
+      frameCount: this.frameCount,
+      questionIds: [...this.questionIds],
+      pendingQuestionId: this.pendingQuestionId,
+      connectors: [...this.connectors].map(([target, snapshot]) => [target, { ...snapshot }]),
+      periodStarted: this.periodStartedEvent,
+    };
+  }
+
+  /**
+   * 저장소에서 읽은 상태를 되살립니다. **사건을 새로 내지 않습니다.**
+   *
+   * 되살린 뒤 `ensurePeriod` 가 같은 교시 식별자를 계산하면 그대로 돌려주므로
+   * `period.started` 가 다시 나가지 않고, 교시 끝의 셈도 이어집니다. 값이 상했으면
+   * 던지지 않고 false 만 돌려줍니다(복원 하나 때문에 워커가 멈추는 편이 더 나쁩니다).
+   *
+   * @returns 되살렸으면 true 입니다.
+   */
+  restore(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    const periodId = value['periodId'];
+    if (typeof periodId !== 'string') return false;
+
+    this.currentPeriodId = periodId;
+    this.frameCount = typeof value['frameCount'] === 'number' ? value['frameCount'] : 0;
+    this.pendingQuestionId =
+      typeof value['pendingQuestionId'] === 'string' ? value['pendingQuestionId'] : null;
+
+    this.questionIds.clear();
+    const questionIds = value['questionIds'];
+    if (Array.isArray(questionIds)) {
+      for (const id of questionIds) {
+        if (typeof id === 'string') this.questionIds.add(id);
+      }
+    }
+
+    this.connectors.clear();
+    const connectors = value['connectors'];
+    if (Array.isArray(connectors)) {
+      for (const pair of connectors) {
+        if (!Array.isArray(pair) || pair.length !== 2) continue;
+        const [target, snapshot] = pair as [unknown, unknown];
+        if (typeof target !== 'string' || !isRecord(snapshot)) continue;
+        const state = snapshot['state'];
+        if (state !== 'connected' && state !== 'paused' && state !== 'off') continue;
+        const reason = snapshot['reason'];
+        this.connectors.set(target as ReconnectTarget, {
+          state,
+          reason: typeof reason === 'string' ? reason : undefined,
+        });
+      }
+    }
+
+    const started = value['periodStarted'];
+    this.periodStartedEvent = isSessionEvent(started) ? started : null;
+    return true;
   }
 
   // ── 패널 ─────────────────────────────────────────────────────────────────
@@ -302,6 +433,10 @@ export class Router {
   async openPanel(port: PanelPortLike): Promise<void> {
     const periodId = await this.ensurePeriod();
     this.panels.add(port);
+    // 교시 로그가 500건을 넘겨 `period.started` 를 밀어냈어도 화면이 교시를 알게 합니다.
+    // 로그에 아직 남아 있으면 같은 `id` 라 스토어가 뒤엣것을 거릅니다.
+    const started = this.periodStartedEvent;
+    if (started !== null) this.post(port, { type: LIVE_EVENT, event: started });
     for (const message of this.log.replay()) {
       this.post(port, message);
     }
@@ -367,6 +502,14 @@ export class Router {
    * 제공자 `connector.status`). **호스트로 되돌려 붙이지 않습니다** — 이미 호스트 안에 있습니다.
    */
   async handleHostPush(push: TutorEventPush): Promise<void> {
+    if (this.currentPeriodId !== null && push.periodId !== this.currentPeriodId) {
+      // 교시가 막 바뀌었습니다. 앞 교시의 답을 새 교시 로그·화면에 섞으면 화면이 거짓말을
+      // 합니다. 지난 교시를 보는 길은 도우미의 세션 파일이지 이 통로가 아닙니다.
+      this.warn(
+        `앞 교시의 호스트 사건이 늦게 왔어요 · 버립니다 · ${push.periodId} ≠ ${this.currentPeriodId}`,
+      );
+      return;
+    }
     const event = push.event;
     if (event.type === 'question.asked') {
       const questionId = readString(event.payload, 'questionId');
@@ -526,6 +669,25 @@ export class Router {
     };
 
     const result = await this.host.send(envelope);
+    if (result.status === 'dropped') {
+      // 도우미가 꺼져 있어 질문이 그 자리에서 버려졌습니다(`tutor.ask` 는 사람이 기다리는
+      // 부탁이라 들고 있지 않습니다). 온라인일 때는 호스트 기록본이 정본이므로 붙이지
+      // 않지만, 이때만은 붙여야 붙잡은 질문이 어디에도 남지 않는 일이 없습니다.
+      // 패널로 되돌리지 않습니다(`echo:false`) — 물어본 패널은 이미 자기 사건을 압니다.
+      await this.publish(
+        this.makeEvent(periodId, 'question.asked', {
+          questionId: request.questionId,
+          kind: request.kind,
+          ...(request.word === undefined ? {} : { word: request.word }),
+          ...(question.length === 0 ? {} : { question }),
+          provider: envelope.provider,
+          snapshot: envelope.snapshot,
+          hostOffline: true,
+        }),
+        true,
+        { echo: false },
+      );
+    }
     await this.reportAskResult(result);
   }
 
@@ -533,8 +695,10 @@ export class Router {
     if (result.status === 'replied') {
       const reply = result.message;
       if (isHostErrorMessage(reply)) {
-        // 계약 (마): 이 둘은 "제공자가 아예 없다" 는 뜻이라 꺼짐으로 알립니다.
-        const off = reply.reason === 'not-implemented' || reply.reason === 'provider-unavailable';
+        // 계약 (마): 이것만 "제공자가 아예 없다" 는 뜻이라 꺼짐으로 알립니다. 나머지
+        // (`question-too-long` · `envelope-invalid` · `malformed-snapshot`)는 이 부탁 하나가
+        // 잘못된 것이라 호박색입니다. `not-implemented` 는 고정 계약에서 사라졌습니다.
+        const off = reply.reason === 'provider-unavailable';
         await this.setConnector('provider', off ? 'off' : 'paused', reply.reason);
         return;
       }
@@ -621,14 +785,19 @@ export class Router {
    *
    * `echo: false` 는 "패널에는 보내지 않는다" 입니다. 패널이 낸 사건을 그 패널에 되돌려
    * 보내면 스토어가 같은 사건을 두 번 받습니다.
+   *
+   * **로그에 담는 일은 `echo` 와 상관없이 합니다.** 둘을 묶어 두면 패널이 낸 사건
+   * (`state.changed` 같은 것)이 교시 로그에 한 줄도 남지 않아, 패널을 닫았다 열면 사라집니다.
    */
   private async publish(
     event: SessionEvent,
     append: boolean,
     options: { echo?: boolean } = {},
   ): Promise<void> {
+    const message: LiveInboundMessage = { type: LIVE_EVENT, event };
+    this.log.append(message);
     if (options.echo !== false) {
-      this.broadcast({ type: LIVE_EVENT, event }, true);
+      this.broadcast(message, false);
     }
     if (!append) return;
     await this.host.send({ type: EVENT_APPEND, periodId: event.periodId, event });
@@ -655,6 +824,18 @@ export class Router {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 저장소에서 되살린 값이 사건 한 벌인지 봅니다(계약의 다섯 칸). */
+function isSessionEvent(value: unknown): value is SessionEvent {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value['id'] === 'string' &&
+    typeof value['periodId'] === 'string' &&
+    typeof value['at'] === 'string' &&
+    typeof value['type'] === 'string' &&
+    isRecord(value['payload'])
+  );
 }
 
 function readString(payload: Record<string, unknown>, key: string): string | null {
