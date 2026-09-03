@@ -8,7 +8,12 @@
     "node": ">=24"
   },
   "scripts": {
-    "test": "pnpm -r --if-present test",
+    "test": "node scripts/run-all-tests.mjs",
+    "test:all": "node scripts/run-all-tests.mjs --with-e2e",
+    "test:vitest": "node scripts/run-all-tests.mjs vitest",
+    "test:cargo": "node scripts/run-all-tests.mjs cargo",
+    "test:node": "node scripts/run-all-tests.mjs node",
+    "test:e2e": "node scripts/run-all-tests.mjs e2e",
     "typecheck": "pnpm -r --if-present typecheck",
     "build": "pnpm -r --if-present build",
     "generate": "pnpm --filter @classmate/contracts generate",
