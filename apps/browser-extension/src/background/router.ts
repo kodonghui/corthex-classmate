@@ -32,6 +32,7 @@
  * | `panel.ask` | `tutor.ask` 봉투 | 답이 `error` 면 `connector.status {provider, …}` |
  * | `classmate.reconnect` | 대상마다 다름 (아래) | — |
  * | 호스트 push `tutor.event` | — | `live.event` |
+ * | 호스트 push `tutor.delta` | — | `live.delta` (**교시 로그에 담지 않습니다**) |
  *
  * `panel.ask` 한 줄에는 **화면 한 장이 더 붙습니다.** 질문이 오면 먼저 지금 Meet 화면을
  * 찍어 도우미에 담고, 그 이름표를 `snapshot.screenFrameId` 에 넣은 뒤 `tutor.ask` 를
@@ -66,6 +67,7 @@ import { CAPTURE_ERROR, CAPTURE_STATS } from '../capture/messages';
 import { makePeriodId } from '../tiro/period';
 import type { LiveInboundMessage, LiveOutboundMessage } from '../live/messages';
 import {
+  LIVE_DELTA,
   LIVE_EDITOR,
   LIVE_EVENT,
   LIVE_FRAME,
@@ -75,7 +77,7 @@ import {
   PANEL_RECONNECT,
   isLiveOutboundMessage,
 } from '../live/messages';
-import type { HostEnvelope, TutorEventPush } from './host-messages';
+import type { HostEnvelope, TutorDeltaPush, TutorEventPush } from './host-messages';
 import {
   EVENT_APPEND,
   MAX_QUESTION_BYTES,
@@ -587,6 +589,40 @@ export class Router {
     await this.publish(event, false);
   }
 
+  /**
+   * 호스트가 민 **조각**입니다(답이 만들어지는 동안 흐르는 것).
+   *
+   * ```text
+   *   tutor.delta ──▶ 열려 있는 패널들 (live.delta)
+   *               └─X 교시 로그 · 호스트 · 세션 저장소
+   * ```
+   *
+   * 세 가지를 **하지 않습니다.**
+   *   1. `event.append` 로 붙이지 않습니다 — 조각은 `SessionEvent` 가 아니고 계약의 `type`
+   *      enum 에 자리가 없습니다. 정본은 뒤따르는 `answer.completed` 입니다.
+   *   2. 교시 로그(`this.log`)에 담지 않습니다. 담으면 패널을 닫았다 열 때 이미 답이 온
+   *      질문 자리에 옛 조각이 되풀이되어 다 쓴 답을 덮습니다.
+   *   3. 지난 교시 것은 버립니다(`tutor.event` 와 같은 규칙).
+   *
+   * `async` 가 아닌 것도 뜻이 있습니다. 조각은 한 회차에 수십 건이 오는데, 호스트로 나가는
+   * 부탁이 하나도 없어 기다릴 것이 없습니다.
+   */
+  handleHostDelta(push: TutorDeltaPush): void {
+    if (this.currentPeriodId !== null && push.periodId !== this.currentPeriodId) return;
+    this.broadcast(
+      {
+        type: LIVE_DELTA,
+        delta: {
+          questionId: push.questionId,
+          seq: push.seq,
+          chars: push.chars,
+          ...(push.text === undefined ? {} : { text: push.text }),
+        },
+      },
+      false,
+    );
+  }
+
   /** 도우미 연결 상태가 바뀌었습니다. */
   async handleHostStatus(state: 'connected' | 'off', reason?: string): Promise<void> {
     await this.setConnector('native-host', state, reason);
@@ -600,6 +636,29 @@ export class Router {
   /** 프레임 한 장이 거절됐습니다(크기 초과 · 저장 실패). 화면 커넥터를 호박색으로 둡니다. */
   async noteFrameRejected(reason: string): Promise<void> {
     await this.setConnector('meet-tab', 'paused', reason);
+  }
+
+  /**
+   * 질문에 붙일 화면 한 장을 **못 얻었습니다.** 그 까닭을 화면 커넥터에 적습니다.
+   *
+   * 왜 필요한가: 2026-09-03 에는 하루 종일 화면이 0장이었는데 오류 기록도 0건이었습니다.
+   * 찍는 자리가 조용히 `null` 만 냈기 때문입니다. 이제 까닭이 `connector.status` 로 흘러
+   * 바닥줄의 `meet` 자리에 드러납니다.
+   *
+   * `no-meet-tab` 만 `off` 입니다 — 찍을 대상 자체가 없다는 뜻이라 "잠시 멈춤" 이 아닙니다.
+   * 나머지는 다음 질문에 다시 될 수 있으므로 호박색(`paused`)입니다.
+   *
+   * 낱말은 `src/capture/snapshot.ts` 의 `SnapshotFailure` 다섯 가지입니다. 여기서는 문자열로
+   * 받습니다 — 라우터가 캡처 파일을 알 필요가 없고, 계약 `connector.status.reason` 도
+   * 문자열 한 칸이기 때문입니다.
+   */
+  async noteScreenMissing(reason: string): Promise<void> {
+    await this.setConnector('meet-tab', reason === 'no-meet-tab' ? 'off' : 'paused', reason);
+  }
+
+  /** 질문에 붙일 화면 한 장이 도우미에 들어갔습니다. 화면 커넥터를 초록으로 되돌립니다. */
+  async noteScreenCaptured(): Promise<void> {
+    await this.setConnector('meet-tab', 'connected');
   }
 
   /** 화면 한 장을 패널에 흘립니다. 사건은 호스트가 만들므로 여기서는 자료만 보냅니다. */

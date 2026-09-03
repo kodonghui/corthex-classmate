@@ -6,6 +6,7 @@
 import type {
   Answer,
   EditorContext,
+  Id,
   QuestionSnapshot,
   ScreenFrame,
   SessionEvent,
@@ -30,12 +31,32 @@ export interface AskPort {
   ask(request: AskRequest): void;
 }
 
+/**
+ * 답이 만들어지는 **동안** 흐르는 조각 하나.
+ *
+ * SessionEvent 가 아니고 저장되지 않는다. 정본은 언제나 뒤따르는 answer.completed 이고,
+ * 이것은 그 전 21~25초 동안 화면이 비지 않게 하는 일회성 갱신이다.
+ *
+ *   text   지금까지의 결론 **전체**(증분이 아니다). 이어 붙이지 말고 갈아 끼운다.
+ *          아직 결론 칸에 닿지 않았으면 없다.
+ *   chars  지금까지 받은 날 본문 글자 수. text 가 없어도 자라므로 진행도로 쓴다.
+ *   seq    이 회차의 몇 번째 조각인지. 더 작은 seq 는 늦게 온 것이므로 버린다.
+ */
+export interface AnswerDelta {
+  readonly questionId: Id;
+  readonly seq: number;
+  readonly chars: number;
+  readonly text?: string;
+}
+
 /** 밖(라이브 어댑터)에서 스토어로 들어오는 입구. 같은 id 는 무시된다. */
 export interface PanelInbox {
   pushEvent(event: SessionEvent): void;
   pushSegment(segment: TranscriptSegment): void;
   pushFrame(frame: ScreenFrame): void;
   pushEditor(context: EditorContext): void;
+  /** 답이 만들어지는 동안 흐르는 조각. 재생(fixture) 모드에서는 아무 일도 하지 않는다. */
+  pushDelta(delta: AnswerDelta): void;
 }
 
 /** 스토어가 낸 사건(question.asked · state.changed · panel.*)을 밖으로 흘리는 출구. */

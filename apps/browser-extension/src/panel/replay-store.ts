@@ -59,7 +59,7 @@ import { emptyBundle, GOLDEN_TERMS, guessesForLine } from "./golden-bundle";
 import type { Guess } from "./guesses";
 import { guessesFromSentence, WHOLE_SENTENCE_TERM } from "./guesses";
 import { termsInText } from "./live-terms";
-import type { AskPort, AskRequest, PanelInbox, PanelOutbox } from "./ports";
+import type { AnswerDelta, AskPort, AskRequest, PanelInbox, PanelOutbox } from "./ports";
 import { foldSegments, resolveAlias, segmentKeyOfWord, toTranscriptLines } from "./transcript-lines";
 
 export type Screen = "home" | "detail";
@@ -133,6 +133,15 @@ export interface ReplayState {
   readonly reply: Reply | null;
   /** 붙잡은 순간 id → 그 순간에 이어 물은 후속들(물은 순서). */
   readonly threads: Readonly<Record<Id, readonly FollowUpAsk[]>>;
+  /**
+   * 아직 답을 기다리는 질문들의 **자라는 결론**입니다. `질문 id → 마지막 조각`.
+   *
+   *     q-…-001 ─▶ {seq: 3, chars: 82, text: "생성 책임을"}   답이 오면 이 칸이 사라집니다
+   *
+   * 재생(fixture) 모드에서는 **언제나 비어 있습니다**(`pushDelta` 가 그 자리에서 돌아섭니다).
+   * 골든 9장면이 이 값 때문에 달라지지 않습니다.
+   */
+  readonly deltas: Readonly<Record<Id, AnswerDelta>>;
   /** 기계가 기록에 남기라고 한 사건(emit)입니다. id 는 여기서 붙입니다. */
   readonly emitted: readonly SessionEvent[];
   /** 밖에서 들어온 사건 전부입니다(fixture · 모의 제공자). */
@@ -460,6 +469,10 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   pushEvent(event: SessionEvent): void {
     if (this.#seen.has(event.id)) return;
     this.#seen.add(event.id);
+    // 답 사건이 왔으면 그 질문의 조각 자리를 **먼저** 비웁니다. 아래 갈래마다 일찍 돌아서는
+    // 길이 있어서(늦게 온 답 · 호스트 되밀기), 여기서 한 번만 지워야 빠짐이 없습니다.
+    // 지우지 않으면 자라던 조각과 다 쓴 답이 한 화면에 겹쳐 보입니다.
+    this.#clearDelta(event);
     if (this.#live !== null) {
       this.#moveClock(parseIso(event.at));
       // 본문(질문·답·전사·편집기)을 번들에 먼저 채우고 나서 기계에 넣습니다.
@@ -554,6 +567,31 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     this.#bundle = { ...this.#bundle, frames: [...this.#bundle.frames, frame] };
     this.#moveClock(parseIso(frame.capturedAt));
     this.#touch();
+  }
+
+  /**
+   * 답이 만들어지는 **동안** 흐르는 조각 하나를 받습니다.
+   *
+   * ```text
+   *   seq 0 ─▶ seq 1 ─▶ seq 2 ─▶ answer.completed
+   *     │        │        │            └─ 조각 자리가 사라지고 진짜 답이 그 자리에 옵니다
+   *     │        │        └ text 를 **갈아 끼웁니다**(증분이 아니라 결론 전체입니다)
+   *     │        └ 늦게 온 seq 0 이 여기 오면 **버립니다** (되감기 금지)
+   *     └ 다른 questionId 의 조각은 자기 칸에만 쌓입니다
+   * ```
+   *
+   * **재생(fixture) 모드에서는 아무 일도 하지 않습니다.** 재생에는 흐르는 답이 없고, 골든
+   * 9장면이 조각 때문에 달라지면 안 됩니다.
+   *
+   * 칸 수에 상한을 두지 않습니다. 답 사건 하나가 그 질문의 칸을 지우고, 한 교시의 질문은
+   * 많아야 수십 개이며 결론은 계약상 40자 이내라(`answer.schema.json`) 쌓여도 몇 KB 입니다.
+   */
+  pushDelta(delta: AnswerDelta): void {
+    if (this.#live === null) return;
+    const before = this.#state.deltas[delta.questionId];
+    // 같은 seq 도 버립니다. 같은 회차의 같은 번호는 다시 그릴 것이 없습니다.
+    if (before !== undefined && delta.seq <= before.seq) return;
+    this.#set({ deltas: { ...this.#state.deltas, [delta.questionId]: delta } });
   }
 
   /** 편집기 문맥을 받습니다. 한 자리뿐이라 늘 최신 것으로 갈아 끼웁니다. */
@@ -889,6 +927,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       chip: null,
       reply: null,
       threads: {},
+      deltas: {},
       emitted: [],
       received: [],
     };
@@ -1150,7 +1189,51 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     );
   }
 
+  /**
+   * 새 질문이 앞 질문을 밀어내기 **직전에**, 아직 답을 기다리던 앞 질문을 대화 칸으로 옮깁니다.
+   *
+   * ```text
+   *   Q1 붙잡음(답 기다리는 중) ──▶ Q2 붙잡음
+   *        │                          └─ 기계는 Q2 하나만 듭니다 (questionId 가 갈립니다)
+   *        └─ 여기서 Q1 을 threads[교시] 한 줄로 옮겨 둡니다
+   *              └─▶ 나중에 Q1 의 답이 오면 `#threadsAfter` 가 그 줄을 채웁니다
+   * ```
+   *
+   * 왜 필요한가: 옮겨 두지 않으면 Q1 의 답이 `#isStaleAnswer` 에 걸려 화면 어디에도 뜨지
+   * 않습니다(기록 화면에만 남습니다). 학습자 입장에서는 물어본 것이 조용히 사라진 것입니다.
+   * 대화 칸은 이미 "물은 것이 쌓이는 자리" 라 새 자리를 만들지 않고 그리로 보냅니다.
+   *
+   * 칸 이름은 `lesson-view.ts` 의 `listeningAskParent` 와 같은 **교시 id** 입니다. 그 함수를
+   * 여기서 부르면 lesson-view → replay-store 방향의 import 가 되돌아와 고리가 됩니다.
+   *
+   * 재생(fixture) 모드에서는 아무 일도 하지 않습니다 — 골든 9장면을 지킵니다.
+   */
+  #carryOverPending(): void {
+    if (this.#live === null) return;
+    const previous = this.#state.machine.questionId;
+    // 워치독에 걸려 있다 = 밖에 물었고 아직 답 사건이 하나도 안 왔다.
+    if (previous === null || !this.#watching.has(previous)) return;
+    if (this.#isThreadQuestion(previous)) return;
+    const moment = this.#state.moments.find((item) => item.questionId === previous);
+    if (moment === undefined) return;
+    const parentId = this.#bundle.periodId;
+    const row: FollowUpAsk = {
+      id: previous,
+      parentId,
+      question: this.#asked.get(previous)?.question ?? questionTextOf(moment.term),
+      time: moment.time,
+      state: "waiting",
+      answerId: null,
+      message: null,
+    };
+    this.#set({
+      threads: { ...this.#state.threads, [parentId]: [...(this.#state.threads[parentId] ?? []), row] },
+    });
+  }
+
   #stuck({ lineId, term, segKey, time, question, word }: StuckOptions): void {
+    // 앞 질문이 아직 답을 기다리는 중이면 대화 칸으로 옮겨 두고 나서 자리를 넘깁니다.
+    this.#carryOverPending();
     const now = this.#state.now;
     const questionId = this.#nextQuestionId();
     // 붙잡은 그 줄이 봉인 창의 중심입니다. "지금 시각의 최근 몇 개" 가 아닙니다.
@@ -1504,6 +1587,22 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     const forQuestion = stringOf(event.payload, "questionId");
     const current = this.#state.machine.questionId;
     return forQuestion !== null && current !== null && forQuestion !== current;
+  }
+
+  /**
+   * 답 사건이 오면 그 질문의 조각 자리를 비웁니다.
+   *
+   * 네 가지 답 사건 전부에서 비웁니다. `answer.queued` · `answer.failed` 는 답이 아니지만
+   * 그 회차의 흐름이 끝났다는 뜻이라, 자라다 만 조각을 그대로 두면 "쓰는 중" 이 영원히
+   * 남습니다.
+   */
+  #clearDelta(event: SessionEvent): void {
+    if (!ANSWER_EVENT_TYPES.includes(event.type)) return;
+    const questionId = stringOf(event.payload, "questionId");
+    if (questionId === null || this.#state.deltas[questionId] === undefined) return;
+    const next = { ...this.#state.deltas };
+    delete next[questionId];
+    this.#set({ deltas: next });
   }
 
   #momentFor(questionId: Id, lineId: Id, term: string, time: string, ages: QuestionSnapshot["ages"]): Moment {

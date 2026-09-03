@@ -3,7 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SessionEvent, TranscriptSegment } from '@classmate/contracts';
 import type { AskRequest } from '../panel/ports';
 import type { LiveInboundMessage } from '../live/messages';
-import { LIVE_EVENT, LIVE_SEGMENT, PANEL_ASK, PANEL_EVENT, PANEL_RECONNECT } from '../live/messages';
+import {
+  LIVE_DELTA,
+  LIVE_EVENT,
+  LIVE_SEGMENT,
+  PANEL_ASK,
+  PANEL_EVENT,
+  PANEL_RECONNECT,
+} from '../live/messages';
 import type { FrameStoreOutcome, FrameStorePort } from '../capture/frame-sink';
 import { NativeHostFrameSink } from '../capture/frame-sink';
 import { buildSnapshotFrame } from '../capture/snapshot';
@@ -961,6 +968,56 @@ describe('Router · classmate.reconnect', () => {
   });
 });
 
+// ── 질문에 붙일 화면을 못 얻었을 때 ──────────────────────────────────────
+
+describe('Router · 화면 한 장을 못 얻었을 때', () => {
+  /** 마지막 `connector.status {meet-tab}` 사건의 payload 입니다. */
+  function meetStatus(harness: Harness): Record<string, unknown> | null {
+    const events = harness.appended().filter((event) => event.type === 'connector.status');
+    const last = events.filter((event) => event.payload['connector'] === 'meet-tab').at(-1);
+    return last?.payload ?? null;
+  }
+
+  it('Meet 탭이 없으면 connector.status {meet-tab, off, no-meet-tab} 으로 남깁니다', async () => {
+    // 2026-09-03 에는 하루 종일 0장이었는데 오류 기록이 0건이었습니다. 이제 까닭이 남습니다.
+    const harness = makeHarness();
+
+    await harness.router.noteScreenMissing('no-meet-tab');
+
+    expect(meetStatus(harness)).toEqual({ connector: 'meet-tab', state: 'off', reason: 'no-meet-tab' });
+  });
+
+  it('다시 될 수 있는 까닭은 호박색(paused)으로 남깁니다', async () => {
+    for (const reason of ['not-active', 'capture-failed', 'too-large', 'host-offline']) {
+      const harness = makeHarness();
+      await harness.router.noteScreenMissing(reason);
+      expect(meetStatus(harness)).toEqual({ connector: 'meet-tab', state: 'paused', reason });
+    }
+  });
+
+  it('다시 찍히면 초록으로 되돌립니다', async () => {
+    const harness = makeHarness();
+    await harness.router.noteScreenMissing('no-meet-tab');
+
+    await harness.router.noteScreenCaptured();
+
+    expect(meetStatus(harness)).toEqual({ connector: 'meet-tab', state: 'connected' });
+  });
+
+  it('같은 까닭이 이어지면 사건을 한 번만 냅니다', async () => {
+    const harness = makeHarness();
+
+    await harness.router.noteScreenMissing('no-meet-tab');
+    await harness.router.noteScreenMissing('no-meet-tab');
+    await harness.router.noteScreenMissing('no-meet-tab');
+
+    const meets = harness
+      .appended()
+      .filter((event) => event.type === 'connector.status' && event.payload['connector'] === 'meet-tab');
+    expect(meets).toHaveLength(1);
+  });
+});
+
 // ── 호스트가 미는 사건 ────────────────────────────────────────────────────
 
 describe('Router · 호스트 push', () => {
@@ -978,6 +1035,54 @@ describe('Router · 호스트 push', () => {
 
     expect(harness.sent).toEqual([]);
     expect(harness.panel.eventTypes()).toEqual(['answer.completed']);
+  });
+
+  it('tutor.delta 는 패널로만 가고 교시 로그에도 담기지 않습니다', async () => {
+    const harness = makeHarness();
+    await harness.router.openPanel(harness.panel);
+    harness.sent.length = 0;
+    harness.panel.received.length = 0;
+
+    harness.router.handleHostDelta({
+      type: 'tutor.delta',
+      periodId: PERIOD,
+      questionId: 'q-1',
+      seq: 0,
+      chars: 15,
+    });
+    harness.router.handleHostDelta({
+      type: 'tutor.delta',
+      periodId: PERIOD,
+      questionId: 'q-1',
+      seq: 1,
+      chars: 21,
+      text: '생성 책임을',
+    });
+
+    // 호스트로 되돌아가지 않습니다 — 조각은 SessionEvent 가 아니라 붙일 자리가 없습니다.
+    expect(harness.sent).toEqual([]);
+    expect(harness.panel.received).toEqual([
+      { type: LIVE_DELTA, delta: { questionId: 'q-1', seq: 0, chars: 15 } },
+      { type: LIVE_DELTA, delta: { questionId: 'q-1', seq: 1, chars: 21, text: '생성 책임을' } },
+    ]);
+    // 교시 로그에 담기면 패널을 닫았다 열 때 이미 답이 온 자리에 옛 조각이 되풀이됩니다.
+    expect(harness.log.replay().filter((message) => message.type === LIVE_DELTA)).toEqual([]);
+  });
+
+  it('앞 교시의 늦은 조각은 새 교시에 섞지 않습니다', async () => {
+    const harness = makeHarness();
+    await harness.router.openPanel(harness.panel);
+    harness.panel.received.length = 0;
+
+    harness.router.handleHostDelta({
+      type: 'tutor.delta',
+      periodId: '2026-09-02-p2',
+      questionId: 'q-old',
+      seq: 0,
+      chars: 9,
+    });
+
+    expect(harness.panel.received).toEqual([]);
   });
 
   it('앞 교시의 늦은 push 는 새 교시에 섞지 않습니다', async () => {

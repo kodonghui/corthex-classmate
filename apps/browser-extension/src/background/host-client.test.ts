@@ -4,6 +4,7 @@ import type { SessionEvent } from '@classmate/contracts';
 import type { NativePortLike } from './host-client';
 import { NativeHostClient, backoffDelayMs } from './host-client';
 import type { EventAppendEnvelope } from './host-messages';
+import { isHostReply, isTutorDeltaPush } from './host-messages';
 
 const PERIOD = '2026-09-02-p3';
 
@@ -73,6 +74,8 @@ interface Harness {
   ports: FakePort[];
   statuses: { state: string; reason: string | undefined }[];
   pushes: unknown[];
+  /** 답이 만들어지는 동안 흐르는 조각들입니다. */
+  deltas: unknown[];
   warnings: string[];
   /** 마지막으로 만들어진 포트입니다. */
   port(): FakePort;
@@ -84,6 +87,7 @@ function makeHarness(options: { maxQueued?: number } = {}): Harness {
   const ports: FakePort[] = [];
   const statuses: { state: string; reason: string | undefined }[] = [];
   const pushes: unknown[] = [];
+  const deltas: unknown[] = [];
   const warnings: string[] = [];
 
   const client = new NativeHostClient({
@@ -95,6 +99,7 @@ function makeHarness(options: { maxQueued?: number } = {}): Harness {
     ...(options.maxQueued === undefined ? {} : { maxQueued: options.maxQueued }),
     onStatus: (state, reason) => statuses.push({ state, reason }),
     onPush: (push) => pushes.push(push),
+    onDelta: (delta) => deltas.push(delta),
     warn: (message) => warnings.push(message),
   });
 
@@ -103,6 +108,7 @@ function makeHarness(options: { maxQueued?: number } = {}): Harness {
     ports,
     statuses,
     pushes,
+    deltas,
     warnings,
     port: () => {
       const last = ports[ports.length - 1];
@@ -200,6 +206,59 @@ describe('NativeHostClient · 왕복', () => {
     expect(harness.pushes).toHaveLength(1);
     expect(await sending).toMatchObject({ status: 'replied', message: { seq: 9 } });
     expect(harness.warnings.filter((line) => line.includes('부탁하지 않은 답'))).toEqual([]);
+  });
+
+  it('tutor.delta 는 조각 구독자에게 가고 대기열을 건드리지 않습니다', async () => {
+    // 2026-09-03 전에는 이 봉투가 `isHostReply` 의 여섯 갈래에 없어 조각마다 "모양이 다른
+    // 말" 경고를 찍고 버려졌습니다. 그동안 화면은 21~25초 내내 비어 있었습니다.
+    const harness = makeHarness();
+    harness.client.start();
+    harness.handshake();
+
+    const sending = harness.client.send(appendEnvelope('ev-1'));
+
+    harness.port().reply({ type: 'tutor.delta', periodId: PERIOD, questionId: 'q-1', seq: 0, chars: 15 });
+    harness.port().reply({
+      type: 'tutor.delta',
+      periodId: PERIOD,
+      questionId: 'q-1',
+      seq: 1,
+      chars: 21,
+      text: '생성 책임을',
+    });
+    harness.port().reply({ type: 'event.ack', periodId: PERIOD, seq: 4, id: 'ev-1' });
+
+    expect(harness.deltas).toHaveLength(2);
+    expect(harness.deltas[1]).toMatchObject({ questionId: 'q-1', seq: 1, text: '생성 책임을' });
+    // 조각은 사건이 아니므로 `onPush` 로 가지 않습니다.
+    expect(harness.pushes).toEqual([]);
+    // 짝이 어긋나지 않습니다.
+    expect(await sending).toMatchObject({ status: 'replied', message: { id: 'ev-1', seq: 4 } });
+    // 한 회차에 수십 건이 오므로 경고를 찍지 않습니다.
+    expect(harness.warnings.some((line) => line.includes('모양이 다른 말'))).toBe(false);
+  });
+
+  it('isHostReply 는 여전히 tutor.delta 를 답으로 먹지 않습니다', () => {
+    const delta = { type: 'tutor.delta', periodId: PERIOD, questionId: 'q-1', seq: 0, chars: 15 };
+
+    // 먹으면 그 뒤의 모든 event.ack·tutor.accepted·error 가 한 칸씩 밀립니다.
+    expect(isHostReply(delta)).toBe(false);
+    expect(isTutorDeltaPush(delta)).toBe(true);
+  });
+
+  it('조각의 seq·chars 가 숫자가 아니면 조각으로도 답으로도 보지 않습니다', async () => {
+    const harness = makeHarness();
+    harness.client.start();
+    harness.handshake();
+
+    const sending = harness.client.send(appendEnvelope('ev-1'));
+
+    harness.port().reply({ type: 'tutor.delta', periodId: PERIOD, questionId: 'q-1', seq: '0', chars: 15 });
+    harness.port().reply({ type: 'event.ack', periodId: PERIOD, seq: 5, id: 'ev-1' });
+
+    expect(harness.deltas).toEqual([]);
+    expect(await sending).toMatchObject({ status: 'replied', message: { id: 'ev-1', seq: 5 } });
+    expect(harness.warnings.some((line) => line.includes('모양이 다른 말'))).toBe(true);
   });
 
   it('모양이 다른 말은 대기열을 건드리지 않고 버립니다', async () => {

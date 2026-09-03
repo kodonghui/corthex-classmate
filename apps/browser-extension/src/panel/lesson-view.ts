@@ -36,15 +36,33 @@ import { MODEL_CHIP_PREFIX } from "./replay-store";
 
 export type EvidenceItem = NonNullable<MarginNoteProps["evidence"]>[number];
 
+/**
+ * 답이 만들어지는 **동안** 화면에 보여 줄 것입니다. 답을 기다리는 자리에만 붙습니다.
+ *
+ *     text 가 있다  ─▶ 자라는 결론을 그대로 보여 줍니다 (아직 완성이 아닙니다)
+ *     text 가 없다  ─▶ chars 만 있습니다. 숫자가 자라는 것으로 "오는 중" 을 말합니다
+ *
+ * 완성된 답으로 착각하지 않게 하는 일은 **그리는 쪽**이 합니다: 결론 자리(`cm-note__c` ·
+ * `cm-reply__a`)가 아니라 대기 자리에 그리고, 움직이는 띠를 함께 둡니다.
+ */
+export interface AnswerStreamView {
+  /** 지금까지 해독한 결론 전체입니다. 아직 한 글자도 없으면 null 입니다. */
+  readonly text: string | null;
+  /** 지금까지 받은 날 본문 글자 수입니다. */
+  readonly chars: number;
+}
+
+/** 문장을 통째로 붙잡아 짐작을 고르는 자리입니다(디자인 상태 D). */
+export interface ChoosingView {
+  readonly lineId: string;
+  readonly time: string;
+  readonly options: readonly GuessOption[];
+  readonly value: string | undefined;
+}
+
 export type NoteView =
   | { readonly kind: "none" }
-  | {
-      readonly kind: "choosing";
-      readonly lineId: string;
-      readonly time: string;
-      readonly options: readonly GuessOption[];
-      readonly value: string | undefined;
-    }
+  | ({ readonly kind: "choosing" } & ChoosingView)
   | {
       readonly kind: "preparing";
       readonly lineId: string;
@@ -52,6 +70,8 @@ export type NoteView =
       readonly time: string;
       readonly warn: boolean;
       readonly waitingText: string | null;
+      /** 답이 흐르고 있으면 그 조각입니다. 아직 한 조각도 안 왔으면 null 입니다. */
+      readonly stream: AnswerStreamView | null;
       readonly sources: readonly SourceItem[];
     }
   | {
@@ -105,6 +125,19 @@ export interface ListeningView {
   readonly active: string | undefined;
   readonly marked: readonly string[];
   readonly note: NoteView;
+  /**
+   * 앞 질문의 메모가 자리를 차지한 채로 **새로 문장을 붙잡았을 때**의 짐작 목록입니다.
+   *
+   * 왜 `note` 와 따로 두는가: `note` 는 한 번에 하나뿐인데(상태기계가 질문 하나만 듭니다)
+   * 앞 질문의 답을 기다리는 동안에도 다음 문장을 붙잡을 수 있어야 합니다. 예전에는
+   * `noteOf` 가 `phase === "none"` 일 때만 짐작을 냈기 때문에, 답을 기다리는 중에 문단을
+   * 누르면 스토어에는 `choosing` 이 잡히는데 화면에는 아무것도 안 나와 "안 눌린다" 로
+   * 보였습니다(2026-09-03 실측: 4분 32초 동안 질문 0건).
+   *
+   * `note.kind === "choosing"` 인 자리(앞 질문이 없는 평상시)에서는 **null 입니다.** 그래야
+   * 같은 짐작 목록이 두 번 그려지지 않고, 재생(fixture) 골든 장면이 예전 길 그대로 갑니다.
+   */
+  readonly choosing: ChoosingView | null;
   /** 메모 아래 "지금 · …" 한 줄입니다. */
   readonly noteNow: string | null;
   readonly footer: FooterView;
@@ -126,6 +159,8 @@ export interface ThreadView {
   readonly time: string;
   /** 아직 답을 기다리는 중입니다. */
   readonly loading: boolean;
+  /** 기다리는 동안 흐르는 조각입니다. 다 왔거나 아직 한 조각도 안 왔으면 null 입니다. */
+  readonly stream: AnswerStreamView | null;
   readonly conclusion: string;
   readonly evidence: readonly EvidenceItem[];
   /** 튜터가 멈췄을 때의 안내 문구입니다. 그 밖에는 null 입니다. */
@@ -141,6 +176,8 @@ export interface DetailView {
   readonly marked: readonly string[];
   readonly loading: boolean;
   readonly loadingText: string;
+  /** 기다리는 동안 흐르는 조각입니다. 없으면 null 입니다. */
+  readonly stream: AnswerStreamView | null;
   readonly conclusion: string;
   readonly evidence: readonly EvidenceItem[];
   readonly sections: readonly AnswerSection[];
@@ -259,6 +296,40 @@ function nativeHostOff(state: ReplayState): boolean {
   return state.machine.connectors["native-host"] === "off";
 }
 
+/**
+ * 수업 화면(Meet)이 안 찍히고 있는지와 그 까닭입니다. 멀쩡하면 null 입니다.
+ *
+ * 상태 낱말은 상태기계가 들고 있지만(`connectors`) **까닭**은 들고 있지 않아서, 마지막
+ * `connector.status {meet-tab}` 사건에서 직접 꺼냅니다. 이 한 낱말이 있어야 바닥줄이
+ * "왜" 를 말할 수 있습니다 — 2026-09-03 에는 하루 종일 0장이었는데 화면에 `—` 만 떴습니다.
+ */
+function meetTrouble(state: ReplayState): { state: string; reason: string | null } | null {
+  const status = state.machine.connectors["meet-tab"];
+  if (status === undefined || status === "connected") return null;
+  let reason: string | null = null;
+  for (const event of state.received) {
+    if (event.type !== "connector.status") continue;
+    if (event.payload["connector"] !== "meet-tab") continue;
+    const value = event.payload["reason"];
+    reason = typeof value === "string" && value.length > 0 ? value : null;
+  }
+  return { state: status, reason };
+}
+
+/**
+ * 화면을 못 찍는 까닭 낱말 → 학습자가 읽을 한 줄입니다.
+ *
+ * 낱말은 `src/capture/snapshot.ts` 의 `SnapshotFailure` 다섯 가지입니다. 모르는 낱말이
+ * 오면 지어내지 않고 일반 문장을 씁니다.
+ */
+const MEET_TROUBLE_LINE: Readonly<Record<string, string>> = {
+  "no-meet-tab": "Meet 탭이 열려 있지 않아요.",
+  "not-active": "Meet 이 그 창에서 뒤에 있어요. 앞으로 꺼내 주세요.",
+  "capture-failed": "화면을 찍는 데 실패했어요.",
+  "too-large": "화면이 너무 커서 담지 못했어요.",
+  "host-offline": "로컬 도우미가 화면을 담지 못했어요.",
+};
+
 /** 답이 딸린 세 자료의 근거 칩입니다. 근거 단계는 답의 것을 그대로 쓰고 시각은 붙잡은 시각입니다. */
 export function evidenceOf(answer: Answer, moment: Moment | null): EvidenceItem[] {
   const type = evidenceType(answer.evidence);
@@ -311,6 +382,19 @@ function preparingSources(bundle: GoldenBundle, moment: Moment | null, paused: b
   ];
 }
 
+/**
+ * 그 질문에 지금 흐르고 있는 조각입니다. 없으면 null 입니다.
+ *
+ * 스토어가 답 사건이 오는 순간 그 칸을 비우므로(`ReplayStore#clearDelta`), 답이 온 질문은
+ * 여기서 언제나 null 입니다 — 조각과 다 쓴 답이 한 화면에 겹치는 길이 없습니다.
+ */
+export function streamOf(state: ReplayState, questionId: Id | null): AnswerStreamView | null {
+  if (questionId === null) return null;
+  const delta = state.deltas[questionId];
+  if (delta === undefined) return null;
+  return { text: delta.text ?? null, chars: delta.chars };
+}
+
 function noteOf(bundle: GoldenBundle, state: ReplayState): NoteView {
   const view = answerView(state.machine, state.now);
   const moment = currentMoment(state);
@@ -337,6 +421,7 @@ function noteOf(bundle: GoldenBundle, state: ReplayState): NoteView {
       time: moment.time,
       warn: view.waiting,
       waitingText: view.waiting ? WAITING_NOTE_LINE : null,
+      stream: streamOf(state, state.machine.questionId),
       sources: preparingSources(bundle, moment, tiroPaused(state)),
     };
   }
@@ -380,6 +465,12 @@ function footerOf(bundle: GoldenBundle, state: ReplayState): FooterView {
     { key: "meet", state: "live", ago: formatAgo(ages.meet) },
     { key: "intellij", state: "live", ago: formatAgo(ages.intellij) },
   ];
+  const meet = meetTrouble(state);
+  if (meet !== null) {
+    // 점 하나로도 "지금 안 찍히고 있다" 가 보이게 합니다. 아래 안내가 다른 것에 밀려도
+    // 이 자리는 남습니다.
+    sources[1] = { key: "meet", state: meet.state === "off" ? "off" : "paused", ago: formatAgo(ages.meet) };
+  }
   const providerDown = state.machine.provider === "failed" || state.machine.provider === "queued";
   let warn: FooterWarnView | null = null;
   if (providerDown) {
@@ -402,6 +493,16 @@ function footerOf(bundle: GoldenBundle, state: ReplayState): FooterView {
       description: "붙잡은 순간은 패널에 남아요.",
       action: RECONNECT_LABEL,
       reconnect: "native-host",
+    };
+  } else if (meet !== null) {
+    // 화면이 안 찍혀도 질문·전사·기록은 그대로 돕니다. 그래서 가장 낮은 자리에 둡니다 —
+    // 위의 셋(제공자·전사·도우미)이 멀쩡할 때만 이 줄이 보입니다.
+    warn = {
+      tone: "paused",
+      title: "수업 화면을 못 찍고 있어요.",
+      description: `${meet.reason === null ? "" : `${MEET_TROUBLE_LINE[meet.reason] ?? "까닭을 알 수 없어요."} `}질문과 전사는 그대로 기록해요.`,
+      action: RECONNECT_LABEL,
+      reconnect: "meet-tab",
     };
   }
   return { sources, count: state.moments.length, warn };
@@ -448,6 +549,14 @@ export function listeningView(
     },
     pinnedNow: pinnedNow(bundle, state.now),
     lines,
+    // 앞 질문의 메모가 자리를 차지하고 있을 때만 짐작을 따로 냅니다. 평상시에는 `note` 가
+    // `kind: "choosing"` 으로 이미 그리고 있어서, 여기서도 내면 목록이 두 번 그려집니다.
+    choosing: state.choosing === null || note.kind === "choosing" ? null : {
+      lineId: state.choosing.lineId,
+      time: state.choosing.time,
+      options: state.choosing.options.map((guess) => ({ id: guess.id, label: guess.label })),
+      value: state.choosing.guess ?? undefined,
+    },
     active: moment !== null && open && moment.segKey !== null ? moment.segKey : undefined,
     marked: state.moments.flatMap((item) => (item.segKey === null ? [] : [item.segKey])),
     note,
@@ -531,6 +640,7 @@ function threadsOf(bundle: GoldenBundle, state: ReplayState, questionId: Id): Th
       question: item.question,
       time: item.time,
       loading: item.state === "waiting",
+      stream: item.state === "waiting" ? streamOf(state, item.id) : null,
       conclusion: answer?.conclusion ?? "",
       evidence: answer === null ? [] : evidenceOf(answer, null),
       failure: item.state === "failed" ? item.message : null,
@@ -566,6 +676,7 @@ export function detailViewFor(
     loading,
     loadingText:
       current && view.waiting ? "튜터가 돌아오면 여기에 나타나요 · 순간은 저장됐어요" : "한 줄로 정리하고 있어요",
+    stream: loading ? streamOf(state, questionId) : null,
     conclusion: answer?.conclusion ?? "",
     evidence: answer === null ? [] : evidenceOf(answer, moment),
     sections: answer === null ? [] : sectionsOf(bundle, answer, line),

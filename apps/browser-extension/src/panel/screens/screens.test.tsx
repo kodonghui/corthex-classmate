@@ -77,6 +77,57 @@ function liveHomeHtml(): string {
   );
 }
 
+/**
+ * 라이브 화면을 세우고 손짓을 준 뒤 HTML 을 냅니다.
+ *
+ * `liveHomeHtml` 과 달리 스토어를 밖으로 함께 내주어, 조각을 밀거나 문단을 붙잡는 시험이
+ * 같은 스토어를 그대로 쓸 수 있게 합니다.
+ */
+function liveScreen(drive: (store: ReplayStore) => void): string {
+  const periodId = "2026-09-02-p3";
+  const startMs = parseIso("2026-09-02T10:00:00+09:00");
+  const store = ReplayStore.live({ periodId, startMs, idToken: "asktoken", now: () => startMs });
+  const lines: TranscriptSegment[] = [
+    {
+      id: "ts-live-001",
+      periodId,
+      seq: 1,
+      text: "객체를 직접 new로 만들면 바꾸기 어려워요",
+      state: "final",
+      arrivedAt: formatIso(startMs + 1_000),
+      source: "tiro-share",
+    },
+    {
+      id: "ts-live-002",
+      periodId,
+      seq: 2,
+      text: "context.getBean 으로 꺼내 씁니다",
+      state: "final",
+      arrivedAt: formatIso(startMs + 2_000),
+      source: "tiro-share",
+    },
+  ];
+  for (const line of lines) store.pushSegment(line);
+  drive(store);
+  const state = store.getState();
+  const view = listeningView(store.bundle, state, store.lines(state.now), true);
+  return renderToStaticMarkup(
+    <ListeningScreen
+      view={view}
+      onTerm={noop}
+      onSentence={noop}
+      onGuess={noop}
+      onChip={noop}
+      onDetail={noop}
+      onExpand={noop}
+      onSettings={noop}
+      onHistory={noop}
+      onReconnect={noop}
+      onAsk={noop}
+    />,
+  );
+}
+
 function detailHtml(checkpoint: Checkpoint, followUp?: string): string {
   const store = new ReplayStore(GOLDEN_BUNDLE);
   store.goto(checkpoint);
@@ -142,6 +193,64 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("Alt");
     // 듣는 중 화면의 "행동 버튼은 없다" 규칙은 라이브에서도 같습니다.
     expect(html).not.toContain("cm-btn");
+  });
+
+  it("답을 기다리는 동안 자라는 결론이 대기 자리에 보인다", () => {
+    const html = liveScreen((store) => {
+      store.catchTerm("ts-live-001", 1, "new");
+      const questionId = store.getState().machine.questionId ?? "";
+      store.pushDelta({ questionId, seq: 1, chars: 21, text: "생성 책임을 컨테이너에" });
+    });
+
+    // 대기 자리(cm-note__wait)에 그립니다. 다 쓴 답 자리(cm-note__c)가 아닙니다.
+    expect(html).toContain("cm-note__wait");
+    expect(html).toContain("생성 책임을 컨테이너에");
+    expect(html).not.toContain("cm-note__c");
+    // 아직 완성이 아니라는 표시 — 깜빡이는 커서와 쓸어내리는 띠.
+    expect(html).toContain("cm-stream__caret");
+    expect(html).toContain("cm-note__sweep");
+    // 완성된 답의 자리(근거·칩·자세히 보기)는 아직 열리지 않습니다.
+    expect(html).not.toContain("자세히 보기");
+  });
+
+  it("결론 글자가 아직 없으면 받은 글자 수가 자라는 것으로 오는 중을 말한다", () => {
+    const html = liveScreen((store) => {
+      store.catchTerm("ts-live-001", 1, "new");
+      const questionId = store.getState().machine.questionId ?? "";
+      store.pushDelta({ questionId, seq: 0, chars: 128 });
+    });
+
+    expect(html).toContain("128자");
+    // 메모 안에서는 MarginNote 가 이미 띠를 그리므로 그 띠 하나만 돕니다(둘이 겹치지 않습니다).
+    expect(html).toContain("cm-note__sweep");
+    expect(html).not.toContain("cm-stream__sweep");
+  });
+
+  it("대화 칸에 적어 물은 줄에도 자라는 결론이 붙는다", () => {
+    const html = liveScreen((store) => {
+      store.askTyped("2026-09-02-p3", "지금 이거 왜 필요해요?");
+      const asked = store.getState().threads["2026-09-02-p3"]?.[0]?.id ?? "";
+      store.pushDelta({ questionId: asked, seq: 0, chars: 40, text: "갈아 끼우기 쉬워져요" });
+    });
+
+    expect(html).toContain("cm-reply__wait");
+    expect(html).toContain("갈아 끼우기 쉬워져요");
+    // 다 쓴 답의 자리(cm-reply__a)로 올라가지 않습니다.
+    expect(html).not.toContain("cm-reply__a");
+  });
+
+  it("답을 기다리는 중에 문단을 누르면 짐작 목록이 앞 질문의 메모와 함께 보인다", () => {
+    const html = liveScreen((store) => {
+      store.catchTerm("ts-live-001", 1, "new");
+      store.catchSentence("ts-live-002");
+    });
+
+    // 앞 질문의 대기 메모가 남아 있고,
+    expect(html).toContain("cm-note__wait");
+    // 방금 누른 문단의 짐작 목록도 함께 보입니다(예전에는 이것이 아예 안 나왔습니다).
+    expect(html).toContain("cm-gl");
+    expect(html).toContain("혹시 이게 막혔나요?");
+    expect(html).toContain("context.getBean 가 뭔지");
   });
 
   it("재생에는 대화 칸을 아예 만들지 않는다 — 골든 9장면이 걸려 있습니다", () => {
