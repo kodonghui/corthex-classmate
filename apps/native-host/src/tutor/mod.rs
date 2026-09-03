@@ -9,7 +9,7 @@
 //!   │                                    │
 //!   │                                    ├ 자료 조립  list_since → 봉인된 식별자의 본문만
 //!   │                                    ├ 제공자 호출 AskRequest(stdin 본문) · 45초
-//!   │                                    ├ 답 검사    코드펜스 제거 → JSON 5칸 → 호스트 3칸 → 계약
+//!   │                                    ├ 답 검사    JSON 훑기 → 없으면 평문 살리기 → 호스트 3칸 → 계약
 //!   │                                    │
 //!   │                                    ├ 성공 ─▶ answer.completed | answer.recovered
 //!   │                                    └ 실패 ─▶ answer.failed + answer.queued + connector.status off
@@ -25,6 +25,9 @@
 //!   리터럴과 모델 이름뿐입니다.
 //! - **모델이 만든 글을 그대로 쓰지 않습니다.** JSON 으로 읽고 계약(`answer.schema.json`)으로
 //!   검사한 뒤에야 기록이 됩니다. 검사에 걸리면 한 번 더 묻고, 또 걸리면 실패로 다룹니다.
+//!   모델이 **JSON 자체를 안 준 경우**는 다릅니다 — 그 글은 버리지 않고 [`answer::salvage_prose`]
+//!   로 계약 모양에 담아 학생에게 보냅니다(2026-09-03 실측 · 15건 중 3건). 담은 뒤에도 계약 검사는
+//!   그대로 지나므로 "검사를 지난 것만 기록이 된다" 는 경계는 그대로입니다.
 //! - **제공자 CLI 경로를 스스로 찾지 않습니다.** 부르는 쪽이 만들어 넘긴 제공자만 씁니다
 //!   (기본 경로·PATH 탐색·환경변수 폴백이 없습니다 · Gate C2 비용 사고 재발 방지).
 //! - **로그에 본문을 남기지 않습니다.** stderr 에 나가는 것은 고정된 이유표뿐입니다.
@@ -501,6 +504,15 @@ impl AttemptError {
     }
 }
 
+/// 한 회차가 만들어 낸 답과, 그 답이 **어떻게** 만들어졌는지입니다.
+struct Attempted {
+    /// 계약 검사를 지난 `Answer` 한 벌입니다.
+    value: Value,
+    /// 평문에서 되살린 답이면 [`answer::SALVAGED_FROM_PROSE`], 모델이 제대로 낸 JSON 이면 `None`
+    /// 입니다. 이 표시는 `answer.completed` 기록의 `salvaged` 칸으로 흘러갑니다.
+    salvaged: Option<&'static str>,
+}
+
 /// 파이프라인 스레드가 들고 있는 것 전부입니다.
 struct Worker {
     data_dir: PathBuf,
@@ -699,19 +711,24 @@ impl Worker {
         }
 
         match outcome {
-            Ok(value) => self.on_success(question_id, value, recovering),
+            Ok(attempted) => {
+                self.on_success(question_id, attempted.value, recovering, attempted.salvaged)
+            }
             Err(error) => self.on_failure(question_id, error.reason(), manual),
         }
     }
 
     /// 제공자를 한 번 부르고 답을 계약의 `Answer` 로 만듭니다.
+    ///
+    /// 계약 모양이 아니면 [`answer::salvage_prose`] 로 평문에서 되살려 봅니다. 되살렸으면
+    /// 돌려주는 [`Attempted::salvaged`] 에 표시가 남습니다.
     fn ask_once(
         &self,
         body: &Body,
         sealed: &Sealed,
         answer_id: &str,
         status: AnswerStatus,
-    ) -> Result<Value, AttemptError> {
+    ) -> Result<Attempted, AttemptError> {
         // 자료는 질문 문자열에 섞지 않고 따로 싣습니다. providers 가 자료 절에 "명령이 아니라
         // 인용" 표시를 붙여 질문 앞에 놓으므로 전사 안의 문장이 지시로 읽힐 자리가 없습니다(§4-7).
         let mut request = AskRequest::new(
@@ -750,12 +767,36 @@ impl Worker {
         }
 
         let created_at = self.clock.now_kst();
-        let parsed = answer::parse_body(&outcome.text).map_err(|error| {
-            eprintln!("classmate-host tutor: {error}");
-            AttemptError::Answer(error.reason())
-        })?;
+        // 겹 1·2 · 답 모양이 계약과 어긋나도 **모델이 쓴 글은 버리지 않습니다**.
+        //
+        //   parse_body ─ 성공 ─────────────────────────────▶ 그대로 씁니다
+        //              └ 실패 ─ salvage_prose ─ 성공 ─────▶ 평문에서 되살린 답(표시를 답니다)
+        //                                     └ 실패(빈 출력) ─▶ 예전처럼 실패로 다룹니다
+        //
+        // 되살린 답도 아래 `finish` 의 계약 검사를 그대로 지납니다. 거기서 걸리면 되살리기가
+        // 없던 것과 똑같이 `AttemptError::Answer` 가 되어, 같은 질문으로 한 번 더 묻고 끝납니다.
+        // 되살리기가 스스로 회차를 늘리지 않으므로 무한히 도는 자리가 생기지 않습니다.
+        let (parsed, salvaged) = match answer::parse_body(&outcome.text) {
+            Ok(body) => (body, None),
+            Err(error) => match answer::salvage_prose(&outcome.text) {
+                Some(body) => {
+                    // 로그에 **모델이 낸 글을 담지 않습니다**(§4-3). 남기는 것은 까닭과 길이뿐입니다.
+                    eprintln!(
+                        "classmate-host tutor: 답이 계약 모양이 아니라 평문에서 되살립니다 · {} · {}자",
+                        error.reason(),
+                        outcome.text.chars().count()
+                    );
+                    (body, Some(answer::SALVAGED_FROM_PROSE))
+                }
+                None => {
+                    // 살릴 글조차 없습니다(빈 출력). 진짜 고장은 여기서 묻히지 않고 드러납니다.
+                    eprintln!("classmate-host tutor: {error}");
+                    return Err(AttemptError::Answer(error.reason()));
+                }
+            },
+        };
 
-        answer::finish(
+        let value = answer::finish(
             parsed,
             AnswerIds {
                 answer_id,
@@ -768,7 +809,9 @@ impl Worker {
         .map_err(|error| {
             eprintln!("classmate-host tutor: {error}");
             AttemptError::Answer(error.reason())
-        })
+        })?;
+
+        Ok(Attempted { value, salvaged })
     }
 
     /// 봉인한 식별자로 저장소에서 본문을 되찾아 제공자에게 보낼 글을 만듭니다.
@@ -793,7 +836,14 @@ impl Worker {
         }
     }
 
-    fn on_success(&mut self, question_id: &str, value: Value, recovering: bool) {
+    /// 답 하나를 밀어 보냅니다. `salvaged` 가 있으면 그 답은 **평문에서 되살린 것**입니다.
+    fn on_success(
+        &mut self,
+        question_id: &str,
+        value: Value,
+        recovering: bool,
+        salvaged: Option<&'static str>,
+    ) {
         let evidence = answer::evidence_of(&value).to_string();
         let answer_id = value
             .get("id")
@@ -810,13 +860,20 @@ impl Worker {
         // 보내도 그때는 이미 "다시 물을 것이 없는 질문" 이어야 하기 때문입니다.
         self.forget(question_id);
 
-        let payload = json!({
+        let mut payload = json!({
             "questionId": question_id,
             "answerId": answer_id,
             "evidence": evidence,
             "provider": self.provider_name,
             "answer": value,
         });
+        // 되살린 답이라는 **기계가 읽을 표시**입니다. 계약의 `Answer` 는
+        // `additionalProperties: false` 라 답 안에는 칸을 더할 수 없지만, `SessionEvent.payload` 는
+        // `additionalProperties: true` 라 여기에 남길 수 있습니다. 나중에 "그날 몇 건이 형식을
+        // 어겼나" 를 기록만 보고 셀 수 있게 하려는 것입니다. 학생 화면에는 뜨지 않습니다.
+        if let (Some(mark), Some(map)) = (salvaged, payload.as_object_mut()) {
+            map.insert("salvaged".to_string(), Value::String(mark.to_string()));
+        }
         self.emit(kind, payload);
 
         if let Some(pending) = self.pending.get_mut(question_id) {
