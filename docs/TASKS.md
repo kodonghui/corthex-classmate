@@ -133,6 +133,7 @@
 - [ ] EXIT_RECALL → FEEDBACK → FADE_SUPPORT → DELAYED_CHECK
 - [ ] Tiro 최종본 교정 + 보정 사전
 - [ ] packages/report-ui 교시 상세 8 + 하루 허브 1
+- [ ] 자세히 화면 맨 아래 자유 텍스트 질문 입력창(`docs/master-prompt.md` §3-7) — `DetailScreen.tsx` 에 입력창 없음. 2026-09-03 대시보드 근거 대조에서 발견. 입력 문장은 `tutor.ask` 의 `question` 칸(≤4096바이트)으로
 
 ## 사람이 할 일 (대기)
 
@@ -145,9 +146,9 @@
 - [!] Codex 사용 한도 복구 확인 → Gate C2 Codex 측정
 - [!] 선생님께 Drive "뷰어 다운로드 허용" 요청
 - [!] `gh repo create` 허락
-- [!] 로컬 도우미 레지스트리 등록 `node installer/windows/install.mjs --apply`(해제는 `--remove --apply`) — dry-run 계획은 자동으로 나오고 실제 실행은 사람만 (`docs/first-class.md` §3-3)
+- [x] 로컬 도우미 레지스트리 등록 `node installer/windows/install.mjs --apply` — 2026-09-03 오전 사용자가 직접 실행 · `reg query HKCU\Software\Google\Chrome\NativeMessagingHosts\com.corthex.classmate` 가 `dist/com.corthex.classmate.json` 을 가리킴 (해제는 `--remove --apply`)
 - [!] 깨끗한 Windows 11 VM 에서 `docs/first-class.md` §2~§4 를 처음부터 1회 · 65분 리허설 1회 + §4-2 다섯 항목 기록
-- [!] Chrome 안 실제 왕복 손 시험 — 사이드패널(라이브) → 서비스 워커 → 도우미 `tutor.ask` → `tutor.event` (등록 뒤) · dev zip 의 확장 id 가 `installer/windows/extension-key.json` 의 id 와 같은지
-- [!] 실제 `claude` 첫 호출 — `CLASSMATE_CLAUDE_CLI` 를 절대 경로로 두고 질문 1건(비용 승인 뒤 · `installer/windows/smoke-host.mjs` 는 자식 환경에서 CLI 변수를 지우고 임시 데이터 폴더·1999년 교시 id 로 돌므로 스모크로는 실제 CLI 가 불리지 않음, 검토 수정 `ff74cf3`) · Chrome Web Store 업로드 · 코드 서명 인증서 구입 여부
+- [x] Chrome 안 실제 왕복 손 시험 — 2026-09-03 10:49 dev 확장(id `meldoohgnggckjahcchmfjnngpafcjon`)을 얹고 사이드패널 '수업 · 2교시' 를 열자 도우미가 `%LOCALAPPDATA%\CorthexClassmate\sessions\2026-09-03-p2.sqlite` 를 만듦(패널 → 워커 → `connectNative` → `period.started` → SQLite). `tutor.ask` → `tutor.event` 는 실제 첫 호출 항목과 함께
+- [!] 실제 `claude` 첫 호출 — 길 A: 수업 중 Tiro 전사로 낱말 붙잡기 / 길 B: `installer/windows/ask-once.mjs --i-accept-cost --word 생성자`(`b5d73e9` · 플래그 없으면 거부 · 1999-01-02-p1 · 임시 폴더) — `CLASSMATE_CLAUDE_CLI` 를 절대 경로로 두고 질문 1건(비용 승인 뒤 · `installer/windows/smoke-host.mjs` 는 자식 환경에서 CLI 변수를 지우고 임시 데이터 폴더·1999년 교시 id 로 돌므로 스모크로는 실제 CLI 가 불리지 않음, 검토 수정 `ff74cf3`) · Chrome Web Store 업로드 · 코드 서명 인증서 구입 여부
 - [!] `design/_to_delete/` 삭제 여부
 - [!] `%TEMP%/ccsq`(스크래치 Rust target 폴더) 삭제 여부

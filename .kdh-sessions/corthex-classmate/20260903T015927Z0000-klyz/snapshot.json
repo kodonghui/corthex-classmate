@@ -1,0 +1,36 @@
+{
+  "active_run_refs": [],
+  "blockers": [
+    "실제 claude 첫 호출은 사용자 비용 승인 대기"
+  ],
+  "conv_hooks": {
+    "reason": "KDH_HOOK_STATUS_CMD is not set; compatibility-retired hook status probe is disabled",
+    "status": "disabled"
+  },
+  "created_at": "2026-09-03T01:59:27+00:00",
+  "cwd": "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate",
+  "excluded": [
+    "secrets, shell history, tmux scrollback, in-memory tool state, raw provider stdout"
+  ],
+  "git": {
+    "branch": "main",
+    "head": "7b36a38f14879e8cc8cb9228bece8389401850cd",
+    "status_short": "M docs/DECISIONS.md\n M docs/TASKS.md\n M docs/WORKLOG.md"
+  },
+  "next_action": "사용자가 실제 claude 첫 호출의 길(A 수업 중 Tiro 전사 / B installer/windows/ask-once.mjs)과 비용 승인을 정하면 ask-once.mjs --i-accept-cost 실행을 안내하고 결과로 docs/TASKS.md 와 대시보드 '내가 할 일' 3번을 갱신하기",
+  "recovery_files": [
+    {
+      "bytes": 5901,
+      "path": "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate\\AGENTS.md",
+      "sha256": "65098fdbaa5d9a2cfd0c5a7618fc41f38f763a4ba4bf8249fa6603740e58fc16"
+    },
+    {
+      "bytes": 11,
+      "path": "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate\\CLAUDE.md",
+      "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"
+    }
+  ],
+  "schema": "kdh.session.v1",
+  "session_id": "corthex-classmate",
+  "snapshot_id": "20260903T015927Z0000-klyz"
+}
