@@ -305,6 +305,38 @@ test('15 폭 380 — 기본 폭의 여백은 16px', async () => {
   expect(await noHorizontalScroll()).toBe(true);
 });
 
+test('16 자세히 맨 아래 입력창 — 적어 보내면 이어 물은 줄이 남는다', async () => {
+  await reopen();
+  await goto('detail');
+  await expect(page.locator('[data-screen-label="자세히"]')).toBeVisible();
+
+  // 정본 §3-7: 텍스트 입력창은 이 화면 맨 아래에만 있습니다. 듣는 중 화면에는 없습니다.
+  const field = page.getByPlaceholder('이어서 물어볼 말을 적어요');
+  await expect(field).toBeVisible();
+  // 빈 칸이면 보내기가 잠겨 있습니다.
+  await expect(page.getByRole('button', { name: '보내기' })).toBeDisabled();
+
+  await field.fill('그럼 언제 써요?');
+  await page.getByRole('button', { name: '보내기' }).click();
+
+  // 질문 줄 + 대기 줄. fixture 재생에는 물을 곳이 없어 기다리는 자리에서 멈춥니다.
+  await expect(page.locator('.cm-reply__q')).toContainText('그럼 언제 써요?');
+  await expect(page.getByText('답을 만들고 있어요', { exact: true })).toBeVisible();
+  // 보낸 뒤 칸은 비고, 본 답은 그대로 남아 있습니다.
+  await expect(field).toHaveValue('');
+  await expect(page.getByText('new 자체는 괜찮지만 바꾸기 어려워서 생성 책임을 나눠요')).toBeVisible();
+  await page.screenshot({
+    path: path.join(SCREENSHOT_DIR, 'golden-13-detail-typed.png'),
+    fullPage: false,
+    animations: 'disabled',
+  });
+
+  // Enter 로도 보냅니다(한 줄 칸이라 줄바꿈이 아닙니다).
+  await field.fill('한 번 더 물어요');
+  await field.press('Enter');
+  await expect(page.locator('.cm-reply__q')).toHaveCount(2);
+});
+
 test('콘솔 오류와 페이지 오류가 없다', async () => {
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);

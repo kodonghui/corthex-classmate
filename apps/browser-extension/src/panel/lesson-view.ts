@@ -29,9 +29,10 @@ import { formatAgo } from "../lib/format-time";
 import { clockOfIso, clockOfMs } from "./clock";
 import { evidenceType } from "./evidence";
 import type { GoldenBundle } from "./golden-bundle";
-import { guessesForLine, LIVE_EDITOR_PLACEHOLDER_ID } from "./golden-bundle";
+import { LIVE_EDITOR_PLACEHOLDER_ID } from "./golden-bundle";
 import type { ReconnectTarget } from "./ports";
 import type { Moment, Reply, ReplayState } from "./replay-store";
+import { MODEL_CHIP_PREFIX } from "./replay-store";
 
 export type EvidenceItem = NonNullable<MarginNoteProps["evidence"]>[number];
 
@@ -110,7 +111,23 @@ export interface ListeningView {
   readonly tiroPaused: boolean;
 }
 
+/** 자세히 화면에서 이어 물은 한 줄입니다(질문 → 대기 · 답 · 실패). */
+export interface ThreadView {
+  readonly id: string;
+  /** 화면에 보일 질문 줄입니다. */
+  readonly question: string;
+  readonly time: string;
+  /** 아직 답을 기다리는 중입니다. */
+  readonly loading: boolean;
+  readonly conclusion: string;
+  readonly evidence: readonly EvidenceItem[];
+  /** 튜터가 멈췄을 때의 안내 문구입니다. 그 밖에는 null 입니다. */
+  readonly failure: string | null;
+}
+
 export interface DetailView {
+  /** 이 화면이 보고 있는 붙잡은 순간의 질문 id 입니다. 이어 묻기가 이 id 에 매답니다. */
+  readonly questionId: Id;
   readonly term: string;
   readonly time: string;
   readonly line: TranscriptLine | null;
@@ -122,6 +139,8 @@ export interface DetailView {
   readonly sections: readonly AnswerSection[];
   readonly followUps: readonly FollowUp[];
   readonly reply: Reply | null;
+  /** 이어 물은 후속들입니다(물은 순서). */
+  readonly threads: readonly ThreadView[];
   readonly nowLine: string | null;
 }
 
@@ -295,7 +314,8 @@ function noteOf(bundle: GoldenBundle, state: ReplayState): NoteView {
         kind: "choosing",
         lineId: state.choosing.lineId,
         time: state.choosing.time,
-        options: guessesForLine(state.choosing.lineId).map((guess) => ({ id: guess.id, label: guess.label })),
+        // 짐작은 스토어가 붙잡는 순간에 만들어 둡니다(재생은 fixture 의 것, 라이브는 그 문장에서 만든 것).
+        options: state.choosing.options.map((guess) => ({ id: guess.id, label: guess.label })),
         value: state.choosing.guess ?? undefined,
       };
     }
@@ -446,6 +466,41 @@ export function sectionsOf(bundle: GoldenBundle, answer: Answer, line: Transcrip
 }
 
 /**
+ * 자세히 화면의 후속 칩입니다.
+ *
+ *     재생(fixture)  더 쉽게 · 왜 필요한데? · 방금 내용 (fixture 의 details 로 그 자리에서 답합니다)
+ *     라이브         위 셋 + **모델이 답에 실어 준 칩**(`answer.chips`) — 누르면 그 문장을 그대로 묻습니다
+ *
+ * 지난 순간(기록에서 연 것)에는 칩을 두지 않습니다. 칩 답은 상태기계가 든 답으로 만드는데,
+ * 지난 순간에 붙이면 엉뚱한 답이 옵니다. 이어 묻기(맨 아래 입력창)는 지난 순간에도 됩니다.
+ */
+function followUpsOf(state: ReplayState, answer: Answer | null, current: boolean): FollowUp[] {
+  if (!current) return [];
+  if (!state.live || answer === null) return [...FOLLOW_UPS];
+  const fromModel = answer.chips.map<FollowUp>((label, index) => ({
+    id: `${MODEL_CHIP_PREFIX}${index}`,
+    label,
+  }));
+  return [...FOLLOW_UPS, ...fromModel];
+}
+
+/** 이어 물은 후속들을 화면 줄로 만듭니다. 답이 온 줄만 결론과 근거를 답니다. */
+function threadsOf(bundle: GoldenBundle, state: ReplayState, questionId: Id): ThreadView[] {
+  return (state.threads[questionId] ?? []).map<ThreadView>((item) => {
+    const answer = item.answerId === null ? null : (bundle.answers[item.answerId] ?? null);
+    return {
+      id: item.id,
+      question: item.question,
+      time: item.time,
+      loading: item.state === "waiting",
+      conclusion: answer?.conclusion ?? "",
+      evidence: answer === null ? [] : evidenceOf(answer, null),
+      failure: item.state === "failed" ? item.message : null,
+    };
+  });
+}
+
+/**
  * 붙잡은 순간 **하나**의 자세히 화면(F)입니다. 기록에서 지난 순간을 열 때도 이 함수를 씁니다.
  *
  * 지금 보고 있는 질문이 아니면(기록에서 연 지난 순간) 후속 칩과 칩 답을 두지 않습니다.
@@ -465,6 +520,7 @@ export function detailViewFor(
   const line = allLines.find((item) => item.id === moment.lineId) ?? null;
   const loading = answer === null || (current && (view.phase === "preparing" || view.phase === "waiting"));
   return {
+    questionId,
     term: moment.term,
     time: moment.time,
     line,
@@ -475,8 +531,9 @@ export function detailViewFor(
     conclusion: answer?.conclusion ?? "",
     evidence: answer === null ? [] : evidenceOf(answer, moment),
     sections: answer === null ? [] : sectionsOf(bundle, answer, line),
-    followUps: current ? FOLLOW_UPS : [],
+    followUps: followUpsOf(state, answer, current),
     reply: current ? state.reply : null,
+    threads: threadsOf(bundle, state, questionId),
     nowLine: answer?.nowLine === undefined ? pinnedNow(bundle, state.now) : answer.nowLine,
   };
 }

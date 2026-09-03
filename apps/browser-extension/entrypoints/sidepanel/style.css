@@ -222,6 +222,30 @@ body {
   color: var(--text-body);
 }
 
+/* 이어 물은 줄의 대기·안내 한 줄. 채도 있는 블록을 늘리지 않으려고 글자색만 낮춥니다. */
+.cm-reply__wait {
+  font: var(--type-body);
+  letter-spacing: var(--text-body-ls);
+  color: var(--text-tertiary);
+  text-wrap: pretty;
+}
+
+.cm-reply__ev {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 6px;
+}
+
+/*
+  자세히 화면 맨 아래 한 줄 입력창(정본 §3-7 "텍스트 입력창은 여기 맨 아래에만").
+  "수업으로 돌아가기" 바로 위에 놓이고, 보내기는 칸 안쪽 IconButton 하나입니다 —
+  primary 버튼은 한 화면에 하나뿐이라야 합니다.
+*/
+.cm-ask {
+  margin-bottom: 8px;
+}
+
 /* 아직 한 줄도 오지 않았을 때 */
 .cm-empty {
   margin: auto;

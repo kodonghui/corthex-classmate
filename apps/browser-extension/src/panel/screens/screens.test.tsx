@@ -40,11 +40,11 @@ function homeHtml(checkpoint: Checkpoint): string {
 function detailHtml(checkpoint: Checkpoint, followUp?: string): string {
   const store = new ReplayStore(GOLDEN_BUNDLE);
   store.goto(checkpoint);
-  if (followUp !== undefined) store.followUp(followUp);
+  if (followUp !== undefined) store.followUp(store.getState().machine.questionId ?? "", followUp);
   const state = store.getState();
   const view = detailView(GOLDEN_BUNDLE, state, store.lines(state.now));
   if (view === null) throw new Error("붙잡은 순간이 없어요");
-  return renderToStaticMarkup(<DetailScreen view={view} onBack={noop} onFollowUp={noop} />);
+  return renderToStaticMarkup(<DetailScreen view={view} onBack={noop} onFollowUp={noop} onAsk={noop} />);
 }
 
 function historyHtml(checkpoint: Checkpoint): string {
@@ -203,7 +203,7 @@ describe("자세히 화면", () => {
     expect(view.loading).toBe(false);
     // 후속 칩은 상태기계가 든 답으로 대답하므로 지난 순간에는 붙이지 않습니다.
     expect(view.followUps).toHaveLength(0);
-    const html = renderToStaticMarkup(<DetailScreen view={view} onBack={noop} onFollowUp={noop} />);
+    const html = renderToStaticMarkup(<DetailScreen view={view} onBack={noop} onFollowUp={noop} onAsk={noop} />);
     expect(html).toContain("10:32:18 붙잡음");
     expect(html).toContain("수업으로 돌아가기");
   });

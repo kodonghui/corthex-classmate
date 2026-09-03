@@ -28,7 +28,10 @@ export interface ReplayHandle {
   openDetail(): void;
   back(): void;
   expand(): void;
-  followUp(followUpId: string): void;
+  /** 이어 묻기입니다. 어느 붙잡은 순간(questionId)에 이어 묻는지를 함께 줍니다. */
+  followUp(questionId: string, followUpId: string): void;
+  /** 자세히 화면 맨 아래 입력창으로 이어 묻습니다. */
+  askTyped(questionId: string, text: string): void;
 }
 
 declare global {
@@ -54,7 +57,8 @@ export function installReplayHandle(store: ReplayStore): () => void {
     openDetail: () => store.openDetail(),
     back: () => store.back(),
     expand: () => store.expand(),
-    followUp: (followUpId) => store.followUp(followUpId),
+    followUp: (questionId, followUpId) => store.followUp(questionId, followUpId),
+    askTyped: (questionId, text) => store.askTyped(questionId, text),
   };
   window.classmateReplay = handle;
   return () => {

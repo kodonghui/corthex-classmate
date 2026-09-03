@@ -30,7 +30,7 @@ apps/browser-extension/
 ├─ src/capture/                   Meet 캡처 파이프라인 (README 있음)
 ├─ src/lib/format-time.ts         10:32:18 형식 · "4초 전" 문구
 ├─ src/types/assets.d.ts          `*.jsonl?raw` 모듈 선언
-├─ e2e/extension.spec.ts          확장 로드 E2E — 골든 시나리오 14장면(수업 흐름 9 + 얹는 화면·폭 5) + 스크린샷
+├─ e2e/extension.spec.ts          확장 로드 E2E — 골든 시나리오 15장면(수업 흐름 9 + 얹는 화면·폭·이어 묻기 6) + 스크린샷
 └─ tsconfig.json · vitest.config.ts · playwright.config.ts
 ```
 
@@ -42,10 +42,11 @@ fixtures/synthetic-class/golden-ioc/*        전사·프레임·편집기·질�
         ▼
 ReplayStore (replay-store.ts)
   ├─ advanceTo(시각)   fixture 사건을 시각순으로 tutor-core `transition` 에 넣음
-  ├─ 손짓             catchTerm · catchSentence · chooseGuess · chip · openDetail · back · expand · followUp
+  ├─ 손짓             catchTerm · catchSentence · chooseGuess · chip · openDetail · back · expand
+  ├─ 이어 묻기         followUp(붙잡은 질문 id, 칩 id) · askTyped(붙잡은 질문 id, 적은 글)
   ├─ 모의 제공자       `ask` 효과 → 2초 뒤 fixture 의 답(answer.completed) 또는 answer.failed
   └─ goto(체크포인트)  장면 9종을 결정적으로 재현 (E2E 가 씀)
-        │ getState() → { machine, now, screen, moments, choosing, chip, reply, emitted }
+        │ getState() → { machine, now, live, screen, moments, choosing, chip, reply, threads, emitted }
         ▼
 lesson-view.ts       ListeningView · DetailView — 4/5 줄 규칙 · 자료 나이 · 접힘 문구 · 절 4종
 history-view.ts      HistoryView   — 교시 묶음 · MomentRow 줄 · 바닥 안내 · "기록 중" 바닥줄
@@ -63,10 +64,12 @@ PanelApp.tsx         useSyncExternalStore · 1초 tick · Alt+S(e.code === "KeyS
 
 | 파일 | 역할 |
 |---|---|
-| `golden-bundle.ts` | fixture 묶음 로더 · 점선 낱말 `GOLDEN_TERMS`(`new`·`생성자`, fixture 에 답이 있는 것만) · 문장별 짐작 |
+| `golden-bundle.ts` | fixture 묶음 로더 · 점선 낱말 `GOLDEN_TERMS`(`new`·`생성자`, fixture 에 답이 있는 것만) · **재생 모드 전용** 문장별 짐작 |
+| `guesses.ts` | **라이브** 짐작 — 붙잡은 문장(과 바로 앞 2문장)에서 코드처럼 생긴 낱말 최대 2개 + 언제나 "이 문장 전체가 무슨 뜻인지" |
+| `ask-text.ts` | 밖으로 보낼 질문 문장 만들기 — 붙잡은 문장 인용 · 앞선 답의 결론 한 줄 맥락 · UTF-8 4096바이트 상한 |
 | `evidence.ts` | 계약 EvidenceLevel(confirmed/partial/inferred/stale) ↔ 디자인 Evidence(verified/partial/inferred/delayed) 대응표 |
 | `clock.ts` · `transcript-lines.ts` | ISO ↔ `HH:MM:SS` · 전사 줄 나누기(점선 낱말 분리 · 도착 순 정렬) |
-| `replay-store.ts` | 위 그림의 재생기 · `CHECKPOINTS` 9종과 라벨 · 라이브 모드 `ReplayStore.live({periodId, startMs, askPort})` |
+| `replay-store.ts` | 위 그림의 재생기 · `CHECKPOINTS` 9종과 라벨 · 라이브 모드 `ReplayStore.live({periodId, startMs, askPort})` · 이어 묻기 스레드(`threads`) |
 | `lesson-view.ts` | 듣는 중·자세히 화면이 그릴 값 계산 · 화면 분기는 TutorState 가 아니라 `note` 축 |
 | `history-view.ts` | 기록 화면(G)이 그릴 값 · `state.moments` 와 **도착한** 답에서만 만듭니다(지어낸 줄을 섞지 않으려고) |
 | `settings-store.ts` | 설정 값 아홉 개 · `chrome.storage.local` 보관소는 주입받습니다(모듈 최상위에서 `chrome` 을 만지지 않음) · 키 이름은 서비스 워커와 나눠 쓰는 고정 계약 |
@@ -296,8 +299,8 @@ pnpm --filter @classmate/browser-extension test
 # 타입 검사 (pnpm install 이 끝난 뒤에만 됩니다)
 pnpm --filter @classmate/browser-extension typecheck
 
-# 확장 로드 E2E — 빌드본을 Chromium 에 얹고 골든 시나리오 14장면을 확인한 뒤 docs/screenshots/ 에 저장
-#   수업 흐름 9장면(체크포인트) + 얹는 화면·폭 5장면(기록 · 설정 · 전사 멈춤 · 폭 360 · 폭 520)
+# 확장 로드 E2E — 빌드본을 Chromium 에 얹고 골든 시나리오 15장면을 확인한 뒤 docs/screenshots/ 에 저장
+#   수업 흐름 9장면(체크포인트) + 얹는 화면·폭·이어 묻기 6장면(기록 · 설정 · 전사 멈춤 · 폭 360 · 폭 520 · 자세히 입력창)
 npx playwright install chromium          # 처음 한 번
 pnpm --filter @classmate/browser-extension build
 pnpm --filter @classmate/browser-extension e2e
@@ -361,6 +364,35 @@ attachLive({ inbox: store, outbox: store }, chrome.runtime) ──▶ { ask, rec
 바닥줄의 IntelliJ 나이는 진짜 편집기 문맥(`editor.context`)이 한 번이라도 와야 셉니다. 오기 전
 (라이브 자리표시 편집기)에는 `—` 로 둡니다 — 패널을 연 시각을 "0초 전" 으로 세던 것을 고쳤습니다.
 
+### 라이브에서 무엇을 묻는가 (짐작 · 이어 묻기)
+
+2026-09-03 실측에서 라이브가 **fixture 의 짐작 두 개**를 그대로 보여 주고, 고른 라벨이 그대로
+모델 질문이 되어 답이 "자료에는 … 설명이 없어서 확인할 수 없어요" 로 나왔습니다. 세 자리를 고쳤습니다.
+
+| 자리 | 재생(`?replay=`) | 라이브 |
+|---|---|---|
+| 문장을 붙잡았을 때의 짐작 | `golden-bundle.ts` 의 줄별 짐작(정본 시나리오) | `guesses.ts` 가 **그 문장에서** 만듭니다 — 코드처럼 생긴 낱말 최대 2개 + "이 문장 전체가 무슨 뜻인지" |
+| 밖으로 나가는 질문 문장 | 짐작 라벨 그대로 | `선생님이 방금 "…문장…" 이라고 했는데, <낱말> 가 무엇인지 지금 수업 맥락에서 설명해 주세요` |
+| 후속 칩 | fixture 의 `details` 로 그 자리에서 답 | "더 쉽게" · "왜 필요한데?" 는 **진짜 질문**으로 나가고, "방금 내용" 만 전사 마지막 문장으로 그 자리에서 답합니다. 모델이 답에 실어 준 `answer.chips` 도 칩으로 함께 뜨고 누르면 그 문장을 그대로 묻습니다 |
+
+이어 묻기(후속 칩 · 맨 아래 입력창)는 **상태기계에 넣지 않습니다.** 넣으면 `stuck` 이 지금 보고
+있는 질문을 새 질문으로 갈아치워 자세히 화면이 통째로 준비 중으로 돌아갑니다. 대신 스토어가
+`threads`(붙잡은 질문 id → 이어 물은 줄들)를 따로 들고, 답 사건은 `pushEvent` 가 그 줄로만
+돌려줍니다. 그래서 한 순간에 몇 번이든 이어 물을 수 있고, **기록에서 연 지난 순간에도** 됩니다.
+
+```text
+자세히 화면 ─ askTyped(붙잡은 질문 id, 적은 글) ─┬─ threads[…] 에 대기 줄 하나
+                                                 ├─ question.asked (kind "free", 계약 Question 본문)
+                                                 └─ AskPort.ask({ kind: "free", question, snapshot })
+                                                        │ 60초 워치독(본 답과 같은 규칙)
+                                                        ▼
+                                            answer.completed | answer.failed → 그 줄만 갱신
+```
+
+질문 문장은 UTF-8 **4096바이트**에서 자르고 "…" 를 붙입니다(`ask-text.ts` 의 `clampAskQuestion`).
+도우미가 `question-too-long` 으로 거절하는 경계와 같은 값입니다. 입력창은 남은 바이트가 200
+아래일 때만 작은 글씨로 알립니다.
+
 ---
 
 ## 2라운드에서 바뀐 것 · 아직 남은 것
@@ -370,7 +402,7 @@ attachLive({ inbox: store, outbox: store }, chrome.runtime) ──▶ { ask, rec
 | `ReplayStore` 가 fixture 사건을 흘림 | **완료** — `?replay=` 없는 주소는 `ReplayStore.live` + `attachLive` 로 서비스 워커에 붙습니다(위 「라이브 모드 배선」) |
 | `background.ts` 의 `MemoryFrameSink` | **교체 완료** — `NativeHostFrameSink`(도우미로 봉투 · 꺼져 있으면 60장 폴백) |
 | 로컬 도우미 연결 없음 | **완료** — `connectNative("com.corthex.classmate")` · 백오프 1·2·4…≤30초 |
-| 듣는 중 · 자세히 두 화면 | **완료** — 기록(G) · 설정 화면 · 개인정보 세 칸 · H-1 전사 멈춤 바닥줄(`docs/screenshots/README.md`) |
+| 듣는 중 · 자세히 두 화면 | **완료** — 기록(G) · 설정 화면 · 개인정보 세 칸 · H-1 전사 멈춤 바닥줄 · 자세히 맨 아래 이어 묻기 입력창(`docs/screenshots/README.md`) |
 | 모의 제공자(fixture 답만 돌려줌) | **완료(도우미까지)** — 라이브에서는 `panel.ask` → `tutor.ask` → 도우미의 `TutorPipeline` → `tutor.event` 로 답이 옵니다. 도우미에 `CLASSMATE_CLAUDE_CLI` 가 없으면 `provider-unavailable` 로 답하고 패널은 `connector.status {provider, off}` 를 봅니다 |
 | `background.ts` 의 캡처 손시험 갈래 | 남음 — 패널의 캡처 시작/중지 버튼이 생기면 지웁니다(위 「손 시험 갈래를 언제 지우나」) |
 | IntelliJ MCP 연결 | 남음 — `router.pushEditor(context)` 와 `live.editor` 자리만 열어 두었습니다 |

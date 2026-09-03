@@ -324,11 +324,12 @@ describe("손짓", () => {
   it("자세히에서 후속 칩은 fixture 의 details 만 쓰고, 뒤로 가면 답이 지워진다", () => {
     const store = fresh();
     store.goto("detail");
-    store.followUp("why");
+    const asked = store.getState().machine.questionId ?? "";
+    store.followUp(asked, "why");
     expect(detail(store)?.reply).toEqual({ q: "왜 필요한데?", a: ANSWER_1?.details?.why, reason: "수업 자료에서 확인한 내용이에요" });
-    store.followUp("recent");
+    store.followUp(asked, "recent");
     expect(detail(store)?.reply?.a).toBe("선생님은 지금 생성자 주입 코드로 넘어갔어요");
-    store.followUp("easier");
+    store.followUp(asked, "easier");
     expect(detail(store)?.reply?.a).toBe(ANSWER_1?.conclusion);
     store.back();
     expect(store.getState().reply).toBeNull();
