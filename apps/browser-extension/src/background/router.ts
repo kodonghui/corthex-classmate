@@ -34,6 +34,10 @@
  * | 호스트 push `tutor.event` | — | `live.event` |
  * | 호스트 push `tutor.delta` | — | `live.delta` (**교시 로그에 담지 않습니다**) |
  *
+ * 나간 `event.append` 의 **답도 읽습니다.** 호스트가 `error` 로 거절하면 그 줄은 교시 파일에
+ * 안 들어간 것이라 `connector.status {native-host, paused, reason}` 을 내고, 다음 줄이
+ * `event.ack` 로 붙으면 도로 `connected` 로 풉니다(`reportAppendResult`).
+ *
  * `panel.ask` 한 줄에는 **화면 한 장이 더 붙습니다.** 질문이 오면 먼저 지금 Meet 화면을
  * 찍어 도우미에 담고, 그 이름표를 `snapshot.screenFrameId` 에 넣은 뒤 `tutor.ask` 를
  * 보냅니다. 못 찍었거나 {@link SCREEN_SNAPSHOT_TIMEOUT_MS} 를 넘기면 **화면 없이 그냥
@@ -83,6 +87,7 @@ import {
   MAX_QUESTION_BYTES,
   TUTOR_ASK,
   TUTOR_RETRY,
+  isEventAckReply,
   isHostErrorMessage,
 } from './host-messages';
 import type { HostSendResult } from './host-client';
@@ -306,6 +311,14 @@ export class Router {
   private periodStartedEvent: SessionEvent | null = null;
   /** 진행 중인 `ensurePeriod` 하나입니다. 겹쳐 부르면 이것을 함께 기다립니다. */
   private ensuring: Promise<string> | null = null;
+  /**
+   * `event.append` 의 결말을 지금 알리는 중입니다.
+   *
+   * 알림 자체가 `connector.status` 사건 하나를 또 `event.append` 로 붙이기 때문에, 그것마저
+   * 거절되면 같은 자리로 되돌아옵니다. 까닭이 매번 다르면 `setConnector` 의 "바뀔 때만" 걸름도
+   * 못 막으므로 한 겹으로 잘라 둡니다. 안쪽 거절은 콘솔 한 줄로만 남깁니다.
+   */
+  private reportingAppend = false;
 
   constructor(options: RouterOptions) {
     this.host = options.host;
@@ -999,7 +1012,54 @@ export class Router {
       this.broadcast(message, false);
     }
     if (!append) return;
-    await this.host.send({ type: EVENT_APPEND, periodId: event.periodId, event });
+    const result = await this.host.send({ type: EVENT_APPEND, periodId: event.periodId, event });
+    await this.reportAppendResult(event, result);
+  }
+
+  /**
+   * 기록 한 줄이 도우미에 붙었는지 보고 커넥터로 알립니다.
+   *
+   * 내리는 커넥터는 **`native-host`, 상태는 `paused`** 입니다. 근거: 거절이 왔다는 것은
+   * 도우미가 살아서 답을 했다는 뜻이라 `off`(연결이 끊김 · `handleHostStatus` 의 자리)가
+   * 아니고, 그래도 이 줄은 교시 파일에 안 들어갔으니 `connected` 도 아닙니다. 부탁 하나가
+   * 잘못됐을 때 호박색으로 두는 규칙은 프레임 거절(`noteFrameRejected`)과 제공자 거절
+   * (`reportAskResult`)이 이미 쓰고 있습니다.
+   *
+   * 성공은 두 가지입니다 — `event.ack` 와, 같은 `id` 가 이미 있었다는 `duplicate: true`.
+   * 뒤엣것도 성공입니다(고정 계약: 끊겼다 붙어 다시 보내는 것이 정상 경로). 성공이면
+   * 호박색을 도로 풉니다. 그러지 않으면 거절 한 번에 바닥줄 경고가 교시 끝까지 남고,
+   * 푸는 길이 멀쩡한 연결을 끊는 「다시 연결」밖에 없습니다.
+   *
+   * `queued`·`dropped` 는 보지 않습니다. 도우미가 꺼져 있을 때의 이야기이고 그 자리는
+   * `handleHostStatus` 가 이미 `native-host` 로 알립니다.
+   */
+  private async reportAppendResult(event: SessionEvent, result: HostSendResult): Promise<void> {
+    if (result.status !== 'replied') return;
+    const reply = result.message;
+    const rejected = isHostErrorMessage(reply);
+    if (!rejected && !isEventAckReply(reply)) return;
+
+    if (rejected) {
+      // 호스트가 준 문자열은 자료일 뿐입니다(불변 원칙 §4-7). `reason` 만 씁니다 —
+      // 자유 문장인 `message` 에는 경로가 섞일 수 있습니다(§4-2).
+      this.warn(`기록 한 줄이 도우미에 안 붙었어요 · ${event.type} · ${reply.reason}`);
+    }
+
+    // 교시를 닫는 중(`finishPeriod` 가 `currentPeriodId` 를 이미 비웠음)이면 알리지 않습니다.
+    // 여기서 `setConnector` 를 부르면 방금 닫은 교시를 `ensurePeriod` 가 다시 열고,
+    // `resolvePeriod` 안에서 닫는 중이었다면 자기 약속을 기다려 멈춥니다.
+    if (this.reportingAppend || event.periodId !== this.currentPeriodId) return;
+
+    this.reportingAppend = true;
+    try {
+      if (rejected) {
+        await this.setConnector('native-host', 'paused', reply.reason);
+      } else {
+        await this.setConnector('native-host', 'connected');
+      }
+    } finally {
+      this.reportingAppend = false;
+    }
   }
 
   /** 열려 있는 패널 전부에 보냅니다. `remember` 면 교시 로그에도 담습니다. */

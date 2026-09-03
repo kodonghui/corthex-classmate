@@ -1375,3 +1375,133 @@ describe('Router · 교시', () => {
     expect(harness.router.periodId).toBe(null);
   });
 });
+
+// ── 기록이 도우미에 안 붙었을 때 ──────────────────────────────────────────
+
+describe('Router · event.append 의 결말', () => {
+  let harness: Harness;
+
+  beforeEach(async () => {
+    harness = makeHarness();
+    await harness.router.openPanel(harness.panel);
+    harness.sent.length = 0;
+    harness.panel.received.length = 0;
+    harness.warnings.length = 0;
+  });
+
+  /** 나간 `connector.status` 중 `native-host` 축의 payload 만입니다. */
+  function nativeHostStatuses(): Record<string, unknown>[] {
+    return harness
+      .appended()
+      .filter((event) => event.type === 'connector.status')
+      .map((event) => event.payload)
+      .filter((payload) => payload['connector'] === 'native-host');
+  }
+
+  it('호스트가 error 로 거절하면 connector.status {native-host, paused, 이유} 가 나갑니다', async () => {
+    harness.replyOnce({
+      status: 'replied',
+      message: { type: 'error', message: 'bad envelope', reason: 'envelope-invalid', received: 'event.append' },
+    });
+
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(1) });
+
+    expect(nativeHostStatuses()).toEqual([
+      { connector: 'native-host', state: 'paused', reason: 'envelope-invalid' },
+    ]);
+  });
+
+  it('거절은 콘솔에도 한 줄 남깁니다 — 자유 문장(message)은 싣지 않습니다', async () => {
+    harness.replyOnce({
+      status: 'replied',
+      message: {
+        type: 'error',
+        message: 'C:\Users\someone\세션.jsonl 을 열 수 없습니다',
+        reason: 'session-write-failed',
+        received: 'event.append',
+      },
+    });
+
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(1) });
+
+    const line = harness.warnings.find((message) => message.includes('session-write-failed'));
+    expect(line).toBeDefined();
+    expect(line).toContain('transcript.segment');
+    expect(line).not.toContain('C:\Users');
+  });
+
+  it('event.ack 로 붙으면 호박색을 도로 풉니다', async () => {
+    harness.replyOnce({
+      status: 'replied',
+      message: { type: 'error', message: 'bad', reason: 'envelope-invalid', received: 'event.append' },
+    });
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(1) });
+
+    harness.replyOnce({
+      status: 'replied',
+      message: { type: 'event.ack', periodId: PERIOD, seq: 2, id: 'ev-ack-2' },
+    });
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(2) });
+
+    expect(nativeHostStatuses()).toEqual([
+      { connector: 'native-host', state: 'paused', reason: 'envelope-invalid' },
+      { connector: 'native-host', state: 'connected' },
+    ]);
+  });
+
+  it('duplicate: true 는 성공입니다 — 다시 보낸 줄이 커넥터를 내리지 않습니다', async () => {
+    harness.replyOnce({
+      status: 'replied',
+      message: { type: 'event.ack', periodId: PERIOD, seq: 1, id: 'ev-dup-1', duplicate: true },
+    });
+
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(1) });
+
+    expect(nativeHostStatuses()).toEqual([{ connector: 'native-host', state: 'connected' }]);
+    expect(harness.warnings).toEqual([]);
+  });
+
+  it('queued 는 건드리지 않습니다 — 꺼짐은 handleHostStatus 의 자리입니다', async () => {
+    // 가짜 호스트의 기본 답이 queued 입니다.
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(1) });
+
+    expect(nativeHostStatuses()).toEqual([]);
+    expect(harness.warnings).toEqual([]);
+  });
+
+  it('커넥터 알림 자체가 거절돼도 되풀이하지 않습니다 (한 겹)', async () => {
+    // 첫 거절 → connector.status 를 냅니다. 그 알림도 다른 까닭으로 거절당하지만
+    // 여기서 또 알리면 스스로를 부르는 고리가 됩니다.
+    harness.replyOnce({
+      status: 'replied',
+      message: { type: 'error', message: 'bad', reason: 'envelope-invalid', received: 'event.append' },
+    });
+    harness.replyOnce({
+      status: 'replied',
+      message: { type: 'error', message: 'bad', reason: 'session-write-failed', received: 'event.append' },
+    });
+
+    await harness.router.handleRuntimeMessage({ type: 'tiro.segment', segment: segment(1) });
+
+    expect(nativeHostStatuses()).toEqual([
+      { connector: 'native-host', state: 'paused', reason: 'envelope-invalid' },
+    ]);
+    // 안쪽 거절도 콘솔에는 남습니다 — 사라지지는 않습니다.
+    expect(harness.warnings.filter((line) => line.includes('안 붙었어요'))).toHaveLength(2);
+  });
+
+  it('교시를 닫는 중의 거절은 교시를 다시 열지 않습니다', async () => {
+    harness.replyOnce({
+      status: 'replied',
+      message: { type: 'error', message: 'bad', reason: 'session-write-failed', received: 'event.append' },
+    });
+
+    await harness.router.endPeriod();
+
+    expect(harness.router.periodId).toBe(null);
+    expect(harness.appended().filter((event) => event.type === 'period.started')).toEqual([]);
+    expect(nativeHostStatuses()).toEqual([]);
+    // 알리지 못해도 콘솔 한 줄은 남습니다.
+    expect(harness.warnings.some((line) => line.includes('session-write-failed'))).toBe(true);
+  });
+});
