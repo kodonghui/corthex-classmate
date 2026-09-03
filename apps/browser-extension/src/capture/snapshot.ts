@@ -335,10 +335,10 @@ export interface SnapshotFrameInput {
  * `path` 는 `frame.id` 에서 다시 계산합니다(Gate D 결정). 그래서 확장이 지은 문자열이
  * 파일 경로가 되는 길이 없습니다.
  *
- * **알아 둘 것 · 파일 이름은 `.webp` 입니다.** 호스트가 `frames/<id>.webp` 로 이름을
- * 고정해 두었는데(`apps/native-host/src/store/frames.rs` 의 `FRAME_EXTENSION`), 이 길이
- * 담는 바이트는 JPEG 입니다. 이름과 내용이 어긋나지만 호스트를 고치는 일은 이 갈래의
- * 몫이 아니라 그대로 둡니다. 뷰어는 바이트를 보고 형식을 정하므로 그림은 보입니다.
+ * **알아 둘 것 · 계약의 `path` 는 `.webp`, 디스크의 파일은 `.jpg` 입니다.** 계약이
+ * `frames/<id>.webp` 한 가지라 여기서는 그대로 적고, 이 길이 담는 바이트는 JPEG 입니다.
+ * 호스트가 **바이트의 매직 넘버로** 실제 파일 이름의 확장자를 골라 놓습니다
+ * (`apps/native-host/src/store/frames.rs` 의 `frame_extension_for`).
  *
  * @throws 교시·프레임 식별자가 계약 모양이 아니면 `RangeError`. 부르는 쪽이 잡아 그 장만
  *         건너뜁니다.

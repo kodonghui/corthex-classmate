@@ -786,7 +786,9 @@ impl Worker {
             None => Vec::new(),
         };
 
-        let bundle = materials::collect(&stored, &sealed.snapshot);
+        // 그림 파일은 저장소가 아는 자리에만 있습니다. 저장소가 없으면 경로 없이 진행합니다.
+        let frames_dir = self.store.as_ref().map(SessionStore::frames_dir);
+        let bundle = materials::collect(&stored, &sealed.snapshot, frames_dir.as_deref());
         Body {
             materials: materials::render_with_limit(&bundle, self.max_material_chars),
             question: prompt::build(sealed.ask_text()),
