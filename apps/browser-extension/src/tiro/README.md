@@ -13,7 +13,8 @@
 |---|---|
 | `types.ts` | `TiroConnector` 인터페이스와 신호 타입들. 계약 타입은 `import type` 으로만 빌려 옵니다 |
 | `share-url.ts` | 이 주소가 공유 페이지인지(`isSharePageUrl`)와 매치 목록. `index.ts` 가 그대로 다시 내보냅니다 |
-| `share-parser.ts` | 순수 함수. DOM → 문단 목록. 클래스 힌트 + 구조 폴백 + 선택자 깨짐 판정 |
+| `share-parser.ts` | 순수 함수. DOM → 문단 목록. 클래스 힌트 + 구조 폴백 + 선택자 깨짐 판정 + 깨졌을 때의 DOM 모양 요약 |
+| `iso-time.ts` | 시각을 로컬 오프셋 표기(`+09:00`)로 적습니다. `toISOString()` 의 `Z` 를 쓰면 패널 시계가 9시간 어긋납니다 |
 | `share-observer.ts` | `MutationObserver` 관찰기. 확정 → 세그먼트, 진행 → partial, `flush()`, 등급 전이 신호 |
 | `period.ts` | 교시 식별자(`YYYY-MM-DD-p<n>`) 만들기와 교시 번호 읽기 |
 | `lifecycle.ts` | 탭이 숨겨지거나 사라질 때 `flush()` 를 부르는 배선과 주소가 바뀔 때의 시작·정지 판정 |
@@ -25,8 +26,8 @@
 |---|---|---|
 | `onSegment` | 문단이 확정됐을 때, 그리고 `flush()` 했을 때 | `TranscriptSegment`. `flush()` 로 나온 것만 `state: 'partial'` 입니다 |
 | `onPartial` | 진행 중 문단의 글자가 바뀔 때 | `TiroPartial`. **순번도 id 도 없습니다** — 화면에 잠깐 보여 주는 용도입니다 |
-| `onHintDegraded` | 확정/진행 판별 근거 등급이 **바뀐 순간** | `HintDegradedSignal { at, stateSource, previousStateSource, degraded }` |
-| `onSelectorBroken` | 문단 0개가 유예 시간(기본 30초) 넘게 이어질 때 | `SelectorBrokenSignal { at, emptyForMs, lastMatchedSelector }` |
+| `onHintDegraded` | 확정/진행 판별 근거 등급이 **바뀐 순간** | `HintDegradedSignal { at, stateSource, previousStateSource, degraded, shape? }` |
+| `onSelectorBroken` | 문단 0개가 유예 시간(기본 30초) 넘게 이어질 때 | `SelectorBrokenSignal { at, emptyForMs, lastMatchedSelector, shape }` |
 
 스텁 커넥터(`createMcpConnector` · `createApiConnector`)는 `start()` 에서
 `not-implemented` 이 든 오류(`TiroNotImplementedError`)를 던집니다. 이벤트가 아니라 오류인
@@ -34,6 +35,12 @@
 영원히 기다립니다. 두 스텁은 **자격증명 인자를 받지 않습니다**(불변 원칙 §4).
 
 세 신호 모두 **본문 문장을 담지 않습니다**(세그먼트만 담습니다). 콘솔에도 개수·등급 이름만 남깁니다.
+
+시각(`at` · `arrivedAt`)은 `iso-time.ts` 의 `toLocalIso` 로 **로컬 오프셋 표기**로 적습니다.
+`Date.prototype.toISOString()` 은 언제나 UTC(`…Z`) 라, 그대로 쓰면 패널 시계가 `11:20:46` 을
+`02:20:46` 으로 보여 줍니다(실측 2026-09-03 2교시). 계약 `IsoDateTime` 은 `format: date-time`
+이라 오프셋 표기와 소수점 초를 모두 받습니다. 도우미가 만드는 `at` 도 `+09:00` 이라 두 쪽 표기가
+같아집니다. 받는 쪽(`src/panel/clock.ts`)도 `Z` 표기를 로컬 시각으로 옮겨 그리는 그물을 둡니다.
 
 ## 확정/진행을 가르는 두 겹
 
@@ -161,6 +168,63 @@ tiro.ooo 가 실제로 클라이언트 라우팅으로 노트를 여는지는 �
 Tiro 사이트에는 접속하지 않습니다. `fixtures/tiro/**` 의 합성 스냅샷을 happy-dom 에 넣고
 `MutationObserver` 로 문단을 자라게 만드는 것이 이 단위의 e2e 입니다
 (`share-observer.test.ts` 의 「스냅샷 재생 시나리오」).
+
+## 멈췄을 때 무엇을 보나
+
+전사가 멈추면 패널에 「전사가 잠시 멈췄어요 … 다시 연결」이 뜹니다. 그 줄만으로는 **왜** 못
+읽는지 알 수 없어 파서를 고칠 수 없습니다. 그래서 멈춤 신호에 그 순간의 DOM 모양 요약을
+함께 싣고, 서비스 워커가 그것을 자기 콘솔에 한 줄 적습니다.
+
+### 1. 서비스 워커 콘솔 여는 법
+
+```
+Chrome 주소창 → chrome://extensions
+  → Corthex Classmate 카드의 「서비스 워커」 링크 클릭
+  → 열린 DevTools 의 Console 탭
+```
+
+카드에 「서비스 워커(비활성)」로 적혀 있으면 잠든 것입니다. 사이드패널을 열거나 공유 페이지에서
+문단이 하나 더 생기면 깨어납니다. 콘솔은 워커가 내려가면 비므로, 멈춘 직후에 열어 두세요.
+공유 페이지 쪽 콘솔(그 탭의 DevTools)에는 등급 이름만 적힙니다 — 모양 요약은 워커 콘솔입니다.
+
+### 2. shape 로그 읽는 법
+
+```
+[classmate] tiro selector shape  selector-broken  그릇 main · 문단 후보 3개 · 클래스 tds-transcript-line×3 leading-7×3 tds-tone-subtle×2
+                                 └─ 왜 멈췄나 ─┘  └─ 그때 페이지가 어떤 모양이었나 ────────────────────────────┘
+```
+
+| 칸 | 뜻 | 이렇게 읽습니다 |
+|---|---|---|
+| `selector-broken` | 문단을 **하나도** 못 잡았습니다 | 선택자 네 개가 전부 빗나갔습니다 |
+| `hint-class-partial` | 진행·확정 힌트 중 한 쪽만 보였습니다 | 녹음이 멈춘 것일 수도, 클래스 한 쪽 이름이 바뀐 것일 수도 있습니다 |
+| `hint-structure` | 힌트가 하나도 없어 전부 구조 폴백입니다 | `font-*` 계열 이름이 통째로 바뀌었습니다 |
+| `그릇 main` | 문단을 담고 있던 그릇의 태그입니다 | `없음`·`body` 면 `main` 자체가 사라진 배포입니다 |
+| `문단 후보 3개` | 글자를 품은 **가장 안쪽** 요소 수입니다 | `0개` 면 화면이 아직 안 그려졌거나 다른 문서(iframe)입니다 |
+| `클래스 …×3` | 그 후보들에 붙은 클래스 이름 상위 5개와 개수입니다 | 여기 보이는 이름이 다음 파서가 잡아야 할 이름입니다 |
+
+고치는 자리는 `share-parser.ts` 의 상수 셋입니다.
+
+```
+문단을 못 잡음(selector-broken)        → PARAGRAPH_SELECTORS 에 새 이름 한 줄 추가
+확정/진행을 못 가름(hint-structure)     → IN_PROGRESS_CLASS · FINAL_CLASSES 갱신
+```
+
+요약에는 **개수와 클래스 이름만** 들어갑니다. 본문 문장·주소·`id` 값은 넣지 않고, 주소가 숨을 수
+있는 대괄호 임의값 클래스(`bg-[url('…')]`)는 이름 대신 `(임의값)` 한 자리로 모아 셉니다
+(불변 원칙 §4-3). 길이는 500자에서 자릅니다.
+
+요약은 **계약 사건에 싣지 않습니다.** 도우미로 가는 `connector.status` 의 payload 는 그대로
+`{connector, state, reason}` 뿐입니다. 이 값은 세션 기록이 아니라 사람이 그 자리에서 읽고
+파서를 고칠 단서이기 때문입니다(계약을 늘리지 않기로 한 약속도 그대로 지킵니다).
+
+### 3. 고친 뒤 다시 붙이기
+
+패널 바닥줄의 「다시 연결」을 누르면 `classmate.reconnect {connector:"tiro-share"}` 가
+서비스 워커로 가고, 워커가 공유 페이지 탭에 `tiro.stop` → `tiro.start` 를 보냅니다.
+`tiro.start` 는 관찰기를 **새로** 만들어 붙자마자 한 번 훑으므로, 깨진 채로 있던 페이지도
+그 자리에서 다시 읽힙니다(`share-observer.test.ts` 의 「다시 연결」 시험이 이 길을 못 박습니다).
+확장 코드를 고쳤다면 `chrome://extensions` 에서 새로고침한 뒤 공유 페이지도 새로고침해야 합니다.
 
 ## 알려진 한계
 
