@@ -219,8 +219,21 @@ Offscreen ──capture.error──▶ router.handleRuntimeMessage
 자체의 문제라 몇 번을 보내도 같은 답이 오고, 그 한 장이 대기열을 영원히 막기 때문입니다.
 `seq` 는 여전히 호스트의 **이벤트 순번**이라 장 수로 읽지 않습니다(장 수는 `stats().stored`).
 
-시험은 `src/background/native-frame-sink.test.ts` 에 있습니다(이 폴더의 1라운드 시험 파일을
-고치지 않으려고 자리를 나눴습니다).
+**프레임을 들고 있는 자리는 이 통 하나뿐입니다.** 봉투를 넘기는 한 겹
+(`src/background/frame-port.ts`)이 `host.send(봉투, { resend: false })` 로 보내서, 도우미 연결
+쪽(`NativeHostClient`)은 프레임을 대기열에 담지 않습니다. 두 곳이 함께 들고 있으면 도우미가
+돌아왔을 때 각각 보내고, 뒤엣것이 `duplicate-frame` 으로 돌아와 멀쩡한 화면 커넥터가
+호박색이 됩니다.
+
+다시 보내는 도중에 새 장이 들어오면 그 장은 **뒤에** 섭니다(남은 재전송분을 맨 앞으로
+되돌립니다). 한 회차를 마친 뒤 그 사이에 들어온 장이 있으면 같은 부름에서 이어 보냅니다.
+
+`stats().bytes` 는 **원본 바이트**입니다(`MemoryFrameSink` 와 같은 단위). 폴백 상한
+`maxFallbackBytes` 는 여전히 base64 글자 수로 잽니다. 이름표(`sf-…` · `2026-09-02-p3`)가 계약과
+다른 장은 던지지 않고 `skippedInvalid` 로 세며 건너뜁니다.
+
+시험은 `src/background/native-frame-sink.test.ts` 와 `src/background/frame-port.test.ts` 에
+있습니다(이 폴더의 1라운드 시험 파일을 고치지 않으려고 자리를 나눴습니다).
 
 ## 아직 남은 일
 

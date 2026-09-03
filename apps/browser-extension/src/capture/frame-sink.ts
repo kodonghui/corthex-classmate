@@ -20,8 +20,8 @@
  */
 
 import type { ScreenFrame } from '@classmate/contracts';
-import type { FrameStoreMessage } from './host-messages';
-import { buildFrameStore } from './host-messages';
+import type { BuildFrameStoreResult, FrameStoreMessage } from './host-messages';
+import { base64ByteLength, buildFrameStore } from './host-messages';
 import { DEFAULT_MAX_BYTES, DEFAULT_MAX_DURATION_MS } from './frame-store';
 
 export interface FrameSinkStats {
@@ -186,6 +186,8 @@ export interface NativeHostFrameSinkOptions {
 }
 
 export interface NativeHostFrameSinkStats extends FrameSinkStats {
+  /** 이름표가 계약과 달라 보내지 못한 장 수입니다(누적). */
+  skippedInvalid: number;
   /** 도우미가 거절한 장 수입니다(누적). */
   rejected: number;
   /** 지금 들고 있다가 다시 보낼 장 수입니다. */
@@ -228,10 +230,14 @@ export class NativeHostFrameSink implements FrameSink {
 
   /** 도우미가 꺼져 있는 동안 들고 있는 봉투들입니다. 담은 순서 그대로입니다. */
   private waiting: FrameStoreMessage[] = [];
+  /** 들고 있는 base64 글자 수입니다. 폴백 상한을 재는 자리입니다. */
   private waitingBytes = 0;
+  /** 들고 있는 **원본** 바이트입니다. `stats().bytes` 가 이것을 냅니다(`MemoryFrameSink` 와 같은 단위). */
+  private waitingRawBytes = 0;
 
   private storedCount = 0;
   private skippedTooLargeCount = 0;
+  private skippedInvalidCount = 0;
   private rejectedCount = 0;
   private evictedCount = 0;
   private resentCount = 0;
@@ -251,7 +257,19 @@ export class NativeHostFrameSink implements FrameSink {
   }
 
   async store(frame: ScreenFrame, bytes: Uint8Array): Promise<void> {
-    const built = buildFrameStore(frame, bytes);
+    let built: BuildFrameStoreResult;
+    try {
+      built = buildFrameStore(frame, bytes);
+    } catch (error: unknown) {
+      // 프레임·교시 이름표가 계약과 다릅니다(`assertScreenFrameId` · `assertPeriodId`).
+      // 던지면 `store()` 의 약속이 거부되어 부르는 쪽이 오류를 떠안습니다. 한 장을 못 보낸
+      // 것뿐이므로 크기 상한과 똑같이 **조용히 건너뛰고** 셉니다.
+      this.skippedInvalidCount += 1;
+      this.warn(
+        `화면 한 장의 이름표가 계약과 달라 건너뜁니다 · ${error instanceof Error ? error.message : '알 수 없는 까닭'} · 건너뜀 누적 ${this.skippedInvalidCount}장`,
+      );
+      return;
+    }
     if (built.skipped) {
       this.skippedTooLargeCount += 1;
       this.warn(
@@ -265,28 +283,29 @@ export class NativeHostFrameSink implements FrameSink {
   /**
    * 도우미가 돌아왔을 때 들고 있던 것을 다시 보냅니다.
    *
-   * 다시 보내는 도중에 또 끊기면 남은 것은 그대로 들고 있습니다(다시 담지 않고 자리만
-   * 지킵니다). 두 번 겹쳐 부르면 뒤엣것은 곧바로 돌아옵니다.
+   * 다시 보내는 도중에 또 끊기면 남은 것을 **맨 앞에** 되돌립니다. 그 사이에 새로 들어온
+   * 장은 그 뒤에 서야 화면 순서가 뒤집히지 않습니다. 그렇게 새로 들어온 장이 있으면 한
+   * 바퀴 더 돌아 그것들도 보냅니다. 두 번 겹쳐 부르면 뒤엣것은 곧바로 돌아옵니다.
    */
   async flushWaiting(): Promise<void> {
     if (this.flushing || this.waiting.length === 0) return;
     this.flushing = true;
     try {
-      const batch = this.waiting;
-      this.waiting = [];
-      this.waitingBytes = 0;
-      this.warn(`도우미가 돌아와 들고 있던 화면 ${batch.length}장을 다시 보냅니다`);
-      for (let i = 0; i < batch.length; i += 1) {
-        const message = batch[i];
-        if (message === undefined) continue;
-        const delivered = await this.deliver(message, true);
-        if (!delivered) {
-          // 또 끊겼습니다. 이미 `deliver` 가 이 장을 다시 담았으니 나머지만 이어 담습니다.
-          for (let k = i + 1; k < batch.length; k += 1) {
-            const rest = batch[k];
-            if (rest !== undefined) this.hold(rest);
+      while (this.waiting.length > 0) {
+        const batch = this.waiting;
+        this.waiting = [];
+        this.waitingBytes = 0;
+        this.waitingRawBytes = 0;
+        this.warn(`도우미가 돌아와 들고 있던 화면 ${batch.length}장을 다시 보냅니다`);
+        for (let i = 0; i < batch.length; i += 1) {
+          const message = batch[i];
+          if (message === undefined) continue;
+          const delivered = await this.deliver(message, true);
+          if (!delivered) {
+            // 또 끊겼습니다. 이 장부터 남은 것을 순서 그대로 맨 앞에 되돌립니다.
+            this.holdFront(batch.slice(i).filter((item) => item !== undefined));
+            return;
           }
-          return;
         }
       }
     } finally {
@@ -298,7 +317,8 @@ export class NativeHostFrameSink implements FrameSink {
     return {
       stored: this.storedCount,
       skippedTooLarge: this.skippedTooLargeCount,
-      bytes: this.waitingBytes,
+      skippedInvalid: this.skippedInvalidCount,
+      bytes: this.waitingRawBytes,
       frames: this.waiting.length,
       evicted: this.evictedCount,
       rejected: this.rejectedCount,
@@ -311,9 +331,15 @@ export class NativeHostFrameSink implements FrameSink {
   clear(): void {
     this.waiting = [];
     this.waitingBytes = 0;
+    this.waitingRawBytes = 0;
   }
 
-  /** @returns 도우미에 닿았으면 true, 꺼져 있어 들고 있게 됐으면 false 입니다. */
+  /**
+   * @returns 도우미에 닿았으면 true, 꺼져 있어 들고 있게 됐으면 false 입니다.
+   *
+   * 다시 보내는 길(`isResend`)에서는 **여기서 담지 않습니다.** 실패한 장과 그 뒤의 것을
+   * 한 덩어리로 맨 앞에 되돌리는 일은 `flushWaiting` 이 맡습니다.
+   */
   private async deliver(message: FrameStoreMessage, isResend: boolean): Promise<boolean> {
     let outcome: FrameStoreOutcome;
     try {
@@ -323,7 +349,7 @@ export class NativeHostFrameSink implements FrameSink {
       this.warn(
         `화면 한 장을 보내지 못했어요 · ${error instanceof Error ? error.message : '알 수 없는 까닭'}`,
       );
-      this.hold(message);
+      if (!isResend) this.hold(message);
       return false;
     }
 
@@ -339,16 +365,31 @@ export class NativeHostFrameSink implements FrameSink {
         this.onRejected(outcome.reason);
         return true;
       case 'offline':
-        this.hold(message);
+        if (!isResend) this.hold(message);
         return false;
     }
   }
 
-  /** 봉투 하나를 들고 있습니다. 상한을 넘으면 **오래된 것부터** 버립니다. */
+  /** 봉투 하나를 뒤에 들고 있습니다. 상한을 넘으면 **오래된 것부터** 버립니다. */
   private hold(message: FrameStoreMessage): void {
     this.waiting.push(message);
-    this.waitingBytes += message.bytesBase64.length;
+    this.addBytes(message);
+    this.trim();
+  }
 
+  /** 다시 보내다 실패한 것들을 **앞에** 되돌립니다. 순서를 지키는 자리입니다. */
+  private holdFront(messages: FrameStoreMessage[]): void {
+    this.waiting.unshift(...messages);
+    for (const message of messages) this.addBytes(message);
+    this.trim();
+  }
+
+  private addBytes(message: FrameStoreMessage): void {
+    this.waitingBytes += message.bytesBase64.length;
+    this.waitingRawBytes += base64ByteLength(message.bytesBase64);
+  }
+
+  private trim(): void {
     let dropped = 0;
     while (
       this.waiting.length > this.maxFallbackFrames ||
@@ -357,6 +398,7 @@ export class NativeHostFrameSink implements FrameSink {
       const removed = this.waiting.shift();
       if (removed === undefined) break;
       this.waitingBytes -= removed.bytesBase64.length;
+      this.waitingRawBytes -= base64ByteLength(removed.bytesBase64);
       this.evictedCount += 1;
       dropped += 1;
     }

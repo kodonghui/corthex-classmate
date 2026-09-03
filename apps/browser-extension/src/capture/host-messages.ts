@@ -237,6 +237,18 @@ export function base64Length(byteCount: number): number {
 }
 
 /**
+ * base64 글자 `n` 개가 **원본 몇 바이트**인지입니다. 위 `base64Length` 의 반대입니다.
+ *
+ * 들고 있는 봉투의 크기를 사람에게 알릴 때 씁니다. base64 글자 수를 그대로 보이면
+ * 메모리 통(`MemoryFrameSink`)의 원본 바이트와 단위가 달라 두 수를 견줄 수 없습니다.
+ */
+export function base64ByteLength(text: string): number {
+  if (text.length === 0) return 0;
+  const padding = text.endsWith('==') ? 2 : text.endsWith('=') ? 1 : 0;
+  return Math.max(0, (text.length / 4) * 3 - padding);
+}
+
+/**
  * 계약 `ScreenFrame` 아홉 칸만 골라 담습니다.
  *
  * 왜 펼치지(`...frame`) 않는가: 통 안의 모양(`CapturedFrame`)에는 `bytes · mime` 두 칸이
@@ -261,6 +273,11 @@ function pickScreenFrame(frame: ScreenFrame, path: string): ScreenFrame {
  * `frame.store` 봉투 하나를 만듭니다.
  *
  * - `frame` 칸에는 계약 아홉 칸만 담습니다. 여분 칸은 여기서 떨어집니다.
+ * - **이름표 두 개를 먼저 봅니다.** 교시 식별자(`assertPeriodId`)와 프레임 식별자
+ *   (`framePathFor` 안의 `assertScreenFrameId`)가 계약 모양이 아니면 여기서 `RangeError` 로
+ *   막습니다. 호스트가 거절할 값을 확장 안에서 먼저 막아, 한 교시치 프레임을 모아 두었다가
+ *   통째로 버리는 일이 없게 합니다. 부르는 쪽(`NativeHostFrameSink.store`)이 이 던짐을 잡아
+ *   그 장만 건너뜁니다.
  * - `path` 는 `frame.path` 를 믿지 않고 `frame.id` 에서 다시 계산합니다.
  * - 직렬화한 봉투가 `MAX_MESSAGE_BYTES` 를 **넘으면** 만들지 않고 건너뜁니다.
  *   상한과 정확히 같은 크기는 보냅니다(호스트도 `>` 로 판정합니다).
@@ -270,6 +287,7 @@ function pickScreenFrame(frame: ScreenFrame, path: string): ScreenFrame {
  * 장은 큰 문자열을 한 번도 만들지 않고 건너뜁니다.
  */
 export function buildFrameStore(frame: ScreenFrame, bytes: Uint8Array): BuildFrameStoreResult {
+  assertPeriodId(frame.periodId);
   const path = framePathFor(frame.id);
 
   // `bytesBase64` 를 빈 문자열로 둔 봉투입니다. 뒤에서 채워도 칸 순서가 그대로라
