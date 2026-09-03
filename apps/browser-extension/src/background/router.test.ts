@@ -1,14 +1,17 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SessionEvent, TranscriptSegment } from '@classmate/contracts';
 import type { AskRequest } from '../panel/ports';
 import type { LiveInboundMessage } from '../live/messages';
 import { LIVE_EVENT, LIVE_SEGMENT, PANEL_ASK, PANEL_EVENT, PANEL_RECONNECT } from '../live/messages';
+import type { FrameStoreOutcome, FrameStorePort } from '../capture/frame-sink';
+import { NativeHostFrameSink } from '../capture/frame-sink';
+import { buildSnapshotFrame } from '../capture/snapshot';
 import { EventIdFactory } from './ids';
 import type { HostSendResult } from './host-client';
 import type { HostEnvelope } from './host-messages';
 import { PeriodLog } from './period-log';
-import type { ConnectorControls, PanelPortLike } from './router';
+import type { ConnectorControls, PanelPortLike, ScreenSnapshotSource } from './router';
 import { Router, captureStateToConnector, clampUtf8, toPartialSegment } from './router';
 import type { ClassmateSettings } from './settings';
 
@@ -86,6 +89,10 @@ interface HarnessOptions {
   log?: PeriodLog;
   /** 설정 읽기를 늦춥니다. 겹쳐 부르기를 시험할 때 씁니다. */
   gate?: () => Promise<void>;
+  /** 질문에 붙일 화면을 구해 오는 자리입니다. 넣지 않으면 화면 없이 나갑니다. */
+  screen?: ScreenSnapshotSource;
+  /** 화면을 기다려 주는 상한입니다. 가짜 타이머 시험이 이것을 씁니다. */
+  screenTimeoutMs?: number;
 }
 
 function makeHarness(settings: Partial<ClassmateSettings> = {}, options: HarnessOptions = {}): Harness {
@@ -133,6 +140,9 @@ function makeHarness(settings: Partial<ClassmateSettings> = {}, options: Harness
     controls: connectorControls,
     log,
     ids: new EventIdFactory('1a2b3c4d'),
+    // `exactOptionalPropertyTypes` 라서 undefined 를 넣는 대신 없으면 칸 자체를 뺍니다.
+    ...(options.screen === undefined ? {} : { screen: options.screen }),
+    ...(options.screenTimeoutMs === undefined ? {} : { screenTimeoutMs: options.screenTimeoutMs }),
     now: () => NOW,
     warn: (message) => warnings.push(message),
     warnShape: (reason, shape) => shapeWarnings.push([reason, shape]),
@@ -683,6 +693,220 @@ describe('Router · 패널이 보내는 말', () => {
 });
 
 // ── 다시 연결 ─────────────────────────────────────────────────────────────
+
+// ── 질문에 붙는 화면 한 장 ────────────────────────────────────────────────
+//
+// 여기까지 오면 캡처는 이미 끝나 있고, 라우터가 보는 것은 "이름표 하나 또는 null" 뿐입니다.
+// 실제로 찍는 일(`captureVisibleTab` · Meet 인지 보기)은 `src/capture/snapshot.test.ts` 가
+// 따로 시험합니다.
+
+describe('Router · 질문에 붙는 화면 한 장', () => {
+  const SCREEN_FRAME_ID = 'sf-p3-ask-103210-001';
+
+  /** 호스트로 나간 `tutor.ask` 봉투입니다. */
+  function askEnvelope(harness: Harness): HostEnvelope | undefined {
+    return harness.sent.find((envelope) => envelope.type === 'tutor.ask');
+  }
+
+  it('찍었으면 snapshot.screenFrameId 가 채워지고 ages.screenSec 가 0 입니다', async () => {
+    const askedPeriods: string[] = [];
+    const harness = makeHarness(
+      {},
+      {
+        screen: {
+          capture: async (periodId) => {
+            askedPeriods.push(periodId);
+            return SCREEN_FRAME_ID;
+          },
+        },
+      },
+    );
+
+    await harness.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest() });
+
+    // 지금 교시로 찍습니다. 앞 교시 폴더에 들어가면 호스트가 거절합니다.
+    expect(askedPeriods).toEqual([PERIOD]);
+    expect(askEnvelope(harness)).toMatchObject({
+      snapshot: {
+        transcriptSegmentIds: ['ts-p3-001'],
+        screenFrameId: SCREEN_FRAME_ID,
+        // 방금 찍었으니 0 입니다. 전사·편집기 나이는 패널이 준 값 그대로 둡니다.
+        ages: { transcriptSec: 4, screenSec: 0, editorSec: 1 },
+      },
+    });
+  });
+
+  it('패널이 봉인을 주지 않아도(빈 스냅숏) 화면은 붙습니다', async () => {
+    const harness = makeHarness({}, { screen: { capture: async () => SCREEN_FRAME_ID } });
+
+    await harness.router.handlePanelMessage({
+      type: PANEL_ASK,
+      request: askRequest({ snapshot: null }),
+    });
+
+    expect(askEnvelope(harness)).toMatchObject({
+      snapshot: {
+        transcriptSegmentIds: [],
+        screenFrameId: SCREEN_FRAME_ID,
+        ages: { transcriptSec: null, screenSec: 0, editorSec: null },
+      },
+    });
+  });
+
+  it('못 찍었으면(Meet 탭이 아님) 화면 없이 질문이 나갑니다', async () => {
+    const harness = makeHarness({}, { screen: { capture: async () => null } });
+
+    await harness.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest() });
+
+    const ask = askEnvelope(harness);
+    expect(ask).toBeDefined();
+    expect(ask).not.toHaveProperty('snapshot.screenFrameId');
+    // 패널이 준 나이를 손대지 않습니다. 0 으로 적으면 없는 화면이 방금 것처럼 보입니다.
+    expect(ask).toMatchObject({ snapshot: { ages: { screenSec: 2 } } });
+  });
+
+  it('화면 출구가 아예 없어도 질문은 그대로 나갑니다', async () => {
+    const harness = makeHarness();
+
+    await harness.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest() });
+
+    expect(askEnvelope(harness)).toBeDefined();
+    expect(askEnvelope(harness)).not.toHaveProperty('snapshot.screenFrameId');
+  });
+
+  it('찍는 쪽이 던져도 질문은 나갑니다', async () => {
+    const harness = makeHarness(
+      {},
+      {
+        screen: {
+          capture: () => Promise.reject(new Error('탭이 그 사이에 닫혔어요')),
+        },
+      },
+    );
+
+    await harness.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest() });
+
+    const ask = askEnvelope(harness);
+    expect(ask).toBeDefined();
+    expect(ask).not.toHaveProperty('snapshot.screenFrameId');
+    expect(harness.warnings.some((message) => message.includes('화면'))).toBe(true);
+  });
+
+  it('상한을 넘기면 화면 없이 질문이 나갑니다 (가짜 타이머)', async () => {
+    vi.useFakeTimers();
+    try {
+      const harness = makeHarness(
+        {},
+        {
+          // 영영 끝나지 않는 캡처입니다. 상한이 없으면 질문이 여기서 멈춥니다.
+          screen: { capture: () => new Promise<string | null>(() => {}) },
+          screenTimeoutMs: 1500,
+        },
+      );
+
+      const asked = harness.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest() });
+
+      // 상한 직전에는 아직 질문이 나가지 않았습니다 — 화면을 기다리고 있습니다.
+      await vi.advanceTimersByTimeAsync(1499);
+      expect(askEnvelope(harness)).toBeUndefined();
+
+      // 상한을 넘기는 순간 화면을 포기하고 질문을 보냅니다.
+      await vi.advanceTimersByTimeAsync(1);
+      await asked;
+
+      const ask = askEnvelope(harness);
+      expect(ask).toBeDefined();
+      expect(ask).not.toHaveProperty('snapshot.screenFrameId');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('도우미가 안 붙어 있으면 화면 없이 질문이 나갑니다', async () => {
+    // 배선(`entrypoints/background.ts`)과 **같은 순서**로 이어 봅니다.
+    //   찍은 장 → NativeHostFrameSink.storeAndReport → 담긴 것만 이름표를 냅니다.
+    const offlinePort: FrameStorePort = {
+      store: (): Promise<FrameStoreOutcome> => Promise.resolve({ kind: 'offline' }),
+    };
+    const sink = new NativeHostFrameSink(offlinePort, { warn: () => {} });
+    const shot = { bytes: new Uint8Array([1, 2, 3, 4]), width: 1280, height: 720 };
+
+    const harness = makeHarness(
+      {},
+      {
+        screen: {
+          capture: async (periodId) => {
+            const frame = buildSnapshotFrame({
+              periodId,
+              capturedAt: NOW,
+              sequence: 1,
+              snapshot: shot,
+            });
+            return (await sink.storeAndReport(frame, shot.bytes)) ? frame.id : null;
+          },
+        },
+      },
+    );
+
+    await harness.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest() });
+
+    const ask = askEnvelope(harness);
+    expect(ask).toBeDefined();
+    expect(ask).not.toHaveProperty('snapshot.screenFrameId');
+    // 장을 버리지는 않습니다. 도우미가 돌아오면 그때 파일로 들어갑니다.
+    expect(sink.stats().waiting).toBe(1);
+  });
+
+  it('도우미가 담아 주면 그 장의 이름표가 그대로 붙습니다', async () => {
+    const storedPort: FrameStorePort = {
+      store: (): Promise<FrameStoreOutcome> =>
+        Promise.resolve({ kind: 'stored', bytes: 4, seq: 12 }),
+    };
+    const sink = new NativeHostFrameSink(storedPort, { warn: () => {} });
+    const shot = { bytes: new Uint8Array([1, 2, 3, 4]), width: 1280, height: 720 };
+    let madeId = '';
+
+    const harness = makeHarness(
+      {},
+      {
+        screen: {
+          capture: async (periodId) => {
+            const frame = buildSnapshotFrame({
+              periodId,
+              capturedAt: NOW,
+              sequence: 1,
+              snapshot: shot,
+            });
+            madeId = frame.id;
+            return (await sink.storeAndReport(frame, shot.bytes)) ? frame.id : null;
+          },
+        },
+      },
+    );
+
+    await harness.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest() });
+
+    expect(madeId).toMatch(/^sf-p3-ask-\d{6}-001$/);
+    expect(askEnvelope(harness)).toMatchObject({
+      snapshot: { screenFrameId: madeId, ages: { screenSec: 0 } },
+    });
+  });
+
+  it('도우미가 꺼져 있어 질문이 버려져도 붙은 화면이 기록본에 그대로 남습니다', async () => {
+    const harness = makeHarness({}, { screen: { capture: async () => SCREEN_FRAME_ID } });
+    // 교시를 먼저 엽니다. 그러지 않으면 `period.started` 가 아래 답을 가로챕니다.
+    await harness.router.ensurePeriod();
+    harness.replyOnce({ status: 'dropped', reason: 'host-offline' });
+
+    await harness.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest() });
+
+    const asked = harness.appended().find((event) => event.type === 'question.asked');
+    expect(asked?.payload).toMatchObject({
+      hostOffline: true,
+      snapshot: { screenFrameId: SCREEN_FRAME_ID, ages: { screenSec: 0 } },
+    });
+  });
+});
 
 describe('Router · classmate.reconnect', () => {
   let harness: Harness;

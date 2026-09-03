@@ -46,6 +46,61 @@ CapturePipeline (pipeline.ts)
      (2라운드) chrome.runtime.connectNative → 로컬 도우미가 디스크에 씀
 ```
 
+## 두 번째 길 — 질문 한 건에 붙이는 화면 한 장 (`snapshot.ts`)
+
+위 파이프라인은 **아직 한 번도 시작되지 못했습니다.** 입구인
+`chrome.tabCapture.getMediaStreamId` 가 사용자 제스처를 요구하는데, 사이드패널 안의 클릭은
+크롬이 제스처로 세어 주지 않고, 아이콘 클릭은 `setPanelBehavior({openPanelOnActionClick:true})`
+가 먼저 가져가 `chrome.action.onClicked` 가 불리지 않습니다. 그래서 `screen.frame` 이 0건이고
+`frames/` 폴더가 만들어진 적이 없습니다.
+
+`snapshot.ts` 는 그 사이 학습자가 화면을 볼 수 있게 하는 **다른 길**입니다. 위 스트림 길은
+나중에 켤 것이라 **지우지 않고 그대로 둡니다.**
+
+| | `tabCapture` (스트림) | `captureVisibleTab` (한 장) |
+|---|---|---|
+| 무엇 | 연속 스트림 | 질문 한 건에 한 장 |
+| 제스처 | 필요 (지금 막힌 곳) | 불필요 |
+| 권한 | `tabCapture` | 대상 탭의 `host_permissions` |
+| 언제 | 캡처를 켜 둔 동안 계속 | `panel.ask` 가 올 때만 |
+| 형식 | WebP 폭 1280 · 품질 0.8 | JPEG 품질 60 (`SNAPSHOT_JPEG_QUALITY`) |
+| 해시 | 진짜 dHash | 바이트 내용 지문 (`contentFingerprint`) |
+
+```
+panel.ask
+   │
+   ├─▶ captureMeetTab(chrome)          src/capture/snapshot.ts
+   │      ├─ 활성 탭 주소가 meet.google.com 이 아니다 ─▶ null (셔터를 안 누릅니다)
+   │      └─ captureVisibleTab(windowId, {jpeg, 60}) ─▶ dataURL
+   │             └─ fromBase64 → readJpegSize → { bytes, width, height }
+   │
+   ├─▶ buildSnapshotFrame → ScreenFrame (id `sf-p3-ask-103210-001`)
+   │
+   ├─▶ NativeHostFrameSink.storeAndReport ─ true 일 때만 이름표를 씁니다
+   │
+   └─▶ Router.attachScreen → snapshot.screenFrameId · ages.screenSec = 0
+          └─ 1500ms(`SCREEN_SNAPSHOT_TIMEOUT_MS`)를 넘기면 화면 없이 그냥 보냅니다
+```
+
+지키는 것 넷입니다.
+
+1. **Meet 이 아니면 안 찍습니다.** `host_permissions` 는 `https://meet.google.com/*` 하나뿐이고
+   (`<all_urls>` 를 넣지 않습니다), 코드도 활성 탭 주소를 `URL` 로 파싱해 호스트 이름이 정확히
+   `meet.google.com` 일 때만 셔터를 누릅니다. 권한과 코드 두 겹입니다.
+2. **화면 한 장이 질문을 막지 않습니다.** 못 찍어도, 도우미가 꺼져 있어도, 1500ms 를 넘겨도
+   질문은 그대로 나갑니다. 답이 늦어지는 것이 화면이 없는 것보다 나쁩니다.
+3. **담긴 것만 가리킵니다.** `storeAndReport` 가 true(호스트가 파일로 남김)일 때만
+   `screenFrameId` 를 씁니다. 폴백 대기열에 들어간 장은 아직 파일이 없어서, 가리키면 튜터가
+   없는 그림을 찾습니다.
+4. **그림을 로그에 남기지 않습니다.** dataURL 을 `console.log` 하면 수업 화면이 통째로 서비스
+   워커 콘솔에 박힙니다. 사람에게 남기는 것은 까닭 낱말과 길이 숫자뿐입니다.
+
+**알아 둘 것 · 파일 이름과 내용이 어긋납니다.** 호스트가 파일 이름을 `frames/<id>.webp` 로
+고정해 두었는데(`apps/native-host/src/store/frames.rs` 의 `FRAME_EXTENSION`) 이 길이 담는
+바이트는 JPEG 입니다. `captureVisibleTab` 이 낼 수 있는 형식이 `jpeg`·`png` 뿐이고, 호스트를
+고치는 일은 이 갈래의 몫이 아니라 그대로 두었습니다. 뷰어는 바이트를 보고 형식을 정하므로
+그림은 보이지만, 나중에 호스트 쪽에서 확장자를 형식에 맞추는 일이 남아 있습니다.
+
 ## 설정값
 
 | 값 | 기본 | 정한 곳 | 뜻 |
