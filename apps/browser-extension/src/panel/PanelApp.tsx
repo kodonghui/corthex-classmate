@@ -27,7 +27,13 @@ import { HistoryScreen } from "./screens/HistoryScreen";
 import { ListeningScreen } from "./screens/ListeningScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import type { Settings, SettingsStorage } from "./settings-store";
-import { DEFAULT_SETTINGS, detectSettingsStorage, readSettings, writeSetting } from "./settings-store";
+import {
+  DEFAULT_SETTINGS,
+  detectSettingsStorage,
+  mergeLoadedSettings,
+  readSettings,
+  writeSetting,
+} from "./settings-store";
 
 /** 수업 흐름 위에 얹는 화면입니다. */
 type Overlay = "none" | "history" | "settings";
@@ -78,7 +84,8 @@ export function PanelApp({
   useEffect(() => {
     let alive = true;
     void readSettings(storage).then((values) => {
-      if (alive) setSettings(values);
+      // 읽는 사이에 사용자가 누른 값을 옛 값으로 되돌리지 않습니다(`mergeLoadedSettings`).
+      if (alive) setSettings((previous) => mergeLoadedSettings(previous, values));
     });
     return () => {
       alive = false;
@@ -87,10 +94,16 @@ export function PanelApp({
 
   const changeSetting = useCallback(
     <K extends keyof Settings>(key: K, value: Settings[K]): void => {
-      setSettings((previous) => ({ ...previous, [key]: value }));
+      const next: Settings = { ...settings, [key]: value };
+      setSettings(next);
       void writeSetting(storage, key, value);
+      // 수업 중에 바로 듣는 설정은 둘뿐입니다. 나머지(교시·주제)는 스토어를 만들 때 박히므로
+      // 패널을 다시 열어야 바뀝니다 — 설정 화면이 그 한 줄을 적어 둡니다.
+      if (next.provider !== settings.provider || next.autoFold !== settings.autoFold) {
+        store.updateEnv({ provider: next.provider, autoFold: next.autoFold });
+      }
     },
-    [storage],
+    [settings, storage, store],
   );
 
   useEffect(() => {

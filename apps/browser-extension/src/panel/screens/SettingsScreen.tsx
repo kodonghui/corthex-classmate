@@ -11,7 +11,7 @@ import { useState } from "react";
 
 import { PERIOD_NUMBER_MAX, PERIOD_NUMBER_MIN } from "../../tiro/period";
 import type { Settings } from "../settings-store";
-import { PRIVACY_CELLS } from "../settings-store";
+import { PRIVACY_CELLS, subjectInput } from "../settings-store";
 
 export interface SettingsScreenProps {
   readonly values: Settings;
@@ -27,9 +27,16 @@ const PERIOD_OPTIONS = Array.from({ length: PERIOD_NUMBER_MAX - PERIOD_NUMBER_MI
   return { value: String(number), label: `${number}교시` };
 });
 
+/*
+  아직 읽는 곳이 없는 칸은 **끄고 그 까닭을 적습니다.** 켤 수 있는 것처럼 두면 사용자가
+  "IntelliJ 코드 저장을 껐다" 고 믿는데 그대로 캡처·전송되는 일이 생깁니다(2라운드 검토 #4·#5·#7).
+  배선이 오면 `disabled` 와 이 설명만 걷어 내면 됩니다.
+*/
+const NEXT_ROUND_NOTE = "다음 라운드에 켜져요";
+
 const LENGTH_OPTIONS = [
-  { value: "short", label: "한 줄만 먼저", description: "자세한 내용은 눌러서 봐요" },
-  { value: "full", label: "바로 자세히", description: "근거와 코드까지 처음부터 펼쳐요" },
+  { value: "short", label: "한 줄만 먼저", description: "자세한 내용은 눌러서 봐요", disabled: true },
+  { value: "full", label: "바로 자세히", description: "근거와 코드까지 처음부터 펼쳐요", disabled: true },
 ];
 
 const PROVIDER_OPTIONS = [
@@ -52,6 +59,7 @@ export function SettingsScreen({ values, count, onBack, onChange, onClearToday }
             onChange={(value) => onChange("answerLength", value === "full" ? "full" : "short")}
             options={LENGTH_OPTIONS}
           />
+          <p className="cm-set__note">지금은 늘 한 줄만 먼저 보여 줘요 — 고르기는 {NEXT_ROUND_NOTE}</p>
           <Switch
             label="18초 뒤 자동으로 접기"
             description="끄면 접히지 않고 그대로 남아요"
@@ -74,20 +82,24 @@ export function SettingsScreen({ values, count, onBack, onChange, onClearToday }
             label="전사"
             description="막힌 시점의 최근 30초"
             checked={values.captureTranscript}
+            disabled
             onChange={(event) => onChange("captureTranscript", event.target.checked)}
           />
           <Checkbox
             label="Meet 화면"
             description="선생님 공유 화면 한 장"
             checked={values.captureScreen}
+            disabled
             onChange={(event) => onChange("captureScreen", event.target.checked)}
           />
           <Checkbox
             label="IntelliJ 코드"
             description="지금 보고 있는 파일"
             checked={values.captureEditor}
+            disabled
             onChange={(event) => onChange("captureEditor", event.target.checked)}
           />
+          <p className="cm-set__note">지금은 세 가지를 늘 함께 저장해요 — 골라 끄기는 {NEXT_ROUND_NOTE}</p>
           <p className="cm-set__privacy">
             {PRIVACY_CELLS.map((cell) => (
               <span key={cell} className="cm-set__privacy-cell">
@@ -109,6 +121,9 @@ export function SettingsScreen({ values, count, onBack, onChange, onClearToday }
             label="주제"
             value={values.subject}
             onChange={(event) => onChange("subject", event.target.value)}
+            // 다 지운 채로 두면 저장소에는 "" 가 남고 읽을 때만 "수업" 으로 되살아나 다음에 열 때
+            // 화면과 저장소가 어긋납니다. 칸을 떠날 때 빈 값을 기본값으로 맞춰 둘을 같게 합니다.
+            onBlur={(event) => onChange("subject", subjectInput(event.target.value))}
           />
           <Switch
             label="단축키 Alt+S"
@@ -117,12 +132,18 @@ export function SettingsScreen({ values, count, onBack, onChange, onClearToday }
             onChange={(event) => onChange("altS", event.target.checked)}
             style={{ width: "100%" }}
           />
+          <p className="cm-set__note">교시와 주제는 패널을 다시 열 때부터 적용돼요</p>
         </section>
 
         <section className="cm-set">
-          <Button variant="danger" size="sm" icon="trash-2" onClick={() => setConfirm(true)}>
+          {/*
+            지우기를 받아 줄 도우미(호스트) 봉투가 아직 없습니다. 눌러서 확인 창까지 뜨면
+            "지웠다" 는 거짓 확인이 되므로 버튼째 끕니다(2라운드 검토 #5).
+          */}
+          <Button variant="danger" size="sm" icon="trash-2" disabled onClick={() => setConfirm(true)}>
             오늘 기록 지우기
           </Button>
+          <p className="cm-set__note">아직 지울 수 없어요 — 도우미 삭제 기능은 {NEXT_ROUND_NOTE}</p>
         </section>
       </div>
       <Dialog
