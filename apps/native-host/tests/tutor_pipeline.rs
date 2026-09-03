@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
-use classmate_providers::{ClaudeCliProvider, TutorProvider};
+use classmate_providers::{ClaudeCliProvider, SessionClaudeProvider, TutorProvider};
 use classmate_transport::schema::{self, SchemaKind};
 
 use classmate_host::store::{SessionEvent, SessionStore};
@@ -496,6 +496,67 @@ fn a_run_without_partial_chunks_sends_the_conclusion_in_one_delta() {
             .as_str()
             .expect("답의 결론")
     );
+}
+
+// ---------------------------------------------------------------- 프로세스 재사용
+
+/// 가짜 CLI 가 적어 둔 spawn 수를 읽습니다. 파일이 없으면 0 입니다.
+fn spawns_recorded(path: &Path) -> usize {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|text| text.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// 질문 세 개를 차례로 묻고, 답 사건이 셋 다 올 때까지 기다립니다.
+fn ask_three(handle: &TutorHandle, inbox: &Receiver<Value>) -> Vec<String> {
+    for index in 1..=3 {
+        handle
+            .ask(envelope(&format!("q-p3-{index:03}")))
+            .expect("물음을 받습니다");
+    }
+    // 질문 하나에 question.asked + answer.completed 둘씩입니다.
+    kinds_of(&collect_pushes(inbox, 6))
+}
+
+#[test]
+fn three_questions_spawn_three_processes_by_default() {
+    // 지금 자리입니다. 질문마다 217 MB 짜리 실행 파일이 콜드 스타트합니다.
+    let dir = temp_dir("spawn-default");
+    let spawn_file = dir.join("spawns.txt");
+    let recorded = spawn_file.to_string_lossy().to_string();
+    let (handle, inbox) = start(
+        &dir,
+        fake_provider(&["--spawn-file", &recorded]),
+        fast_config(Duration::from_secs(30), 0),
+    );
+
+    let kinds = ask_three(&handle, &inbox);
+    handle.shutdown();
+
+    assert_eq!(kinds.iter().filter(|k| *k == "answer.completed").count(), 3);
+    assert_eq!(spawns_recorded(&spawn_file), 3);
+}
+
+#[test]
+fn three_questions_spawn_one_process_when_the_session_provider_is_used() {
+    // 오케스트레이터가 `CLASSMATE_TUTOR_SESSION=1` 을 볼 때만 타는 길입니다
+    // (`src/router.rs` 의 `provider_for`). 여기서는 제공자를 곧장 꽂아 확인합니다.
+    let dir = temp_dir("spawn-session");
+    let spawn_file = dir.join("spawns.txt");
+    let recorded = spawn_file.to_string_lossy().to_string();
+    let provider = Box::new(SessionClaudeProvider::with_prefix_args(
+        node_runtime(),
+        fake_cli_prefix(&["--session", "--spawn-file", &recorded]),
+    ));
+
+    let (handle, inbox) = start(&dir, provider, fast_config(Duration::from_secs(30), 0));
+    let kinds = ask_three(&handle, &inbox);
+    handle.shutdown();
+
+    // 이 두 줄이 이 단위가 검증 가능하게 주장하는 전부입니다. "몇 초 빨라진다" 는 주장이 아닙니다.
+    assert_eq!(kinds.iter().filter(|k| *k == "answer.completed").count(), 3);
+    assert_eq!(spawns_recorded(&spawn_file), 1);
 }
 
 // ---------------------------------------------------------------- 자료 조립
