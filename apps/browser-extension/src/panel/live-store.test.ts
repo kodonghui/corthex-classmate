@@ -10,6 +10,7 @@
 import type {
   Answer,
   EditorContext,
+  Question,
   ScreenFrame,
   SessionEvent,
   TranscriptSegment,
@@ -18,8 +19,9 @@ import { formatIso, parseIso, WAITING_NOTE_LINE } from "@classmate/tutor-core";
 import { describe, expect, it } from "vitest";
 
 import { ID_TOKEN_LENGTH, makeIdToken, panelEventId, panelQuestionId } from "./event-ids";
-import { LIVE_EDITOR_PLACEHOLDER_ID } from "./golden-bundle";
-import { listeningView } from "./lesson-view";
+import { emptyBundle, LIVE_EDITOR_PLACEHOLDER_ID } from "./golden-bundle";
+import { historyView } from "./history-view";
+import { listeningView, sourceAges } from "./lesson-view";
 import type { AskRequest } from "./ports";
 import { ASK_TIMEOUT_MESSAGE, questionTextOf, ReplayStore } from "./replay-store";
 
@@ -450,5 +452,172 @@ describe("밖으로 흘리는 사건", () => {
     store.catchTerm("ts-live-001", 1, "new");
     expect(seen).toHaveLength(before);
     expect(store.getState().emitted.length).toBeGreaterThan(2);
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/** 호스트가 `tutor.ask` 를 받고 되미는 자기 `question.asked` 기록본입니다. 사건 id 가 패널 것과 다릅니다. */
+function hostEcho(eventId: string, questionId: string, seconds: number, word: string): SessionEvent {
+  const question = {
+    id: questionId,
+    periodId: PERIOD,
+    askedAt: at(seconds),
+    kind: "confused",
+    text: questionTextOf(word),
+    // 호스트 기록본에는 anchor 가 없습니다. 그래서 순간을 또 만들면 밑줄이 엉뚱한 줄로 갑니다.
+    snapshot: { askedAt: at(seconds), transcriptSegmentIds: [], ages: { transcriptSec: null, screenSec: null, editorSec: null } },
+  } as unknown as Question;
+  return event(eventId, seconds, "question.asked", { questionId, kind: "confused", question });
+}
+
+describe("같은 질문을 두 번 듣기(호스트 되밀기)", () => {
+  it("한 번 붙잡았으면 호스트가 되밀어도 순간은 하나다", () => {
+    const { store } = rig();
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면 강하게 묶여요", 5));
+    store.pushSegment(segment(2, "그래서 스프링이 대신 만들어 줍니다", 6));
+    store.catchTerm("ts-live-001", 1, "new");
+    const questionId = store.getState().machine.questionId;
+    expect(questionId).toBe("q-2026-09-02-p9-xtesttok0-001");
+
+    store.pushEvent(hostEcho("ev-host-0001", questionId ?? "", 7, "new"));
+
+    const state = store.getState();
+    expect(state.moments).toHaveLength(1);
+    expect(state.moments[0]).toMatchObject({ questionId, lineId: "ts-live-001", term: "new" });
+    // 바닥줄 "기록 N" 과 기록 화면 줄도 하나뿐입니다(같은 key 가 둘이면 React 가 경고합니다).
+    expect(home(store).footer.count).toBe(1);
+    expect(historyView(store.bundle, state).groups[0]?.rows).toHaveLength(1);
+    // 되밀린 사건은 기록에 남습니다 — 무시가 아니라 순간을 더 만들지 않는 것입니다.
+    expect(state.received.some((item) => item.id === "ev-host-0001")).toBe(true);
+    // 준비 시계도 다시 걸지 않습니다(호스트 시각으로 밀리면 답이 늦게 뜹니다).
+    expect(state.machine.note).toBe("preparing");
+  });
+});
+
+describe("옛 질문의 답", () => {
+  it("지금 보고 있는 질문의 답이 아니면 메모에 얹지 않고 기록에만 남긴다", () => {
+    const { store } = rig();
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면 강하게 묶여요", 5));
+    store.catchTerm("ts-live-001", 1, "new");
+    const q1 = store.getState().machine.questionId ?? "";
+    store.pushSegment(segment(2, "그래서 생성자 주입을 씁니다", 6));
+    store.catchTerm("ts-live-002", 1, "생성자");
+    const q2 = store.getState().machine.questionId ?? "";
+    expect(q1).not.toBe(q2);
+
+    store.pushEvent(
+      event("ev-host-0002", 8, "answer.completed", {
+        questionId: q1,
+        answerId: "ans-live-old",
+        evidence: "confirmed",
+        provider: "mock",
+        answer: answerBody("ans-live-old", q1, "new 자체는 괜찮지만 바꾸기 어려워요", 8),
+      }),
+    );
+
+    const state = store.getState();
+    // 얹혔다면 메모가 "생성자" 낱말에 "new …" 결론을 붙입니다.
+    expect(state.machine.questionId).toBe(q2);
+    expect(state.machine.answerId).toBeNull();
+    expect(state.machine.note).toBe("preparing");
+    // 기록 화면은 received 로 만드니 q1 줄에는 그 답이 그대로 붙습니다.
+    const rows = historyView(store.bundle, state).groups[0]?.rows ?? [];
+    expect(rows.find((row) => row.questionId === q1)?.title).toBe("new 자체는 괜찮지만 바꾸기 어려워요");
+    expect(rows.find((row) => row.questionId === q2)?.state).toBe("preparing");
+  });
+
+  it("지금 질문의 답은 그대로 얹힌다", () => {
+    const { store } = rig();
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
+    store.catchTerm("ts-live-001", 1, "new");
+    const q1 = store.getState().machine.questionId ?? "";
+    store.pushEvent(
+      event("ev-host-0003", 8, "answer.completed", {
+        questionId: q1,
+        answerId: "ans-live-001",
+        evidence: "confirmed",
+        provider: "mock",
+        answer: answerBody("ans-live-001", q1, "짧게 한 줄", 8),
+      }),
+    );
+    expect(store.getState().machine.answerId).toBe("ans-live-001");
+  });
+});
+
+describe("바닥줄 자료 나이", () => {
+  it("IntelliJ 문맥이 아직 없으면 나이를 세지 않는다", () => {
+    const { store } = rig();
+    expect(sourceAges(store.bundle, START + 5_000).intellij).toBeNull();
+    expect(sourceAges(emptyBundle(PERIOD, START), START + 30_000).intellij).toBeNull();
+    // 화면 바닥줄도 "0초 전" 이 아니라 "—" 입니다.
+    expect(home(store).footer.sources.find((item) => item.key === "intellij")?.ago).toBe("—");
+  });
+
+  it("진짜 편집기 문맥이 한 번 오면 그때부터 나이를 센다", () => {
+    const bench = rig();
+    bench.store.pushEditor(editor(5));
+    bench.tickAt(9);
+    expect(sourceAges(bench.store.bundle, START + 9_000).intellij).toBe(4);
+    expect(home(bench.store).footer.sources.find((item) => item.key === "intellij")?.ago).toBe("4초 전");
+  });
+});
+
+describe("수업 중 설정 바꾸기(updateEnv)", () => {
+  it("제공자를 바꾸면 다음 질문부터 그 제공자로 묻는다", () => {
+    const { store, asks } = rig();
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
+    store.catchTerm("ts-live-001", 1, "new");
+    expect(asks[0]?.provider).toBe("mock");
+
+    store.updateEnv({ provider: "claude" });
+    store.pushSegment(segment(2, "그래서 생성자 주입을 씁니다", 6));
+    store.catchTerm("ts-live-002", 1, "생성자");
+    expect(asks[1]?.provider).toBe("claude");
+  });
+
+  it("자동 접기를 끄면 이미 떠 있는 메모도 18초 뒤에 접히지 않는다", () => {
+    const bench = rig();
+    const { store } = bench;
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
+    store.catchTerm("ts-live-001", 1, "new");
+    const questionId = store.getState().machine.questionId ?? "";
+    store.pushEvent(
+      event("ev-x-070", 8, "answer.completed", {
+        questionId,
+        answerId: "ans-live-001",
+        evidence: "confirmed",
+        provider: "mock",
+        answer: answerBody("ans-live-001", questionId, "짧게 한 줄", 8),
+      }),
+    );
+    bench.tickAt(9);
+    expect(store.getState().machine.note).toBe("minimal");
+    expect(store.getState().machine.foldDeadline).not.toBeNull();
+
+    store.updateEnv({ autoFold: false });
+    expect(store.getState().machine.foldDeadline).toBeNull();
+    bench.tickAt(40);
+    expect(store.getState().machine.note).toBe("minimal");
+  });
+
+  it("자동 접기가 켜져 있으면 18초 뒤에 접힌다", () => {
+    const bench = rig();
+    const { store } = bench;
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
+    store.catchTerm("ts-live-001", 1, "new");
+    const questionId = store.getState().machine.questionId ?? "";
+    store.pushEvent(
+      event("ev-x-071", 8, "answer.completed", {
+        questionId,
+        answerId: "ans-live-001",
+        evidence: "confirmed",
+        provider: "mock",
+        answer: answerBody("ans-live-001", questionId, "짧게 한 줄", 8),
+      }),
+    );
+    bench.tickAt(9);
+    bench.tickAt(40);
+    expect(store.getState().machine.note).toBe("folded");
   });
 });

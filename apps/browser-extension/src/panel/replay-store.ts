@@ -164,6 +164,9 @@ export interface LiveStoreOptions {
   readonly askTimeoutMs?: number;
 }
 
+/** 수업 중에 바꿀 수 있는 환경 값입니다. `updateEnv` 가 받습니다. */
+export type EnvUpdate = Partial<Pick<Env, "provider" | "autoFold">>;
+
 export type Listener = () => void;
 export type EmitListener = (event: SessionEvent) => void;
 
@@ -202,7 +205,7 @@ export function questionTextOf(word: string | undefined): string {
 }
 
 export class ReplayStore implements PanelInbox, PanelOutbox {
-  readonly #env: Env;
+  #env: Env;
   readonly #mockDelayMs: number;
   readonly #live: LiveConfig | null;
   readonly #idToken: string;
@@ -349,6 +352,21 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       return;
     }
 
+    if (event.type === "question.asked" && this.#hasMomentFor(stringOf(event.payload, "questionId"))) {
+      // 호스트가 `tutor.ask` 를 받고 자기 `question.asked` 기록본을 되민 것입니다. 사건 id 가 달라
+      // `#seen` 을 통과하지만 질문은 패널이 이미 붙잡은 그 질문입니다. 순간을 하나 더 만들면
+      // 바닥줄이 "기록 2" 가 되고 기록 화면에 같은 줄이 둘 생깁니다. 기계에도 다시 넣지 않습니다 —
+      // `catchQuestion` 이 메모를 준비 자리로 되돌리고 준비 시계를 다시 걸기 때문입니다.
+      this.#set({ received });
+      return;
+    }
+    if (this.#isStaleAnswer(event)) {
+      // 지금 보고 있는 질문의 답이 아닙니다(늦게 온 옛 질문의 답). 기록에는 남기고 화면에는 얹지
+      // 않습니다 — 기계의 `landAnswer` 는 questionId 를 보지 않아 엉뚱한 낱말에 붙습니다.
+      this.#set({ received });
+      return;
+    }
+
     let input: MachineInput = { kind: "event", event };
     let moments = this.#state.moments;
     if (event.type === "question.asked") {
@@ -391,6 +409,30 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     this.#hasEditor = true;
     this.#moveClock(parseIso(context.capturedAt));
     this.#touch();
+  }
+
+  /**
+   * 수업 중에 바뀐 설정 둘(제공자 · 자동 접기)을 굴러가는 스토어에 넣습니다.
+   *
+   *     설정 화면 ──onChange──▶ PanelApp ──updateEnv({ provider, autoFold })──▶ ReplayStore#env
+   *
+   * 교시 번호와 주제는 스토어를 만들 때 한 번 박히므로 여기로 들어오지 않습니다(패널을 다시 열어야
+   * 바뀝니다). 자동 접기를 끄면 **이미 걸려 있는 접힘 시계도 그 자리에서 풉니다** — 끄자마자
+   * 지금 떠 있는 메모가 접히면 껐다는 말이 거짓이 됩니다.
+   */
+  updateEnv(partial: EnvUpdate): void {
+    const next: Env = {
+      ...this.#env,
+      ...(partial.provider === undefined ? {} : { provider: partial.provider }),
+      ...(partial.autoFold === undefined ? {} : { autoFold: partial.autoFold }),
+    };
+    if (next.provider === this.#env.provider && next.autoFold === this.#env.autoFold) return;
+    this.#env = next;
+    if (!next.autoFold && this.#state.machine.foldDeadline !== null) {
+      this.#set({ machine: { ...this.#state.machine, foldDeadline: null } });
+      return;
+    }
+    this.#notify();
   }
 
   // ── 화면 손짓 ───────────────────────────────────────────────────────────────
@@ -849,6 +891,27 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       // 라이브 자리표시(ec-live-none)는 봉인에 넣지 않습니다. 진짜 문맥이 와야 나이가 셉니다.
       editor: this.#hasEditor ? [this.#bundle.editor] : [],
     });
+  }
+
+  /** 그 질문의 순간을 이미 만들어 두었는지입니다. 같은 질문은 순간 하나뿐입니다. */
+  #hasMomentFor(questionId: string | null): boolean {
+    return questionId !== null && this.#state.moments.some((item) => item.questionId === questionId);
+  }
+
+  /**
+   * 지금 보고 있는 질문의 답이 아닌 답 사건인지입니다.
+   *
+   *     Q1 붙잡음 ─▶ (답 오기 전) Q2 붙잡음 ─▶ machine.questionId = Q2
+   *                                            └─▶ 여기서 Q1 의 answer.completed 가 오면 true
+   *
+   * 기계의 `landAnswer` 는 questionId 를 보지 않아 그대로 얹히고, 메모가 "Q2 낱말 + Q1 답" 이
+   * 됩니다. 기록 화면은 `state.received` 로 만드니 여기서 걸러도 그 답은 그대로 남습니다.
+   */
+  #isStaleAnswer(event: SessionEvent): boolean {
+    if (!ANSWER_EVENT_TYPES.includes(event.type)) return false;
+    const forQuestion = stringOf(event.payload, "questionId");
+    const current = this.#state.machine.questionId;
+    return forQuestion !== null && current !== null && forQuestion !== current;
   }
 
   #momentFor(questionId: Id, lineId: Id, term: string, time: string, ages: QuestionSnapshot["ages"]): Moment {

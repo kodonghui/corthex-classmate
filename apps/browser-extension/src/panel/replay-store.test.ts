@@ -271,7 +271,13 @@ describe("손짓", () => {
     expect(state.machine.note).toBe("preparing");
     expect(state.moments.at(-1)).toMatchObject({ lineId: "ts-p3-005", term: "생성자", segKey: null, time: "10:32:16" });
     store.advanceTo(store.clockMs("10:32:19"));
-    expect(store.getState().machine.answerId).toBe("ans-p3-002");
+    // 모의 제공자는 짐작한 낱말(생성자)의 fixture 답을 그대로 돌려줍니다.
+    const mock = store.getState().received.find((event) => event.id.startsWith("ev-mock-"));
+    expect(mock).toMatchObject({ type: "answer.completed", payload: { answerId: "ans-p3-002" } });
+    // 그 사이 10:32:18 에 fixture 가 자기 질문(q-p3-001 · new)을 붙잡아 지금 질문이 바뀌었습니다.
+    // 옛 질문의 답은 기록에만 남고 메모에는 얹히지 않습니다 — 얹히면 "new" 자리에 생성자의 답이 붙습니다.
+    expect(store.getState().machine.questionId).toBe("q-p3-001");
+    expect(store.getState().machine.answerId).toBeNull();
   });
 
   it("모르는 짐작 id 는 아무 일도 하지 않는다", () => {
