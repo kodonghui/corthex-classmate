@@ -237,6 +237,9 @@ fn materials_ride_on_stdin_in_a_partial_run_and_never_on_the_command_line() {
     assert!(!argv.contains("스프링이 객체를"), "{argv}");
     assert!(!argv.contains("전사 12:03"), "{argv}");
     assert!(argv.contains("--include-partial-messages"), "{argv}");
+    // MCP 차단 옵션이 "상수에 적혀 있다" 가 아니라 **자식이 실제로 받았다** 를 봅니다.
+    // 이 줄이 빠지면 물음마다 MCP 서버가 다시 붙는 회귀를 아무도 못 잡습니다.
+    assert!(argv.contains("--strict-mcp-config"), "{argv}");
 }
 
 #[test]

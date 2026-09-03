@@ -408,6 +408,9 @@ mod tests {
         assert_eq!(SESSION_ARGS, ["--input-format", "stream-json"]);
         // 고정 인자는 그대로 물려받습니다. 부분 스트리밍이 빠지면 조각이 오지 않습니다.
         assert!(CLI_ARGS.contains(&"--include-partial-messages"));
+        // MCP 차단도 그대로 물려받습니다. 세션은 프로세스를 다시 쓰므로 이 이득이 교시마다
+        // 한 번뿐이지만, 두 제공자가 같은 인자를 쓴다는 사실은 여기서 못 박습니다.
+        assert!(CLI_ARGS.contains(&"--strict-mcp-config"));
     }
 
     #[test]
