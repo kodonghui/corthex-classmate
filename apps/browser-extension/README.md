@@ -109,7 +109,9 @@ PanelApp.tsx         useSyncExternalStore · 1초 tick · Alt+S(e.code === "KeyS
 | 파일 | 역할 |
 |---|---|
 | `src/background/router.ts` | **순수 라우터.** `chrome` 을 직접 만지지 않고 주입된 얼굴로만 움직입니다. 아래 메시지 표가 전부 여기 있습니다 |
-| `src/background/host-client.ts` | 도우미 연결 — FIFO 짝짓기 · `hello` 왕복 뒤에야 "연결됨" · 백오프 1·2·4…≤30초 · 끊긴 동안 `event.append`/`frame.store` 보관(상한 200) |
+| `src/background/host-client.ts` | 도우미 연결 — FIFO 짝짓기(모양이 다른 말은 대기열을 건드리지 않고 버림) · `hello` 왕복 뒤에야 "연결됨" · 백오프 1·2·4…≤30초 · 끊긴 동안 `event.append` 보관(상한 200). 프레임은 여기서 들고 있지 않습니다(`frame.store` 는 `resend:false`) |
+| `src/background/frame-port.ts` | 캡처 프레임이 도우미로 가는 문 — 프레임을 들고 있는 자리는 `NativeHostFrameSink` **한 통**뿐입니다. 손 시험에서 `hostStats().queued` 에 프레임이 0 인 것이 정상입니다 |
+| `src/background/session-area.ts` | 워커가 내려갔다 뜰 때 되살릴 자리 — `chrome.storage.session` **하나뿐**(`classmate.periodLog` · `classmate.routerState`). 없으면 `storage.local` 로 물러서지 않고 복원을 포기합니다(불변 원칙 §4-1: 전사 본문을 디스크에 두지 않음) |
 | `src/background/host-messages.ts` | 확장 ↔ 도우미 봉투(`ping` · `event.append` · `tutor.ask` · `tutor.retry`)와 좁힘 함수 |
 | `src/background/period-log.ts` | 이번 교시에 패널로 보낸 말 **최근 500건**(세그먼트 본문 포함). 패널을 닫았다 열면 이것을 되풀이합니다 |
 | `src/background/ids.ts` | 사건 이름표 `ev-<periodId>-s<8자리>-<순번>` · `at` 을 `+09:00` 으로 적기 |
@@ -168,8 +170,8 @@ MV3 워커는 30초를 놀면 내려갔다 다시 뜨는데, 그때마다 토큰
 |---|---|
 | 사이드패널 닫기 → 열기 | 서비스 워커와 도우미는 계속 기록합니다. 다시 열면 교시 로그 500건을 처음부터 되풀이해 화면이 복원되고, 그 **뒤에** `panel.opened` 가 붙습니다 |
 | 공유 페이지 새로고침 | content script 가 다시 주입되어 `seq` 1부터 다시 셉니다. 기록이 겹치지 않는 것은 도우미가 사건 `id` 로 중복을 걸러(`duplicate: true` = 성공) 주기 때문입니다 |
-| 도우미 강제 종료 | `onDisconnect` → 백오프 1·2·4…≤30초. 끊긴 동안의 `event.append`·`frame.store` 는 들고 있다가 `hello` 왕복이 서면 순서대로 다시 보냅니다 |
-| 서비스 워커가 30초 유휴로 내려감 | 교시 로그를 `chrome.storage.session` 에 옮겨 적어 두었다가 다시 뜰 때 되살립니다. 패널 포트도 스스로 다시 붙습니다(`attachLive`) |
+| 도우미 강제 종료 | `onDisconnect` → 백오프 1·2·4…≤30초. 끊긴 동안의 `event.append` 는 `NativeHostClient` 가, 프레임은 `NativeHostFrameSink` 가 각각 들고 있다가 `hello` 왕복이 서면 순서대로 다시 보냅니다(같은 장이 두 대기열에 담기지 않습니다) |
+| 서비스 워커가 30초 유휴로 내려감 | 교시 로그와 라우터 상태(교시 식별자 · 질문 수 · 화면 장 수 · 커넥터 · `period.started`)를 `chrome.storage.session` 에 옮겨 적어 두었다가 다시 뜰 때 되살립니다. 그래서 같은 교시에 `period.started` 가 두 번 붙지 않고, 앞 교시의 늦은 `tutor.event` push 는 새 교시에 섞지 않습니다. 패널 포트도 스스로 다시 붙습니다(`attachLive`) |
 | 패널이 30분째 닫혀 있음 | `chrome.alarms` 가 깨워 `period.ended {periodId, questionCount, frameCount}` 를 붙입니다 |
 
 `nativeMessaging` 권한이 있어도 도우미가 HKCU 에 등록돼 있지 않으면 `connectNative` 는 포트를
@@ -177,6 +179,10 @@ MV3 워커는 30초를 놀면 내려갔다 다시 뜨는데, 그때마다 토큰
 `console.error` 를 쓰지 않습니다(첫 끊김에만 `console.warn` 한 줄).
 
 ### 손 시험 갈래를 언제 지우나
+
+**실제 설치본에는 Meet 캡처를 시작하는 버튼이 아직 없습니다.** 사이드패널에도 오프스크린 문서에도
+`capture.start` 를 보내는 코드가 없고, 지금 캡처를 켜는 길은 서비스 워커 콘솔의
+`classmateCapture.start(tabId)` 하나뿐입니다(검토 2라운드에서 확인 · `docs/TASKS.md` 캡처 버튼 항목).
 
 `background.ts` 의 `chrome.action.onClicked` 리스너와 `globalThis.classmateCapture` 손잡이는
 **사이드패널에 캡처 시작/중지 버튼이 생기면 함께 지웁니다.** 지금 남겨 둔 이유는 하나뿐입니다 —
