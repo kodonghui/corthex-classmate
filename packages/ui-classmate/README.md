@@ -61,7 +61,7 @@ export type { ButtonProps, ChipGroupProps, ChipProps, CodeBlockProps, Disclosure
 - 배럴을 남긴 이유는 `src/components/*.tsx` 10개가 `"../internal/base"` 만 import 하기 때문입니다(시험이
   강제합니다). 바깥 패키지로 나가는 문이 이 파일 하나뿐이라 나중에 이름이 옮겨져도 여기만 고치면 됩니다.
 - 이름과 props 인터페이스 이름이 정본 `.d.ts` 와 글자 그대로 같아 교체가 기계적으로 끝났습니다. 그리는
-  결과도 같습니다 — 확장 e2e 스크린샷 9장이 그대로 통과했습니다.
+  결과도 같습니다 — 확장 e2e 스크린샷 14장이 그대로 통과했습니다(`docs/screenshots/README.md`).
 - `package.json` 은 `"@classmate/ui-base": "workspace:*"` 하나를 더 답니다. 대신 `lucide-react` 직접
   의존은 뺐습니다(아이콘을 ui-base 를 거쳐 쓰므로 이 패키지가 직접 부르지 않습니다).
 - `test/structure.test.ts` (1)·(1-1) 이 "그 폴더에 `index.ts` 만 있다", "배럴이 내주는 물건이 실제로

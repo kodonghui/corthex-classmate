@@ -17,13 +17,14 @@
  ① 도구 갖추기                             ⑤ dist 폴더 통째로 받기
  ② 고정 확장 id 만들기                        (USB · 사내 공유 · 압축 파일)
  ③ 실행 파일 · 확장 zip 만들기              ⑥ zip 풀어 chrome://extensions 에 로드
- ④ 왕복 확인(smoke)                        ⑦ 등록 계획 보기 → **사람이 확인** → --apply
+ ④ 왕복 확인(smoke)                        ⑦ 매니페스트 두 칸 고치기 → **사람이 확인** → reg add
       │                                     ⑧ 사이드패널 열어 확인
       └──── dist/ 네 개 파일 ──────────────▶ ⑨ 65분 리허설
 ```
 
-쓰는 PC 에는 **Rust 도 pnpm 도 필요 없습니다.** 필요한 것은 Chrome 과 Node 뿐이고,
-Node 도 등록 스크립트를 돌리는 데만 씁니다(§3-3 에 Node 없이 하는 길도 적어 두었습니다).
+쓰는 PC 에는 **Rust 도 pnpm 도 Node 도 필요 없습니다.** 옮기는 것은 `dist/` 폴더 하나뿐이고,
+등록은 매니페스트 두 칸을 고친 뒤 `reg add` 한 줄로 끝납니다(§3-3 ①). 저장소를 통째로 복제해
+`install.mjs` 로 하고 싶다면 그 PC 에만 Node 24 가 필요합니다(§3-3 ②).
 
 ---
 
@@ -47,7 +48,7 @@ Visual Studio Build Tools 는 필요 없습니다. GNU 툴체인이 자체 링�
 |---|---|---|
 | Windows | 10 1709 이상 · 11 권장 | SQLite 를 OS 안의 `winsqlite3.dll` 로 씁니다 |
 | Chrome | 최신 | Side Panel · `tabCapture` |
-| Node | 24 이상 | 등록 스크립트용. §3-3 의 `reg` 한 줄로 대신할 수도 있습니다 |
+| Node | (필요 없음) | 기본 절차 §3-3 ① 은 `reg` 한 줄이라 Node 도 저장소도 없어도 됩니다. 저장소를 복제해 §3-3 ② 를 쓰려면 24 이상 |
 
 ---
 
@@ -80,17 +81,20 @@ node installer/windows/smoke-host.mjs --exe installer/windows/dist/classmate-hos
 끝나면 `installer/windows/dist/` 에 네 개가 놓입니다.
 
 ```
-classmate-host.exe                 약 1.8 MB
-classmate-extension-dev.zip        약 3.3 MB   ← 쓰는 PC 에 얹을 것
-classmate-extension-store.zip      약 3.3 MB   ← Web Store 제출용 (지금은 안 씁니다)
-com.corthex.classmate.json         약 300 바이트
+classmate-host.exe                 2,507,917 바이트 (약 2.4 MiB)
+classmate-extension-dev.zip        3,303,993 바이트 (약 3.2 MiB)  ← 쓰는 PC 에 얹을 것
+classmate-extension-store.zip      3,303,620 바이트 (약 3.2 MiB)  ← Web Store 제출용 (지금은 안 씁니다)
+com.corthex.classmate.json         약 370 바이트
 ```
+
+크기는 2026-09-03 실측입니다. 코드가 바뀌면 함께 바뀌므로 **자릿수만 눈으로 확인하는 값**입니다.
 
 `dist/` 는 `.gitignore` 에 있어 저장소에 올라가지 않습니다. 이 폴더를 통째로 옮깁니다.
 
-> **주의** `com.corthex.classmate.json` 안의 `path` 는 **개발자 PC 의 절대 경로**입니다.
-> 쓰는 PC 에서는 §3-3 을 다시 돌려 그 PC 의 경로로 새로 만들어야 합니다. 옮긴 파일을
-> 그대로 등록하면 Chrome 이 아무 말 없이 안 붙습니다.
+> **주의** `com.corthex.classmate.json` 안의 `path` 는 **개발자 PC 의 절대 경로**이고
+> `allowed_origins` 는 개발자 PC 에서 본 확장 ID 입니다. 쓰는 PC 에서는 §3-3 ① 처럼 그 두 칸을
+> 손으로 고치거나, §3-3 ② 처럼 저장소에서 새로 만들어야 합니다. 옮긴 파일을 그대로 등록하면
+> Chrome 이 아무 말 없이 안 붙습니다.
 
 ---
 
@@ -132,48 +136,86 @@ Chrome 은 두 조각을 봅니다.
    (기본값 = ① 파일의 절대 경로)
 ```
 
-먼저 **계획만** 봅니다. 이 명령은 레지스트리를 읽지도 쓰지도 않습니다.
+**쓰는 PC 에는 저장소가 없습니다.** §2 에서 옮긴 것은 `dist/` 폴더 하나뿐이라
+`node apps/native-host/scripts/register-host.mjs …` 도 `node installer/windows/install.mjs` 도
+그 PC 에는 없습니다. 그래서 길이 둘입니다.
 
-```bash
-node apps/native-host/scripts/register-host.mjs \
-  --extension-id <chrome://extensions 에서 본 32자 ID> \
-  --exe C:/CorthexClassmate/classmate-host.exe \
-  --manifest-dir C:/CorthexClassmate
+| 길 | 쓰는 곳 | 필요한 것 |
+|---|---|---|
+| **① `reg` 한 줄 (기본)** | 옮긴 `dist/` 만 있는 PC | Node 도 저장소도 필요 없음 |
+| **② `install.mjs`** | 저장소를 통째로 복제한 PC | Node 24 + 저장소 + `pnpm install` 안 해도 됨(내장 모듈만 씁니다) |
+
+#### ① `reg` 한 줄 — 옮긴 폴더만 있는 PC (기본)
+
+옮겨 온 `com.corthex.classmate.json` 은 **개발자 PC 의 경로**를 담고 있습니다(§2 의 주의).
+텍스트 편집기로 열어 두 칸을 이 PC 값으로 고칩니다.
+
+```jsonc
+{
+  "name": "com.corthex.classmate",
+  "description": "Corthex Classmate local helper",
+  "path": "C:\\CorthexClassmate\\classmate-host.exe",   // ← 이 PC 의 exe 절대 경로
+  "type": "stdio",
+  "allowed_origins": ["chrome-extension://<32자 ID>/"]   // ← chrome://extensions 에서 본 ID
+}
 ```
 
-화면에 나온 매니페스트 내용과 `reg add` 한 줄을 **사람이 읽고 맞는지 확인한 뒤**,
-같은 명령에 `--apply` 를 붙여 실행합니다.
-
-```bash
-# ↓ 사람이 직접 실행하는 자리입니다. 자동화가 대신 누르지 않습니다.
-node apps/native-host/scripts/register-host.mjs \
-  --extension-id <32자 ID> \
-  --exe C:/CorthexClassmate/classmate-host.exe \
-  --manifest-dir C:/CorthexClassmate \
-  --apply
-```
-
-- **HKCU 만 씁니다.** 관리자 권한이 필요 없고 다른 사용자에게 영향을 주지 않습니다.
-- 실행 파일이 그 자리에 없으면 `--apply` 는 아무것도 바꾸지 않고 멈춥니다.
-- 저장소가 있는 PC 라면 위 두 줄 대신 `node installer/windows/install.mjs` /
-  `--apply` 를 써도 같습니다(id 와 exe 경로를 `extension-key.json`·`dist/` 에서 읽습니다).
-
-Node 를 깔지 않은 PC 라면, 계획에 나온 매니페스트 JSON 을 손으로 저장한 뒤 레지스트리 한 줄만
-넣어도 됩니다. **이 줄도 사람이 확인한 뒤 직접 실행합니다.**
+고친 뒤 레지스트리 한 줄을 넣습니다. **이 줄은 사람이 읽고 확인한 뒤 직접 실행합니다.**
 
 ```bat
 reg add "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.corthex.classmate" ^
   /ve /t REG_SZ /d "C:\CorthexClassmate\com.corthex.classmate.json" /f
 ```
 
+- **HKCU 만 씁니다.** 관리자 권한이 필요 없고 이 PC 의 다른 사용자에게 영향을 주지 않습니다.
+- `/ve` 는 "이름 없는 기본값" 이고, `/d` 뒤가 ① 매니페스트 파일의 절대 경로입니다.
+- 되돌리려면 `reg delete "…\com.corthex.classmate" /f` 입니다.
+
+#### ② `install.mjs` — 저장소가 있는 PC
+
+저장소를 복제해 둔 PC(개발자 PC 포함)라면 id 와 exe 경로를 `extension-key.json`·`dist/` 에서
+읽어 주므로 인자를 적지 않아도 됩니다. 먼저 **계획만** 봅니다 — 레지스트리를 건드리지 않습니다.
+
+```bash
+node installer/windows/install.mjs            # 계획만 · dist 에 매니페스트를 써 둠
+```
+
+화면에 나온 매니페스트 내용과 `reg add` 한 줄을 **사람이 읽고 맞는지 확인한 뒤** `--apply` 입니다.
+
+```bash
+# ↓ 사람이 직접 실행하는 자리입니다. 자동화가 대신 누르지 않습니다.
+node installer/windows/install.mjs --apply
+```
+
+경로를 손으로 주고 싶으면 `install.mjs` 가 안에서 부르는 스크립트를 직접 써도 같습니다.
+
+```bash
+node apps/native-host/scripts/register-host.mjs \
+  --extension-id <32자 ID> \
+  --exe C:/CorthexClassmate/classmate-host.exe \
+  --manifest-dir C:/CorthexClassmate          # --apply 를 붙이면 실제 등록
+```
+
+- 실행 파일이 그 자리에 없으면 `--apply` 는 아무것도 바꾸지 않고 멈춥니다.
+- 두 스크립트의 dry-run 은 뜻이 조금 다릅니다. `install.mjs` 는 계획을 눈으로 보라고
+  `dist/com.corthex.classmate.json` 을 **씁니다**(레지스트리는 안 건드립니다).
+  `register-host.mjs` 는 파일도 쓰지 않습니다.
+
 ### 3-4. 붙었는지 확인
+
+`smoke-host.mjs` 도 저장소 안 스크립트입니다. 저장소가 있는 PC 에서 돌립니다.
 
 ```bash
 node installer/windows/smoke-host.mjs --exe C:/CorthexClassmate/classmate-host.exe
 ```
 
 `① ping → {"type":"hello",…}` 가 나오면 실행 파일 쪽은 정상입니다.
-`② tutor.ask` 줄은 지금 병합 상태를 알려 주는 자리라 어떤 답이 와도 실패가 아닙니다.
+`② tutor.ask` 줄은 병합 상태를 보여 주는 자리라 어떤 답이 와도 실패가 아닙니다. 이 스크립트는
+`CLASSMATE_CLAUDE_CLI`·`CLASSMATE_CODEX_CLI` 를 자식 환경에서 지우고 임시 저장 폴더로 띄우므로,
+**실제 제공자 CLI 가 뜨거나 실제 교시 파일이 바뀌는 일은 없습니다**(`installer/windows/README.md` §8).
+그래서 정상 답은 `error / provider-unavailable` 입니다.
+
+저장소가 없는 PC 라면 이 걸음을 건너뛰고 아래 Chrome 쪽 확인만 합니다.
 
 Chrome 쪽 연결은 사이드패널을 열어 확인합니다. Chrome 을 **완전히 껐다 켠 뒤**
 확장 아이콘을 눌러 사이드패널을 엽니다(레지스트리는 Chrome 이 시작할 때 읽습니다).
@@ -262,15 +304,27 @@ Chrome 쪽 연결은 사이드패널을 열어 확인합니다. Chrome 을 **완
 
 ### 6-1. 등록 해제 — **대기 (사람이 확인한 뒤 실행)**
 
-```bash
-# 계획만 (아무것도 바꾸지 않습니다)
-node apps/native-host/scripts/register-host.mjs --extension-id <32자 ID> --remove
+등록과 같이 길이 둘입니다.
 
-# 실제 삭제 ← 사람이 직접
-node apps/native-host/scripts/register-host.mjs --extension-id <32자 ID> --remove --apply
+**① `reg` 한 줄 (저장소 없는 PC · 기본)** — 이 줄도 사람이 확인한 뒤 직접 실행합니다.
+
+```bat
+reg delete "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.corthex.classmate" /f
 ```
 
-저장소가 있는 PC 라면 `node installer/windows/install.mjs --remove` / `--remove --apply` 도 같습니다.
+**② 저장소가 있는 PC**
+
+```bash
+# 계획만 (아무것도 바꾸지 않습니다)
+node installer/windows/install.mjs --remove
+
+# 실제 삭제 ← 사람이 직접
+node installer/windows/install.mjs --remove --apply
+
+# 경로를 손으로 주고 싶으면
+node apps/native-host/scripts/register-host.mjs --extension-id <32자 ID> --remove [--apply]
+```
+
 `--remove` 는 **레지스트리 값만** 지웁니다. 매니페스트 파일은 남습니다.
 
 ### 6-2. 나머지
@@ -304,8 +358,10 @@ node apps/native-host/scripts/register-host.mjs --extension-id <32자 ID> --remo
 
 이 문서에서 자동화가 대신 누르지 않는 자리를 한곳에 모았습니다.
 
-- [ ] 레지스트리 실제 등록 `--apply` (§3-3)
+- [ ] 레지스트리 실제 등록 — `reg add` 한 줄(§3-3 ①) 또는 `install.mjs --apply`(§3-3 ②)
 - [ ] 레지스트리 실제 해제 `--remove --apply` (§6-1)
+- [ ] **Tiro Max 결제 여부 결정 (월 무제한)** — Real-time 공유 전사가 §4 리허설의 입력이라
+      결제 전에는 65분을 끝까지 흘려 볼 수 없습니다 (`docs/TASKS.md` 대기 항목)
 - [ ] 깨끗한 Windows 11 VM 에서 §2~§4 를 처음부터 한 번 (지금은 개발자 PC 실측만 있습니다)
 - [ ] 65분 리허설 1회와 §4-2 의 다섯 가지 기록
 - [ ] Chrome Web Store 업로드 여부 결정

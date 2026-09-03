@@ -30,7 +30,7 @@ apps/browser-extension/
 ├─ src/capture/                   Meet 캡처 파이프라인 (README 있음)
 ├─ src/lib/format-time.ts         10:32:18 형식 · "4초 전" 문구
 ├─ src/types/assets.d.ts          `*.jsonl?raw` 모듈 선언
-├─ e2e/extension.spec.ts          확장 로드 E2E — 골든 시나리오 9장면 + 스크린샷
+├─ e2e/extension.spec.ts          확장 로드 E2E — 골든 시나리오 14장면(수업 흐름 9 + 얹는 화면·폭 5) + 스크린샷
 └─ tsconfig.json · vitest.config.ts · playwright.config.ts
 ```
 
@@ -48,10 +48,17 @@ ReplayStore (replay-store.ts)
         │ getState() → { machine, now, screen, moments, choosing, chip, reply, emitted }
         ▼
 lesson-view.ts       ListeningView · DetailView — 4/5 줄 규칙 · 자료 나이 · 접힘 문구 · 절 4종
+history-view.ts      HistoryView   — 교시 묶음 · MomentRow 줄 · 바닥 안내 · "기록 중" 바닥줄
+settings-store.ts    설정 값 아홉 개 — chrome.storage.local 에서 읽고 씀
         ▼
-screens/ListeningScreen.tsx · screens/DetailScreen.tsx     ui-classmate + ui-base 컴포넌트만
+screens/  ListeningScreen.tsx      A·B·D·E — 듣는 중 · 붙잡음 · 문장 · 접힌 메모
+          DetailScreen.tsx         F      — 자세히
+          HistoryScreen.tsx        G      — 기록 (바닥줄 카운트로 들어감)
+          SettingsScreen.tsx       설정   — 헤더 설정 아이콘(settings-2)으로 들어감
+                                   넷 다 ui-classmate + ui-base 컴포넌트만 씁니다
         ▲
 PanelApp.tsx         useSyncExternalStore · 1초 tick · Alt+S(e.code === "KeyS") · window.classmateReplay
+                     얹는 화면(기록·설정)은 스토어 체크포인트가 아니라 PanelApp 이 얹습니다
 ```
 
 | 파일 | 역할 |
@@ -59,8 +66,12 @@ PanelApp.tsx         useSyncExternalStore · 1초 tick · Alt+S(e.code === "KeyS
 | `golden-bundle.ts` | fixture 묶음 로더 · 점선 낱말 `GOLDEN_TERMS`(`new`·`생성자`, fixture 에 답이 있는 것만) · 문장별 짐작 |
 | `evidence.ts` | 계약 EvidenceLevel(confirmed/partial/inferred/stale) ↔ 디자인 Evidence(verified/partial/inferred/delayed) 대응표 |
 | `clock.ts` · `transcript-lines.ts` | ISO ↔ `HH:MM:SS` · 전사 줄 나누기(점선 낱말 분리 · 도착 순 정렬) |
-| `replay-store.ts` | 위 그림의 재생기 · `CHECKPOINTS` 9종과 라벨 |
-| `lesson-view.ts` | 화면이 그릴 값 계산 · 화면 분기는 TutorState 가 아니라 `note` 축 |
+| `replay-store.ts` | 위 그림의 재생기 · `CHECKPOINTS` 9종과 라벨 · 라이브 모드 `ReplayStore.live({periodId, startMs, askPort})` |
+| `lesson-view.ts` | 듣는 중·자세히 화면이 그릴 값 계산 · 화면 분기는 TutorState 가 아니라 `note` 축 |
+| `history-view.ts` | 기록 화면(G)이 그릴 값 · `state.moments` 와 **도착한** 답에서만 만듭니다(지어낸 줄을 섞지 않으려고) |
+| `settings-store.ts` | 설정 값 아홉 개 · `chrome.storage.local` 보관소는 주입받습니다(모듈 최상위에서 `chrome` 을 만지지 않음) · 키 이름은 서비스 워커와 나눠 쓰는 고정 계약 |
+| `ports.ts` | 스토어와 바깥(라이브 어댑터 · 서비스 워커)이 만나는 자리의 **타입만** 둡니다(2라운드 고정 계약 (다)) |
+| `event-ids.ts` | 라이브 모드에서 패널이 스스로 만드는 사건·질문 id (`ev-<periodId>-x…` · `q-<periodId>-x…`) · 가운데 `x` 로 호스트가 만든 id 와 갈립니다 |
 | `replay-handle.ts` | `window.classmateReplay`(goto · 손짓) 설치/해제 |
 
 ### 재생 모드
@@ -279,7 +290,8 @@ pnpm --filter @classmate/browser-extension test
 # 타입 검사 (pnpm install 이 끝난 뒤에만 됩니다)
 pnpm --filter @classmate/browser-extension typecheck
 
-# 확장 로드 E2E — 빌드본을 Chromium 에 얹고 골든 시나리오 9장면을 확인한 뒤 docs/screenshots/ 에 저장
+# 확장 로드 E2E — 빌드본을 Chromium 에 얹고 골든 시나리오 14장면을 확인한 뒤 docs/screenshots/ 에 저장
+#   수업 흐름 9장면(체크포인트) + 얹는 화면·폭 5장면(기록 · 설정 · 전사 멈춤 · 폭 360 · 폭 520)
 npx playwright install chromium          # 처음 한 번
 pnpm --filter @classmate/browser-extension build
 pnpm --filter @classmate/browser-extension e2e
@@ -344,4 +356,4 @@ attachLive({ inbox: store, outbox: store }, chrome.runtime) ──▶ { ask, rec
 | 모의 제공자(fixture 답만 돌려줌) | **완료(도우미까지)** — 라이브에서는 `panel.ask` → `tutor.ask` → 도우미의 `TutorPipeline` → `tutor.event` 로 답이 옵니다. 도우미에 `CLASSMATE_CLAUDE_CLI` 가 없으면 `provider-unavailable` 로 답하고 패널은 `connector.status {provider, off}` 를 봅니다 |
 | `background.ts` 의 캡처 손시험 갈래 | 남음 — 패널의 캡처 시작/중지 버튼이 생기면 지웁니다(위 「손 시험 갈래를 언제 지우나」) |
 | IntelliJ MCP 연결 | 남음 — `router.pushEditor(context)` 와 `live.editor` 자리만 열어 두었습니다 |
-| ui-classmate 의 `internal/base` 복제 | 남음 — `@classmate/ui-base` barrel 로 교체 |
+| ui-classmate 의 `internal/base` 복제 | **완료** — 사본 8개는 지웠고 `src/internal/base/index.ts` 배럴 한 장만 남아 `@classmate/ui-base` 를 그대로 다시 내줍니다(`packages/ui-classmate/test/structure.test.ts` 가 "그 폴더에 `index.ts` 만 있다" 를 강제합니다) |
