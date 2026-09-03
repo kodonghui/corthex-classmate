@@ -40,6 +40,9 @@
 //!   입니다.
 //! - 모델이 낸 글을 화면 명령으로 쓰지 않습니다(불변 원칙 §4-7). 나가는 것은 JSON 문자열
 //!   하나를 해독한 **평문**뿐이고, 화면에 그리는 것은 확장의 몫입니다.
+//! - **확장은 아직 이 조각을 받지 않습니다(2026-09-03 확인).** 그래서 오늘 학생 화면에서
+//!   달라지는 것은 없고, 여기까지는 호스트 쪽 준비입니다. 자세한 자리와 후속 단위는
+//!   `src/tutor/README.md` 1절에 적어 두었습니다.
 
 use std::time::{Duration, Instant};
 
@@ -337,7 +340,14 @@ fn decode_escape(rest: &str, at: usize) -> Option<(char, usize)> {
     }
     if mark != b'u' {
         // 계약에 없는 이스케이프입니다. 모델이 낸 글이므로 죽지 않고 그 글자를 그대로 씁니다.
-        return Some((mark as char, 2));
+        //
+        // `mark` 는 **바이트**입니다. `\` 뒤에 한글·이모지처럼 여러 바이트짜리 글자가 오면
+        // (`C:\사용자`, `\문서`, `\—`) 첫 바이트만 글자로 삼고 2바이트만 건너뛰게 되어
+        // 다음에 볼 자리가 글자 한가운데에 서고, 그 자리를 자르는 순간 스레드가 죽습니다.
+        // 그러면 이 회차에 `answer.*` 가 영영 오지 않고 그 뒤 질문도 전부 실패합니다.
+        // `at` 은 `\`(ASCII 1바이트)를 가리키므로 `at + 1` 은 언제나 글자 경계입니다.
+        let ch = rest[at + 1..].chars().next()?;
+        return Some((ch, 1 + ch.len_utf8()));
     }
 
     let first = hex4(rest, at + 2)?;
@@ -460,6 +470,38 @@ mod tests {
         feed(&mut stream, &["\"안\\u00b7밖\"}"]);
         assert_eq!(stream.conclusion(), "따옴표 \"안·밖");
         assert!(stream.is_closed());
+    }
+
+    /// `\` 뒤에 여러 바이트 글자가 오는 회차입니다. 예전에는 여기서 스레드가 죽었습니다.
+    ///
+    /// 모델이 `C:\사용자` 처럼 역슬래시를 escape 하지 않고 한글 앞에 두면, 계약에 없는
+    /// 이스케이프 갈래가 첫 **바이트**만 글자로 삼고 2바이트만 건너뛰어 다음에 볼 자리가
+    /// 글자 한가운데에 섰습니다. 그 자리를 자르는 순간 `answer.*` 가 영영 오지 않고
+    /// 그 교시의 이후 질문이 전부 실패했습니다. 두 모양 다 여기서 못 박습니다.
+    #[test]
+    fn a_backslash_before_a_multibyte_letter_does_not_break_the_round() {
+        // (가) 한 조각 안에 `\` 와 한글이 같이 온 경우입니다.
+        let mut one = ConclusionStream::new();
+        feed(
+            &mut one,
+            &[r#"{"conclusion":"경로는 C:\사용자 폴더요","evidence":"confirmed"}"#],
+        );
+        assert_eq!(one.conclusion(), "경로는 C:사용자 폴더요");
+        assert!(one.is_closed());
+
+        // (나) `\` 가 조각 끝이고 한글이 다음 조각 머리인 경우입니다.
+        let mut split = ConclusionStream::new();
+        feed(&mut split, &[r#"{"conclusion":"경로는 C:\"#]);
+        assert_eq!(split.conclusion(), "경로는 C:", "`\\` 만 왔으면 기다립니다");
+
+        feed(&mut split, &[r#"문서 폴더요"}"#]);
+        assert_eq!(split.conclusion(), "경로는 C:문서 폴더요");
+        assert!(split.is_closed());
+
+        // 줄표·이모지처럼 더 긴 글자도 같은 길로 지나갑니다.
+        let mut wide = ConclusionStream::new();
+        feed(&mut wide, &[r#"{"conclusion":"앞\—뒤\🙂끝"}"#]);
+        assert_eq!(wide.conclusion(), "앞—뒤🙂끝");
     }
 
     #[test]
