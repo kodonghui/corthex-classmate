@@ -22,12 +22,20 @@
 //   밀려납니다. 그래서 `startStuck: false` 로 열고, 이어 물었을 때만(`pinOn`) 바닥으로 내려가
 //   그때부터 따라갑니다 — 고치기 전 `[view.threads.length]` 효과가 하던 일과 같습니다.
 //
-// 함정: `el.scrollTop = …` 도 `scroll` 이벤트를 냅니다
+// 함정 ①: `el.scrollTop = …` 도 `scroll` 이벤트를 냅니다
 //   그 이벤트를 "사용자가 움직였다" 로 읽으면 첫 자동 스크롤 직후에 바로 풀려 버립니다.
 //   그래서 이 훅은 "누가 움직였나" 를 아예 묻지 않습니다. `scroll` 이 오면 **지금 바닥에서 얼마나
 //   떨어져 있나** 만 재고 그 거리로만 붙임과 풀림을 정합니다. 우리가 만든 스크롤은 언제나 바닥에
 //   닿으므로 거리가 0 이고, 따라서 스스로 풀리는 일이 구조적으로 없습니다. 깃발도 타이머도 쓰지
 //   않습니다. (`use-stick-to-bottom.test.ts` 의 네 번째 시험이 이것을 지킵니다.)
+//
+// 함정 ②: `scroll` 은 **늦게** 옵니다
+//   브라우저는 `scrollTop` 을 먼저 바꾸고 `scroll` 은 다음 그리기 단계에 냅니다. 그 사이(≤1프레임)에
+//   전사 한 조각이 도착하면 `stuckRef` 는 아직 true 라서, 그대로 따라가면 사용자가 방금 올린 것을
+//   도로 바닥으로 끌어내립니다. 뒤늦게 온 `scroll` 은 이미 되돌아간 뒤라 거리 0 을 재고, 그래서
+//   풀리지도 않습니다 — 사용자의 첫 손짓 한 번이 통째로 삼켜집니다.
+//   그래서 layout 효과도 `stuckRef` 만 믿지 않고 **거리를 다시 재고** 나서 따라갑니다. 두 자리가
+//   같은 잣대(거리)를 쓰므로 규칙은 여전히 하나입니다. (여덟째 시험)
 
 import type * as React from "react";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -100,19 +108,37 @@ export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOp
     if (el === null) return;
     const height = el.scrollHeight;
 
-    // `pinOn` 이 바뀌었으면(이어 물었으면) 여기서 다시 붙습니다.
-    if (pinOn !== pinRef.current) {
+    // `pinOn` 이 바뀌었으면(이어 물었으면) 여기서 다시 붙습니다. 이때는 사용자가 위를 읽고 있던
+    // 중이라도 내려가는 것이 뜻이므로, 아래의 거리 재기를 건너뜁니다.
+    const pinned = pinOn !== pinRef.current;
+    if (pinned) {
       pinRef.current = pinOn;
       stuckRef.current = true;
       everStuckRef.current = true;
       setStuck(true);
     }
 
-    if (stuckRef.current) {
+    // 따라가기 전에 상자가 **지금 어디 있는지** 를 다시 잽니다(맨 위 "함정 ②").
+    // 기준 높이는 직전 높이와 지금 높이 중 **작은 쪽** 입니다. 자란 경우에는 직전 높이라야 사용자가
+    // 올린 만큼이 거리로 잡히고, 줄어든 경우에는 지금 높이라야 브라우저가 잘라 준 `scrollTop` 을
+    // "사용자가 올렸다" 로 잘못 읽지 않습니다.
+    const base = Math.min(heightRef.current, height);
+    const atBottom = pinned || base - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_SLACK_PX;
+
+    if (stuckRef.current && atBottom) {
       el.scrollTop = height;
       setHasNew(false);
-    } else if (everStuckRef.current && height > heightRef.current) {
-      setHasNew(true);
+    } else if (stuckRef.current) {
+      // 아직 배달되지 않은 사용자의 스크롤을 존중합니다. 뒤늦게 올 `scroll` 도 같은 거리를 재므로
+      // 여기서 미리 풀어 두어야 두 자리의 결론이 어긋나지 않습니다.
+      stuckRef.current = false;
+      setStuck(false);
+    } else if (everStuckRef.current) {
+      // 켤 때만이 아니라 끌 때도 거리로 봅니다. 풀린 채 내용이 **줄면**(같은 문단의 더 짧은 판이
+      // 오는 경우가 실제로 있습니다) 아래에 볼 것이 없는데도 알림이 켜진 채로 남기 때문입니다.
+      const gap = height - el.scrollTop - el.clientHeight;
+      if (gap <= STICK_TO_BOTTOM_SLACK_PX) setHasNew(false);
+      else if (height > heightRef.current) setHasNew(true);
     }
     heightRef.current = height;
   });

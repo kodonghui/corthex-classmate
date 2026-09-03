@@ -111,9 +111,15 @@ function mount(begins = true): void {
   installMetrics(box());
 }
 
-/** 새 내용으로 다시 그립니다. 높이는 글자 수에서 나옵니다. `pins` 는 자세히 화면의 이어 물은 줄 수입니다. */
+/**
+ * 새 내용으로 다시 그립니다. 높이는 글자 수에서 나옵니다. `pins` 는 자세히 화면의 이어 물은 줄 수입니다.
+ *
+ * 내용이 **줄면** 브라우저는 `scrollTop` 을 새 최대값으로 잘라 줍니다. happy-dom 은 배치가 없어서
+ * 그 일을 하지 않으므로 여기서 흉내 냅니다 — 안 그러면 줄어드는 쪽 시험이 브라우저와 달라집니다.
+ */
 function paint(lines: readonly string[], pins = 0): void {
   contentH = heightOf(lines);
+  top = Math.min(top, bottomTop());
   const current = root;
   if (current === null) throw new Error("먼저 mount() 하세요");
   act(() => current.render(createElement(Probe, { lines, pins })));
@@ -250,6 +256,62 @@ describe("useStickToBottom", () => {
     // 답이 한 글자씩 길어집니다. 줄 수는 그대로입니다.
     paint([...BASE, "이어 물은 질문 · 10:33:02 — 스프링은 그 자리를 컨테이너가 채워 줍니다"], 1);
     expect(box().scrollTop).toBe(bottomTop());
+    expect(handle().hasNew).toBe(false);
+  });
+
+  it("8. `scroll` 이 아직 안 왔어도 사용자가 올려 둔 자리를 렌더가 되돌리지 않는다", () => {
+    mount();
+    paint(BASE);
+    expect(box().scrollTop).toBe(bottomTop());
+
+    // 브라우저는 `scrollTop` 을 먼저 바꾸고 `scroll` 은 다음 그리기 단계에 냅니다. 그 틈에 전사 한
+    // 조각이 도착하는 상황입니다 — 그래서 여기서는 일부러 `scroll` 을 내지 않습니다.
+    box().scrollTop = 0;
+    paint([...BASE, ARRIVED]);
+    expect(box().scrollTop).toBe(0);
+    expect(handle().stuck).toBe(false);
+
+    // 뒤늦게 온 `scroll` 도 같은 거리를 재므로 결론이 어긋나지 않습니다.
+    act(() => box().dispatchEvent(new Event("scroll")));
+    expect(handle().stuck).toBe(false);
+
+    // 풀린 뒤에 더 들어오면 그때부터 알립니다.
+    paint([...BASE, ARRIVED, "여섯째 문장까지 이어서 들어왔습니다"]);
+    expect(box().scrollTop).toBe(0);
+    expect(handle().hasNew).toBe(true);
+  });
+
+  it("9. 풀린 채로 내용이 줄어 아래에 볼 것이 없어지면 알림이 꺼진다", () => {
+    mount();
+    paint(BASE);
+    scrollTo(0);
+    paint([...BASE, ARRIVED]);
+    expect(handle().hasNew).toBe(true);
+
+    // 같은 문단의 더 짧은 판이 와서 내용이 상자 안에 다 들어왔습니다. `scrollTop` 은 이미 0 이라
+    // 브라우저가 자를 것도 없고 `scroll` 도 오지 않습니다. 그래도 알림은 사라져야 합니다.
+    paint(BASE.slice(0, 1));
+    expect(bottomTop()).toBe(0);
+    expect(box().scrollTop).toBe(0);
+    expect(handle().hasNew).toBe(false);
+  });
+
+  it("10. 붙어 있는 채로 내용이 줄어도(브라우저가 scrollTop 을 잘라도) 풀리지 않는다", () => {
+    mount();
+    paint(BASE);
+    expect(box().scrollTop).toBe(bottomTop());
+
+    // 줄어든 만큼 `scrollTop` 이 잘립니다. 그 차이를 "사용자가 올렸다" 로 읽으면 여기서 풀립니다.
+    // (임계값보다 많이 줄어야 뜻이 있는 시험이라 그것부터 확인합니다.)
+    expect(heightOf(BASE) - heightOf(BASE.slice(0, 3))).toBeGreaterThan(STICK_TO_BOTTOM_SLACK_PX);
+    paint(BASE.slice(0, 3));
+    expect(handle().stuck).toBe(true);
+    expect(box().scrollTop).toBe(bottomTop());
+
+    // 붙어 있으니 다시 자랄 때도 따라갑니다.
+    paint([...BASE.slice(0, 3), ARRIVED]);
+    expect(box().scrollTop).toBe(bottomTop());
+    expect(handle().stuck).toBe(true);
     expect(handle().hasNew).toBe(false);
   });
 });
