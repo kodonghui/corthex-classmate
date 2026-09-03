@@ -81,14 +81,11 @@ crate 는 `classmate-host`, 모듈 경로는 `classmate_host::tutor` 입니다.
 - 이름표는 `classmate_transport::PUSH_TUTOR_DELTA` 하나입니다. 파이프라인이 이름을 직접
   적지 않는지는 transport 의 `the_tutor_pipeline_names_its_pushes_from_this_table` 이 봅니다.
 
-> **아직 화면에는 닿지 않습니다(2026-09-03 확인).** 조각은 호스트 밖으로 제대로 나가지만
-> 확장 쪽에는 받는 자리가 없습니다. `apps/browser-extension/src/background/host-messages.ts`
-> 의 `isTutorEventPush` 는 `type === "tutor.event"` 만 받고, `isHostReply` 의 여섯 갈래에도
-> `tutor.delta` 가 없어서 `host-client.ts` 의 `receive` 가 조각마다 "모양이 다른 말" 로
-> 경고를 찍고 버립니다. 대기열은 어긋나지 않습니다(`isHostReply` 가 엄격해서 답으로 소비되지
-> 않습니다). 그러니 지금 이 절이 주는 것은 **화면에 보이는 변화가 아니라 호스트 쪽 준비**입니다.
-> 켜려면 확장 쪽에 `TUTOR_DELTA`·`isTutorDeltaPush` 를 더하고 `receive` 의 push 갈래를
-> `isTutorEventPush(m) || isTutorDeltaPush(m)` 로 넓히는 후속 단위가 필요합니다.
+> **화면까지 이어졌습니다(2026-09-03).** 확장 쪽에 `TUTOR_DELTA`·`isTutorDeltaPush` 가
+> 생겼고 `host-client.ts` 의 `receive` 가 push 갈래를 넓혀 조각을 `onDelta` 로 보냅니다.
+> 라우터는 `live.delta` 로 패널에만 흘리고 교시 로그·저장소에는 붙이지 않습니다. 패널은
+> `questionId` 별 마지막 조각만 들고 `seq` 가 같거나 작으면 버리며(되감기 금지), 답 사건이
+> 오면 그 칸을 비웁니다. `isHostReply` 는 그대로 엄격합니다 — 조각을 답으로 먹지 않습니다.
 
 ### 화면 그림은 경로 한 줄로 나갑니다
 
