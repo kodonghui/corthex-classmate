@@ -1,9 +1,10 @@
+import type { TranscriptSegment } from "@classmate/contracts";
 import { parseIso } from "@classmate/tutor-core";
 import { describe, expect, it } from "vitest";
 
 import { atClock, clockOfIso, clockOfMs } from "./clock";
 import { GOLDEN_BUNDLE, GOLDEN_TERMS } from "./golden-bundle";
-import { segmentKeyOfWord, splitTerms, toTranscriptLines } from "./transcript-lines";
+import { dedupeSegments, segmentKeyOfWord, splitTerms, toTranscriptLines } from "./transcript-lines";
 
 describe("splitTerms", () => {
   it("낱말이 없으면 글 전체가 한 조각이다", () => {
@@ -68,5 +69,68 @@ describe("시계 문구", () => {
   it("같은 날 다른 시각을 만든다", () => {
     expect(atClock("2026-09-02T10:31:35+09:00", "10:32:16")).toBe("2026-09-02T10:32:16+09:00");
     expect(() => atClock("2026-09-02T10:31:35+09:00", "1032")).toThrow(RangeError);
+  });
+});
+
+describe("dedupeSegments", () => {
+  /** 시험용 조각 하나. 도착 시각은 seq 순서를 따라 1초씩 벌립니다. */
+  function seg(
+    id: string,
+    seq: number,
+    text: string,
+    state: "partial" | "final" = "final",
+  ): TranscriptSegment {
+    return {
+      id,
+      periodId: "2026-09-03-p2",
+      seq,
+      text,
+      state,
+      arrivedAt: `2026-09-03T11:2${seq}:00+09:00`,
+      source: "tiro-share",
+    };
+  }
+
+  it("같은 seq 는 더 나아간 것 하나만 남긴다 (final 이 partial 을 이긴다)", () => {
+    const kept = dedupeSegments([
+      seg("ts-058", 58, "여기서 뭔가를", "partial"),
+      seg("ts-058b", 58, "여기서 뭔가를 또 타이핑을", "final"),
+    ]);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.state).toBe("final");
+  });
+
+  it("같은 seq 의 partial 끼리는 긴 글이 이긴다", () => {
+    const kept = dedupeSegments([
+      seg("ts-058", 58, "여기서 뭔가를", "partial"),
+      seg("ts-058", 58, "여기서 뭔가를 또 타이핑을", "partial"),
+    ]);
+    expect(kept.map((item) => item.text)).toEqual(["여기서 뭔가를 또 타이핑을"]);
+  });
+
+  it("id 가 다른 진행 중 partial 이 같은 문단이면 한 줄만 남는다", () => {
+    const kept = dedupeSegments([
+      seg("ts-058", 58, "컨테이너가 대신 만들어 주면", "partial"),
+      seg("ts-2026-09-03-p2-partial-57", 99, "컨테이너가 대신 만들어 주면 우리는", "partial"),
+    ]);
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.text).toBe("컨테이너가 대신 만들어 주면 우리는");
+  });
+
+  it("글이 똑같은 두 partial 도 한 줄만 남는다", () => {
+    const kept = dedupeSegments([
+      seg("ts-058", 58, "같은 문단이에요", "partial"),
+      seg("ts-2026-09-03-p2-partial-57", 99, "같은 문단이에요", "partial"),
+    ]);
+    expect(kept).toHaveLength(1);
+  });
+
+  it("확정된 줄끼리는 서로 지우지 않는다", () => {
+    const kept = dedupeSegments([seg("ts-001", 1, "네"), seg("ts-002", 2, "네 그렇습니다")]);
+    expect(kept).toHaveLength(2);
+  });
+
+  it("골든 fixture 는 그대로 지나간다", () => {
+    expect(dedupeSegments(GOLDEN_BUNDLE.transcript)).toHaveLength(GOLDEN_BUNDLE.transcript.length);
   });
 });

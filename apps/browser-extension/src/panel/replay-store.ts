@@ -44,10 +44,19 @@ import type {
 import type { Effect, Env, MachineInput, MachineState } from "@classmate/tutor-core";
 import { createEnv, formatIso, initialState, parseIso, sealSnapshot, transition } from "@classmate/tutor-core";
 
+import {
+  ASK_EASIER,
+  ASK_WHY,
+  clampAskQuestion,
+  followUpQuestion,
+  normalizeAskText,
+} from "./ask-text";
 import { atClock, clockOfIso, clockOfMs } from "./clock";
 import { makeIdToken, panelEventId, panelQuestionId } from "./event-ids";
 import type { GoldenBundle } from "./golden-bundle";
 import { emptyBundle, GOLDEN_TERMS, guessesForLine } from "./golden-bundle";
+import type { Guess } from "./guesses";
+import { guessesFromSentence } from "./guesses";
 import type { AskPort, AskRequest, PanelInbox, PanelOutbox } from "./ports";
 import { segmentKeyOfWord, toTranscriptLines } from "./transcript-lines";
 
@@ -70,25 +79,58 @@ export interface Choosing {
   readonly lineId: Id;
   readonly time: string;
   readonly guess: string | null;
+  /**
+   * 이 문장에 내놓은 짐작들입니다. **재생은 fixture 의 것, 라이브는 붙잡은 문장에서 만든 것**입니다.
+   * 여기 담아 두는 까닭은 고른 뒤에 다시 만들면 라이브에서 그 사이 전사가 바뀔 수 있어서입니다.
+   */
+  readonly options: readonly Guess[];
 }
 
-/** 자세히 화면에서 후속 칩을 눌러 받은 답 한 덩어리입니다. */
+/** 자세히 화면에서 후속 칩을 눌러 받은 답 한 덩어리입니다(fixture 재생 전용). */
 export interface Reply {
   readonly q: string;
   readonly a: string;
   readonly reason: string;
 }
 
+/**
+ * 자세히 화면에서 **이어 물은** 질문 하나입니다(자유 입력창 · 후속 칩).
+ *
+ *     붙잡은 순간 q1 ─┬─ 후속 f1 "더 쉽게"          waiting → answered
+ *                     └─ 후속 f2 "그럼 언제 써요?"   waiting → failed
+ *
+ * 상태기계에는 넣지 않습니다. 넣으면 `stuck` 이 지금 보고 있는 질문을 새 질문으로 갈아치워
+ * 자세히 화면이 통째로 준비 중으로 돌아갑니다.
+ */
+export interface FollowUpAsk {
+  /** 이 후속 질문의 id 입니다. 답 사건이 이 id 로 돌아옵니다. */
+  readonly id: Id;
+  /** 어느 붙잡은 순간에 이어 묻는지입니다. */
+  readonly parentId: Id;
+  /** 화면에 보일 질문 줄입니다(사람이 친 문장 또는 칩 라벨). */
+  readonly question: string;
+  /** "10:32:41" */
+  readonly time: string;
+  readonly state: "waiting" | "answered" | "failed";
+  readonly answerId: Id | null;
+  /** 실패했을 때 보여 줄 문구입니다. 그 밖에는 null 입니다. */
+  readonly message: string | null;
+}
+
 export interface ReplayState {
   readonly machine: MachineState;
   /** 재생기의 시계(ms). 기계의 `now` 와 같거나 앞섭니다. */
   readonly now: number;
+  /** 라이브 모드인지입니다. 화면이 fixture 전용 길과 라이브 길을 가릅니다. */
+  readonly live: boolean;
   readonly screen: Screen;
   readonly moments: readonly Moment[];
   readonly choosing: Choosing | null;
   /** 지금 메모에서 고른 칩 id. 없으면 null 입니다. */
   readonly chip: string | null;
   readonly reply: Reply | null;
+  /** 붙잡은 순간 id → 그 순간에 이어 물은 후속들(물은 순서). */
+  readonly threads: Readonly<Record<Id, readonly FollowUpAsk[]>>;
   /** 기계가 기록에 남기라고 한 사건(emit)입니다. id 는 여기서 붙입니다. */
   readonly emitted: readonly SessionEvent[];
   /** 밖에서 들어온 사건 전부입니다(fixture · 모의 제공자). */
@@ -202,6 +244,25 @@ function numberOf(payload: SessionEvent["payload"], key: string): number | null 
 /** 낱말 하나를 붙잡았을 때 밖으로 보낼 질문 문장입니다. */
 export function questionTextOf(word: string | undefined): string {
   return word === undefined || word.length === 0 ? "이 부분이 무슨 뜻이에요?" : `${word} 이 무슨 뜻이에요?`;
+}
+
+/** 후속 칩 id 앞에 붙는 이름표입니다. `model-0` 은 답의 `chips[0]` 입니다. */
+export const MODEL_CHIP_PREFIX = "model-";
+
+/** 후속 스레드의 답을 기다리는 동안 보이는 한 줄입니다. */
+export const FOLLOW_UP_WAITING_LINE = "답을 만들고 있어요";
+
+/** `#stuck` 이 받는 값입니다. 화면에 보일 낱말과 밖으로 보낼 질문을 따로 둡니다. */
+interface StuckOptions {
+  readonly lineId: Id;
+  /** 메모 제목·기록 줄에 보일 낱말입니다. */
+  readonly term: string;
+  readonly segKey: string | null;
+  readonly time: string;
+  /** 밖으로 보낼 질문 문장입니다. 없으면 낱말로 만듭니다. */
+  readonly question?: string;
+  /** `AskRequest.word` 로 실을 낱말입니다. 문장 전체를 붙잡았으면 없습니다. */
+  readonly word?: string;
 }
 
 export class ReplayStore implements PanelInbox, PanelOutbox {
@@ -346,17 +407,31 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       this.#absorb(event);
     }
     const received = [...this.#state.received, event];
+    const threads = this.#threadsAfter(event);
+    if (threads !== null) {
+      // 자세히 화면에서 이어 물은 후속의 답입니다. 그 줄만 갈아 끼우고 기계는 건드리지 않습니다.
+      this.#set({ received, threads });
+      return;
+    }
     if (event.type === "state.changed") {
       // 기계가 스스로 낼 답입니다. 기록만 하고 입력으로 쓰지 않습니다.
       this.#set({ received });
       return;
     }
 
-    if (event.type === "question.asked" && this.#hasMomentFor(stringOf(event.payload, "questionId"))) {
+    if (
+      event.type === "question.asked" &&
+      (this.#hasMomentFor(stringOf(event.payload, "questionId")) ||
+        this.#isThreadQuestion(stringOf(event.payload, "questionId")))
+    ) {
       // 호스트가 `tutor.ask` 를 받고 자기 `question.asked` 기록본을 되민 것입니다. 사건 id 가 달라
       // `#seen` 을 통과하지만 질문은 패널이 이미 붙잡은 그 질문입니다. 순간을 하나 더 만들면
       // 바닥줄이 "기록 2" 가 되고 기록 화면에 같은 줄이 둘 생깁니다. 기계에도 다시 넣지 않습니다 —
       // `catchQuestion` 이 메모를 준비 자리로 되돌리고 준비 시계를 다시 걸기 때문입니다.
+      //
+      // 이어 물은 후속(`threads`)의 되밀기도 여기서 멈춥니다. 후속은 붙잡은 순간이 아니라서
+      // `#hasMomentFor` 로는 걸리지 않는데, 그대로 두면 없는 순간이 하나 생기고 기계가 자세히
+      // 화면을 통째로 준비 중으로 되돌립니다.
       this.#set({ received });
       return;
     }
@@ -384,13 +459,27 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   }
 
   /**
-   * 전사 한 조각을 받습니다. 같은 id 는 무시하고 `seq` 순서를 지킵니다.
-   * 넣은 뒤 바로 `lines()` 에 새 줄이 보이도록 시계를 도착 시각까지 밉니다.
+   * 전사 한 조각을 받습니다. `seq` 순서를 지킵니다.
+   *
+   * **같은 id 가 다시 오면 갈아 끼웁니다.** 공유 페이지 관찰기는 한 문단에 id 를 미리 잡아 두고
+   * 진행 중에는 `partial`, 확정되면 `final` 로 같은 id 를 다시 보냅니다(2026-09-03 실측에서
+   * `ts-058` 이 partial·partial·final 로 세 번 왔습니다). 예전처럼 무시하면 화면에 맨 처음의
+   * 짧은 토막만 남고 완성된 문장이 영영 오지 않습니다.
+   *
+   * 되돌아가는 것만 막습니다: 이미 `final` 인 줄을 `partial` 로 덮지 않습니다.
    */
   pushSegment(segment: TranscriptSegment): void {
-    if (this.#bundle.transcript.some((item) => item.id === segment.id)) return;
-    const transcript = [...this.#bundle.transcript, segment].sort((a, b) => a.seq - b.seq);
-    this.#bundle = { ...this.#bundle, transcript };
+    const index = this.#bundle.transcript.findIndex((item) => item.id === segment.id);
+    if (index >= 0) {
+      const before = this.#bundle.transcript[index];
+      if (before === undefined || (before.state === "final" && segment.state !== "final")) return;
+      const transcript = [...this.#bundle.transcript];
+      transcript[index] = segment;
+      this.#bundle = { ...this.#bundle, transcript: transcript.sort((a, b) => a.seq - b.seq) };
+    } else {
+      const transcript = [...this.#bundle.transcript, segment].sort((a, b) => a.seq - b.seq);
+      this.#bundle = { ...this.#bundle, transcript };
+    }
     this.#moveClock(parseIso(segment.arrivedAt));
     this.#touch();
   }
@@ -440,26 +529,40 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   /** 점선 낱말을 눌렀습니다. 그 자리에서 바로 질문이 됩니다. */
   catchTerm(lineId: Id, segmentIndex: number, word: string): void {
     if (this.#state.screen !== "home") return;
-    this.#stuck(lineId, word, `${lineId}:${segmentIndex}`, clockOfMs(this.#state.now));
+    this.#stuck({
+      lineId,
+      term: word,
+      segKey: `${lineId}:${segmentIndex}`,
+      time: clockOfMs(this.#state.now),
+      word,
+    });
   }
 
   /** 문장을 통째로 눌렀거나 Alt+S 를 눌렀습니다. 짐작 목록을 보여 줍니다. */
   catchSentence(lineId: Id): void {
     if (this.#state.screen !== "home") return;
-    this.#set({ choosing: { lineId, time: clockOfMs(this.#state.now), guess: null } });
+    this.#set({
+      choosing: { lineId, time: clockOfMs(this.#state.now), guess: null, options: this.#guessesFor(lineId) },
+    });
   }
 
   /** 짐작 하나를 골랐습니다. 그 낱말을 붙잡은 것으로 보고 묻습니다. */
   chooseGuess(guessId: string): void {
     const choosing = this.#state.choosing;
     if (choosing === null) return;
-    const guess = guessesForLine(choosing.lineId).find((item) => item.id === guessId);
+    const guess = choosing.options.find((item) => item.id === guessId);
     if (guess === undefined) return;
     const line = this.lines().find((item) => item.id === choosing.lineId);
     const segKey = line === undefined ? null : segmentKeyOfWord(line, guess.term);
     this.#set({ choosing: null });
-    // 밖으로 보낼 질문 문장은 짐작 라벨 그대로입니다("왜 new로 직접 만들면 안 되는지").
-    this.#stuck(choosing.lineId, guess.term, segKey, choosing.time, guess.label);
+    this.#stuck({
+      lineId: choosing.lineId,
+      term: guess.term,
+      segKey,
+      time: choosing.time,
+      question: guess.question,
+      ...(guess.word === undefined ? {} : { word: guess.word }),
+    });
   }
 
   /** 짐작 고르기를 그만둡니다. */
@@ -495,25 +598,40 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     this.#apply({ kind: "detail", now: this.#state.now });
   }
 
-  /** 자세히 화면의 후속 칩입니다. 답은 fixture 의 details 에서만 꺼냅니다. */
-  followUp(followUpId: string): void {
-    const answerId = this.#state.machine.answerId;
-    const answer = answerId === null ? undefined : this.#bundle.answers[answerId];
-    if (answer === undefined) return;
-    const details = answer.details ?? {};
-    let reply: Reply;
-    if (followUpId === "why") {
-      reply =
-        details.why === undefined
-          ? { q: "왜 필요한데?", a: answer.conclusion, reason: "이 답에는 이유 절이 아직 없어 결론을 그대로 보여요" }
-          : { q: "왜 필요한데?", a: details.why, reason: "수업 자료에서 확인한 내용이에요" };
-    } else if (followUpId === "recent") {
-      const now = answer.nowLine === undefined ? "같은 내용을 이어가고 있어요" : answer.nowLine.replace(/^지금 · /, "");
-      reply = { q: "방금 내용", a: `선생님은 지금 ${now}`, reason: "전사 마지막 문장 기준" };
-    } else {
-      reply = { q: "더 쉽게", a: answer.conclusion, reason: "더 쉬운 판이 아직 없어 결론을 그대로 보여요" };
+  /**
+   * 자세히 화면의 후속 칩입니다.
+   *
+   *   재생(fixture)  답은 fixture 의 `details` 에서만 꺼내 `reply` 한 덩어리로 보여 줍니다(예전 그대로).
+   *   라이브         "방금 내용" 만 그 자리에서 만들고, 나머지는 **진짜 후속 질문**으로 밖에 묻습니다.
+   *                  모델이 답에 실어 준 칩(`answer.chips`)은 `model-0` · `model-1` 로 들어옵니다.
+   */
+  followUp(parentId: Id, followUpId: string): void {
+    const answer = this.#answerOf(parentId);
+    if (answer === null) return;
+    if (this.#live === null) {
+      this.#set({ reply: this.#fixtureReply(answer, followUpId) });
+      return;
     }
-    this.#set({ reply });
+    if (followUpId === "recent") {
+      // 전사 마지막 문장으로 만드는 로컬 문구입니다. 모델에게 물을 것이 없습니다.
+      this.#set({ reply: this.#recentReply(answer) });
+      return;
+    }
+    const chip = this.#modelChip(answer, followUpId);
+    const label = chip ?? (followUpId === "why" ? "왜 필요한데?" : "더 쉽게");
+    const ask = chip ?? (followUpId === "why" ? ASK_WHY : ASK_EASIER);
+    this.#ask(parentId, label, followUpQuestion(answer.conclusion, ask));
+  }
+
+  /**
+   * 자세히 화면 맨 아래 입력창에 적어 보냈습니다(정본 §3-7 "텍스트 입력창은 여기 맨 아래에만").
+   * 빈 글과 공백뿐인 글은 보내지 않습니다.
+   */
+  askTyped(parentId: Id, text: string): void {
+    const typed = normalizeAskText(text);
+    if (typed.length === 0) return;
+    const answer = this.#answerOf(parentId);
+    this.#ask(parentId, typed, followUpQuestion(answer?.conclusion ?? null, typed));
   }
 
   // ── 체크포인트 ───────────────────────────────────────────────────────────────
@@ -613,11 +731,13 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     return {
       machine: initialState(now),
       now,
+      live: this.#live !== null,
       screen: "home",
       moments: [],
       choosing: null,
       chip: null,
       reply: null,
+      threads: {},
       emitted: [],
       received: [],
     };
@@ -871,16 +991,187 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     );
   }
 
-  #stuck(lineId: Id, word: string, segKey: string | null, time: string, label?: string): void {
+  #stuck({ lineId, term, segKey, time, question, word }: StuckOptions): void {
     const now = this.#state.now;
     const questionId = this.#nextQuestionId();
     const snapshot = this.#seal(formatIso(now));
-    this.#remember(questionId, "confused", label ?? questionTextOf(word), word);
+    this.#remember(questionId, "confused", question ?? questionTextOf(word), word);
     this.#set({
-      moments: [...this.#state.moments, { questionId, lineId, term: word, time, segKey, ages: snapshot.ages }],
+      moments: [...this.#state.moments, { questionId, lineId, term, time, segKey, ages: snapshot.ages }],
       chip: null,
     });
-    this.#apply({ kind: "stuck", now, questionId, questionKind: "confused", snapshot, word });
+    this.#apply({
+      kind: "stuck",
+      now,
+      questionId,
+      questionKind: "confused",
+      snapshot,
+      ...(word === undefined ? {} : { word }),
+    });
+  }
+
+  /**
+   * 이 줄을 통째로 붙잡았을 때 내놓을 짐작입니다.
+   *
+   *   재생(fixture)  `golden-bundle` 이 줄마다 적어 둔 짐작(정본 시나리오)
+   *   라이브         붙잡은 문장과 **바로 앞 2문장**에서 그 자리에서 만든 짐작(`guesses.ts`)
+   *
+   * 라이브에서 fixture 짐작을 쓰면 선생님이 하지도 않은 말이 "혹시 이게 막혔나요?" 에 뜹니다.
+   */
+  #guessesFor(lineId: Id): Guess[] {
+    if (this.#live === null) {
+      return guessesForLine(lineId).map((guess) => ({
+        id: guess.id,
+        label: guess.label,
+        term: guess.term,
+        // 재생 모드의 질문 문장은 예전처럼 짐작 라벨 그대로입니다(골든 장면을 지킵니다).
+        question: guess.label,
+        word: guess.term,
+      }));
+    }
+    const ordered = [...this.#bundle.transcript].sort((a, b) => a.seq - b.seq);
+    const index = ordered.findIndex((item) => item.id === lineId);
+    if (index < 0) return guessesFromSentence("");
+    const sentence = ordered[index]?.text ?? "";
+    const before = ordered
+      .slice(Math.max(0, index - 2), index)
+      .reverse()
+      .map((item) => item.text);
+    return guessesFromSentence(sentence, before);
+  }
+
+  /** 그 붙잡은 순간에 지금까지 도착한 답입니다. 없으면 null 입니다. */
+  #answerOf(questionId: Id): Answer | null {
+    if (this.#state.machine.questionId === questionId && this.#state.machine.answerId !== null) {
+      return this.#bundle.answers[this.#state.machine.answerId] ?? null;
+    }
+    for (let i = this.#state.received.length - 1; i >= 0; i -= 1) {
+      const event = this.#state.received[i];
+      if (event === undefined) continue;
+      if (event.type !== "answer.completed" && event.type !== "answer.recovered") continue;
+      if (stringOf(event.payload, "questionId") !== questionId) continue;
+      const answerId = stringOf(event.payload, "answerId");
+      if (answerId !== null) return this.#bundle.answers[answerId] ?? null;
+    }
+    return null;
+  }
+
+  /** 재생 모드의 후속 칩 답입니다. fixture 의 `details` 에 있는 것만 씁니다. */
+  #fixtureReply(answer: Answer, followUpId: string): Reply {
+    const details = answer.details ?? {};
+    if (followUpId === "why") {
+      return details.why === undefined
+        ? { q: "왜 필요한데?", a: answer.conclusion, reason: "이 답에는 이유 절이 아직 없어 결론을 그대로 보여요" }
+        : { q: "왜 필요한데?", a: details.why, reason: "수업 자료에서 확인한 내용이에요" };
+    }
+    if (followUpId === "recent") return this.#recentReply(answer);
+    return { q: "더 쉽게", a: answer.conclusion, reason: "더 쉬운 판이 아직 없어 결론을 그대로 보여요" };
+  }
+
+  /** "방금 내용" — 답의 진행 줄이 있으면 그것, 없으면 전사 마지막 문장으로 만듭니다. */
+  #recentReply(answer: Answer): Reply {
+    const last = [...this.#bundle.transcript].sort((a, b) => a.seq - b.seq).at(-1);
+    const line =
+      answer.nowLine !== undefined
+        ? answer.nowLine.replace(/^지금 · /, "")
+        : (last?.text ?? "같은 내용을 이어가고 있어요");
+    return { q: "방금 내용", a: `선생님은 지금 ${line}`, reason: "전사 마지막 문장 기준" };
+  }
+
+  /** `model-0` 같은 칩 id 를 답이 실어 준 칩 문장으로 바꿉니다. 그 칩이 없으면 null 입니다. */
+  #modelChip(answer: Answer, followUpId: string): string | null {
+    if (!followUpId.startsWith(MODEL_CHIP_PREFIX)) return null;
+    const index = Number.parseInt(followUpId.slice(MODEL_CHIP_PREFIX.length), 10);
+    if (!Number.isInteger(index)) return null;
+    return answer.chips[index] ?? null;
+  }
+
+  /**
+   * 후속 질문 하나를 만들어 기록에 남기고 밖으로 묻습니다.
+   *
+   *     askTyped · followUp ─▶ #ask ─┬─▶ threads[parentId] 에 대기 줄 하나
+   *                                  ├─▶ emit question.asked (kind "free")
+   *                                  └─▶ AskPort.ask({ kind: "free", question, snapshot })
+   *
+   * 상태기계는 건드리지 않습니다. 그래서 자세히 화면의 본 답이 그대로 남아 있고, 같은 순간에
+   * 몇 번이든 이어 물을 수 있습니다. 답 사건은 `pushEvent` 가 이 스레드로 되돌려 줍니다.
+   */
+  #ask(parentId: Id, label: string, questionText: string): void {
+    const now = this.#state.now;
+    const at = formatIso(now);
+    const questionId = this.#nextQuestionId();
+    const snapshot = this.#seal(at);
+    const question: Question = {
+      id: questionId,
+      periodId: this.#bundle.periodId,
+      askedAt: at,
+      kind: "free",
+      text: label,
+      snapshot,
+    };
+    this.#bundle = { ...this.#bundle, questions: { ...this.#bundle.questions, [questionId]: question } };
+    const thread: FollowUpAsk = {
+      id: questionId,
+      parentId,
+      question: label,
+      time: clockOfMs(now),
+      state: "waiting",
+      answerId: null,
+      message: null,
+    };
+    const asked: SessionEvent = {
+      id: this.#nextEventId(),
+      periodId: this.#bundle.periodId,
+      at,
+      type: "question.asked",
+      payload: { questionId, kind: "free", question },
+    };
+    this.#set({
+      threads: { ...this.#state.threads, [parentId]: [...(this.#state.threads[parentId] ?? []), thread] },
+      emitted: [...this.#state.emitted, asked],
+      reply: null,
+    });
+    for (const listener of this.#emitListeners) listener(asked);
+    if (this.#live === null) return;
+    // 재생 모드에는 물을 곳이 없습니다. 대기 줄만 남기고 끝냅니다(골든 장면 13).
+    this.#askedIds.add(questionId);
+    this.#watching.set(questionId, now + this.#askTimeoutMs);
+    this.#live.askPort?.ask({
+      questionId,
+      provider: this.#env.provider,
+      kind: "free",
+      question: clampAskQuestion(questionText),
+      snapshot,
+    });
+  }
+
+  /**
+   * 후속 스레드의 답 사건이면 그 스레드만 갈아 끼운 새 지도를 돌려줍니다. 아니면 null 입니다.
+   * 기계에는 넣지 않습니다 — 후속 답이 본 답 자리를 차지하면 자세히 화면이 통째로 바뀝니다.
+   */
+  #threadsAfter(event: SessionEvent): Readonly<Record<Id, readonly FollowUpAsk[]>> | null {
+    if (!ANSWER_EVENT_TYPES.includes(event.type)) return null;
+    const questionId = stringOf(event.payload, "questionId");
+    if (questionId === null) return null;
+    const parentId = Object.keys(this.#state.threads).find((key) =>
+      (this.#state.threads[key] ?? []).some((item) => item.id === questionId),
+    );
+    if (parentId === undefined) return null;
+    const rows = (this.#state.threads[parentId] ?? []).map<FollowUpAsk>((item) => {
+      if (item.id !== questionId) return item;
+      if (event.type === "answer.completed" || event.type === "answer.recovered") {
+        return { ...item, state: "answered", answerId: stringOf(event.payload, "answerId"), message: null };
+      }
+      if (event.type === "answer.failed") {
+        return {
+          ...item,
+          state: "failed",
+          message: stringOf(event.payload, "message") ?? ASK_TIMEOUT_MESSAGE,
+        };
+      }
+      return { ...item, state: "waiting", message: null };
+    });
+    return { ...this.#state.threads, [parentId]: rows };
   }
 
   #seal(askedAt: IsoDateTime): QuestionSnapshot {
@@ -896,6 +1187,12 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   /** 그 질문의 순간을 이미 만들어 두었는지입니다. 같은 질문은 순간 하나뿐입니다. */
   #hasMomentFor(questionId: string | null): boolean {
     return questionId !== null && this.#state.moments.some((item) => item.questionId === questionId);
+  }
+
+  /** 이어 물은 후속 질문인지입니다. 후속은 붙잡은 순간(Moment)을 만들지 않습니다. */
+  #isThreadQuestion(questionId: string | null): boolean {
+    if (questionId === null) return false;
+    return Object.values(this.#state.threads).some((rows) => rows.some((item) => item.id === questionId));
   }
 
   /**

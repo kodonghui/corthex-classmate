@@ -20,10 +20,11 @@ import { describe, expect, it } from "vitest";
 
 import { ID_TOKEN_LENGTH, makeIdToken, panelEventId, panelQuestionId } from "./event-ids";
 import { emptyBundle, LIVE_EDITOR_PLACEHOLDER_ID } from "./golden-bundle";
+import { WHOLE_SENTENCE_LABEL } from "./guesses";
 import { historyView } from "./history-view";
-import { listeningView, sourceAges } from "./lesson-view";
+import { detailViewFor, listeningView, sourceAges } from "./lesson-view";
 import type { AskRequest } from "./ports";
-import { ASK_TIMEOUT_MESSAGE, questionTextOf, ReplayStore } from "./replay-store";
+import { ASK_TIMEOUT_MESSAGE, MODEL_CHIP_PREFIX, questionTextOf, ReplayStore } from "./replay-store";
 
 const PERIOD = "2026-09-02-p9";
 const TOKEN = "testtok0";
@@ -257,13 +258,42 @@ describe("붙잡기 → AskPort", () => {
     expect(asks[0]?.snapshot?.ages.editorSec).toBeNull();
   });
 
-  it("문장을 붙잡아 짐작을 고르면 짐작 라벨을 그대로 묻는다", () => {
+  it("문장을 붙잡으면 짐작을 fixture 가 아니라 그 문장에서 만든다", () => {
+    const { store } = rig();
+    store.pushSegment(segment(1, "여기서 @EnableWebSecurity 를 붙여 줍니다", 4));
+    store.pushSegment(segment(2, "뭔가를 또 타이핑을 해 줘야 되는데 쉬는 시간 다녀오세요", 5));
+    store.catchSentence("ts-live-002");
+    const options = store.getState().choosing?.options ?? [];
+    // fixture 의 짐작("왜 new로 직접 만들면 안 되는지")은 라이브에 나오지 않습니다.
+    expect(options.map((item) => item.label)).toEqual([
+      "@EnableWebSecurity 가 뭔지",
+      WHOLE_SENTENCE_LABEL,
+    ]);
+  });
+
+  it("짐작을 고르면 라벨이 아니라 문장이 담긴 진짜 질문을 묻는다", () => {
     const { store, asks } = rig();
-    store.pushSegment(segment(1, "객체를 직접 new로 만들면 강하게 묶여요", 5));
+    store.pushSegment(segment(1, "context.getBean 으로 꺼내 씁니다", 5));
     store.catchSentence("ts-live-001");
     store.chooseGuess("g1");
     expect(asks).toHaveLength(1);
-    expect(asks[0]).toMatchObject({ word: "new", question: "왜 new로 직접 만들면 안 되는지" });
+    expect(asks[0]?.word).toBe("context.getBean");
+    expect(asks[0]?.question).toBe(
+      '선생님이 방금 "context.getBean 으로 꺼내 씁니다" 이라고 했는데, context.getBean 가 무엇인지 지금 수업 맥락에서 설명해 주세요',
+    );
+    // 메모 제목은 고른 낱말입니다.
+    expect(store.getState().moments[0]?.term).toBe("context.getBean");
+  });
+
+  it("문장 전체 짐작은 낱말 없이 문장을 묻는다", () => {
+    const { store, asks } = rig();
+    store.pushSegment(segment(1, "이제 생성 책임을 컨테이너에 맡겨 볼게요", 5));
+    store.catchSentence("ts-live-001");
+    expect(store.getState().choosing?.options.map((item) => item.id)).toEqual(["gs"]);
+    store.chooseGuess("gs");
+    expect(asks[0]?.word).toBeUndefined();
+    expect(asks[0]?.question).toContain("이 문장이 무슨 뜻인지");
+    expect(store.getState().moments[0]?.term).toBe("문장");
   });
 
   it("밖에서 온 question.asked 도 본문을 번들에 담고 한 번 묻는다", () => {
@@ -619,5 +649,267 @@ describe("수업 중 설정 바꾸기(updateEnv)", () => {
     bench.tickAt(9);
     bench.tickAt(40);
     expect(store.getState().machine.note).toBe("folded");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+describe("같은 문단이 다시 올 때", () => {
+  it("같은 id 의 전사는 갈아 끼우고 final 이 partial 로 되돌아가지 않는다", () => {
+    const { store } = rig();
+    store.pushSegment({ ...segment(1, "여기서 뭔가를", 5), state: "partial" });
+    store.pushSegment({ ...segment(1, "여기서 뭔가를 또 타이핑을 해 줘야 되는데", 6), state: "partial" });
+    expect(store.bundle.transcript).toHaveLength(1);
+    expect(store.bundle.transcript[0]?.text).toBe("여기서 뭔가를 또 타이핑을 해 줘야 되는데");
+
+    store.pushSegment(segment(1, "여기서 뭔가를 또 타이핑을 해 줘야 되는데 쉬는 시간 다녀오세요", 7));
+    expect(store.bundle.transcript[0]?.state).toBe("final");
+    // 확정된 뒤에 늦게 온 partial 은 무시합니다.
+    store.pushSegment({ ...segment(1, "여기서", 8), state: "partial" });
+    expect(store.bundle.transcript[0]?.text).toBe("여기서 뭔가를 또 타이핑을 해 줘야 되는데 쉬는 시간 다녀오세요");
+    expect(home(store).lines).toHaveLength(1);
+  });
+
+  it("진행 중 partial 줄과 같은 문단의 세그먼트가 함께 있어도 한 줄만 그린다", () => {
+    const { store } = rig();
+    // 확정 전 문단은 관찰기의 세그먼트(ts-live-001)와 tiro.partial 줄(다른 id) 두 길로 옵니다.
+    store.pushSegment({ ...segment(1, "컨테이너가 대신 만들어 주면", 5), state: "partial" });
+    store.pushSegment({
+      ...segment(1, "컨테이너가 대신 만들어 주면 우리는", 6),
+      id: `ts-${PERIOD}-partial-0`,
+      state: "partial",
+    });
+    const lines = home(store).lines;
+    expect(lines).toHaveLength(1);
+    expect(lines[0]?.segments.map((item) => item.text).join("")).toBe("컨테이너가 대신 만들어 주면 우리는");
+  });
+});
+
+describe("자세히 화면에서 이어 묻기", () => {
+  /** 낱말 하나를 붙잡고 답까지 받아 자세히 화면을 연 자리입니다. */
+  function opened(): { bench: Rig; parentId: string } {
+    const bench = rig();
+    bench.store.pushSegment(segment(1, "객체를 직접 new로 만들면 강하게 묶여요", 5));
+    bench.store.catchTerm("ts-live-001", 1, "new");
+    const parentId = bench.store.getState().machine.questionId ?? "";
+    bench.store.pushEvent(
+      event("ev-x-100", 8, "answer.completed", {
+        questionId: parentId,
+        answerId: "ans-live-001",
+        evidence: "confirmed",
+        provider: "mock",
+        answer: answerBody("ans-live-001", parentId, "new 는 만들 책임까지 떠안는 말이에요", 8),
+      }),
+    );
+    bench.store.openDetail();
+    return { bench, parentId };
+  }
+
+  function threadsOf(store: ReplayStore, questionId: string) {
+    const state = store.getState();
+    return detailViewFor(store.bundle, state, store.lines(state.now), questionId)?.threads ?? [];
+  }
+
+  it("적어 보내면 kind free 로 나가고 앞선 답의 결론이 한 줄 맥락으로 붙는다", () => {
+    const { bench, parentId } = opened();
+    const { store, asks } = bench;
+    store.askTyped(parentId, "  그럼 언제 써요?  ");
+
+    expect(asks).toHaveLength(2);
+    expect(asks[1]).toMatchObject({ kind: "free", questionId: "q-2026-09-02-p9-xtesttok0-002" });
+    expect(asks[1]?.word).toBeUndefined();
+    expect(asks[1]?.question).toBe(
+      '앞선 답은 "new 는 만들 책임까지 떠안는 말이에요" 이었어요. 이어서 물어요 — 그럼 언제 써요?',
+    );
+    // 봉인은 지금 자료로 새로 뜹니다.
+    expect(asks[1]?.snapshot?.transcriptSegmentIds).toEqual(["ts-live-001"]);
+
+    const threads = threadsOf(store, parentId);
+    expect(threads).toHaveLength(1);
+    expect(threads[0]).toMatchObject({ question: "그럼 언제 써요?", loading: true, failure: null });
+    // 본 답과 화면은 그대로입니다(상태기계를 건드리지 않습니다).
+    expect(store.getState().machine.answerId).toBe("ans-live-001");
+    expect(store.getState().machine.note).toBe("detail");
+  });
+
+  it("빈 글과 공백뿐인 글은 보내지 않는다", () => {
+    const { bench, parentId } = opened();
+    bench.store.askTyped(parentId, "   ");
+    bench.store.askTyped(parentId, "");
+    expect(bench.asks).toHaveLength(1);
+    expect(threadsOf(bench.store, parentId)).toHaveLength(0);
+  });
+
+  it("후속 답이 오면 그 줄만 답이 되고 본 답은 그대로다", () => {
+    const { bench, parentId } = opened();
+    const { store } = bench;
+    store.askTyped(parentId, "그럼 언제 써요?");
+    const followId = "q-2026-09-02-p9-xtesttok0-002";
+    store.pushEvent(
+      event("ev-x-101", 12, "answer.completed", {
+        questionId: followId,
+        answerId: "ans-live-002",
+        evidence: "confirmed",
+        provider: "mock",
+        answer: answerBody("ans-live-002", followId, "테스트에서 직접 만들 때는 그대로 써요", 12),
+      }),
+    );
+    const threads = threadsOf(store, parentId);
+    expect(threads[0]).toMatchObject({ loading: false, conclusion: "테스트에서 직접 만들 때는 그대로 써요" });
+    expect(threads[0]?.evidence.length).toBeGreaterThan(0);
+    expect(store.getState().machine.answerId).toBe("ans-live-001");
+  });
+
+  it("후속 답이 60초 안 오면 그 줄만 멈춤 안내가 된다", () => {
+    const { bench, parentId } = opened();
+    bench.store.askTyped(parentId, "그럼 언제 써요?");
+    bench.tickAt(75);
+    const threads = threadsOf(bench.store, parentId);
+    expect(threads[0]?.failure).toBe(ASK_TIMEOUT_MESSAGE);
+    expect(threads[0]?.loading).toBe(false);
+    // 본 답은 멈추지 않았습니다.
+    expect(bench.store.getState().machine.note).toBe("detail");
+  });
+
+  it("여러 번 이어 물을 수 있고 순서대로 쌓인다", () => {
+    const { bench, parentId } = opened();
+    bench.store.askTyped(parentId, "첫 번째 질문이에요");
+    bench.store.askTyped(parentId, "두 번째 질문이에요");
+    expect(threadsOf(bench.store, parentId).map((item) => item.question)).toEqual([
+      "첫 번째 질문이에요",
+      "두 번째 질문이에요",
+    ]);
+  });
+
+  it("이어 물은 question.asked 를 밖으로 흘린다", () => {
+    const { bench, parentId } = opened();
+    const seen: SessionEvent[] = [];
+    bench.store.subscribeEmitted((item) => seen.push(item));
+    bench.store.askTyped(parentId, "그럼 언제 써요?");
+    const asked = seen.find((item) => item.type === "question.asked");
+    expect(asked?.payload["kind"]).toBe("free");
+    expect((asked?.payload["question"] as { text?: string } | undefined)?.text).toBe("그럼 언제 써요?");
+  });
+});
+
+describe("후속 칩", () => {
+  function withChips(): { bench: Rig; parentId: string } {
+    const bench = rig();
+    bench.store.pushSegment(segment(1, "객체를 직접 new로 만들면 강하게 묶여요", 5));
+    bench.store.catchTerm("ts-live-001", 1, "new");
+    const parentId = bench.store.getState().machine.questionId ?? "";
+    bench.store.pushEvent(
+      event("ev-x-110", 8, "answer.completed", {
+        questionId: parentId,
+        answerId: "ans-live-001",
+        evidence: "confirmed",
+        provider: "mock",
+        answer: {
+          ...answerBody("ans-live-001", parentId, "짧은 결론이에요", 8),
+          chips: ["enableAspectJAutoProxy가 정확히 뭘 켜는 거예요?", "AOP 프록시가 왜 필요해요?"],
+        },
+      }),
+    );
+    bench.store.openDetail();
+    return { bench, parentId };
+  }
+
+  function detailOf(store: ReplayStore, questionId: string) {
+    const state = store.getState();
+    return detailViewFor(store.bundle, state, store.lines(state.now), questionId);
+  }
+
+  it("모델이 준 칩이 자세히 화면의 후속 칩으로 함께 보인다", () => {
+    const { bench, parentId } = withChips();
+    const labels = detailOf(bench.store, parentId)?.followUps.map((item) => item.label) ?? [];
+    expect(labels).toEqual([
+      "더 쉽게",
+      "왜 필요한데?",
+      "방금 내용",
+      "enableAspectJAutoProxy가 정확히 뭘 켜는 거예요?",
+      "AOP 프록시가 왜 필요해요?",
+    ]);
+  });
+
+  it("더 쉽게와 왜 필요한데? 는 진짜 질문을 보내고 기다리는 줄을 남긴다", () => {
+    const { bench, parentId } = withChips();
+    bench.store.followUp(parentId, "easier");
+    expect(bench.asks[1]?.question).toBe(
+      '앞선 답은 "짧은 결론이에요" 이었어요. 이어서 물어요 — 방금 답을 더 쉽게 다시 설명해 주세요',
+    );
+    bench.store.followUp(parentId, "why");
+    expect(bench.asks[2]?.question).toContain("이게 왜 필요한지 지금 수업 맥락에서");
+    const view = detailOf(bench.store, parentId);
+    expect(view?.threads.map((item) => item.question)).toEqual(["더 쉽게", "왜 필요한데?"]);
+    expect(view?.threads.every((item) => item.loading)).toBe(true);
+    // 예전처럼 결론을 다시 붙이는 고정 문구는 남기지 않습니다.
+    expect(view?.reply).toBeNull();
+  });
+
+  it("모델 칩을 누르면 그 문장을 그대로 묻는다", () => {
+    const { bench, parentId } = withChips();
+    bench.store.followUp(parentId, `${MODEL_CHIP_PREFIX}0`);
+    expect(bench.asks[1]?.question).toContain("enableAspectJAutoProxy가 정확히 뭘 켜는 거예요?");
+    expect(detailOf(bench.store, parentId)?.threads[0]?.question).toBe(
+      "enableAspectJAutoProxy가 정확히 뭘 켜는 거예요?",
+    );
+  });
+
+  it("방금 내용은 밖에 묻지 않고 전사 마지막 문장으로 답한다", () => {
+    const { bench, parentId } = withChips();
+    bench.store.pushSegment(segment(2, "이제 생성자 주입으로 넘어갑니다", 9));
+    bench.store.followUp(parentId, "recent");
+    expect(bench.asks).toHaveLength(1);
+    expect(bench.store.getState().reply?.a).toBe("선생님은 지금 이제 생성자 주입으로 넘어갑니다");
+  });
+});
+
+describe("이어 물은 질문의 되밀기", () => {
+  it("호스트가 후속 question.asked 를 되밀어도 붙잡은 순간이 늘지 않고 자세히가 그대로다", () => {
+    const bench = rig();
+    const { store } = bench;
+    store.pushSegment(segment(1, "객체를 직접 new로 만들면 강하게 묶여요", 5));
+    store.catchTerm("ts-live-001", 1, "new");
+    const parentId = store.getState().machine.questionId ?? "";
+    store.pushEvent(
+      event("ev-x-120", 8, "answer.completed", {
+        questionId: parentId,
+        answerId: "ans-live-001",
+        evidence: "confirmed",
+        provider: "mock",
+        answer: answerBody("ans-live-001", parentId, "짧은 결론이에요", 8),
+      }),
+    );
+    store.openDetail();
+    store.askTyped(parentId, "그럼 언제 써요?");
+    const followId = "q-2026-09-02-p9-xtesttok0-002";
+
+    // 도우미가 tutor.ask 를 받고 자기 기록본을 되밉니다(사건 id 가 다릅니다).
+    store.pushEvent(
+      event("ev-host-0100", 9, "question.asked", {
+        questionId: followId,
+        kind: "free",
+        question: {
+          id: followId,
+          periodId: PERIOD,
+          askedAt: at(9),
+          kind: "free",
+          text: "그럼 언제 써요?",
+          snapshot: {
+            transcriptSegmentIds: ["ts-live-001"],
+            ages: { transcriptSec: 4, screenSec: null, editorSec: null },
+          },
+        },
+      }),
+    );
+
+    const state = store.getState();
+    // 후속은 붙잡은 순간이 아닙니다 — 바닥줄 "기록 N" 과 기록 화면이 늘지 않습니다.
+    expect(state.moments).toHaveLength(1);
+    expect(home(store).footer.count).toBe(1);
+    // 자세히 화면도 그대로입니다(기계가 준비 중으로 되돌아가지 않습니다).
+    expect(state.machine.questionId).toBe(parentId);
+    expect(state.machine.note).toBe("detail");
+    expect(state.received.some((item) => item.id === "ev-host-0100")).toBe(true);
   });
 });

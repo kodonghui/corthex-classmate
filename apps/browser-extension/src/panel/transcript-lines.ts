@@ -48,6 +48,45 @@ function byArrival(a: TranscriptSegment, b: TranscriptSegment): number {
   return gap !== 0 ? gap : a.seq - b.seq;
 }
 
+/** 둘 중 더 나아간 조각입니다. 확정(final)이 이기고, 같은 등급이면 더 긴 글이 이깁니다. */
+function moreAdvanced(a: TranscriptSegment, b: TranscriptSegment): TranscriptSegment {
+  if (a.state !== b.state) return a.state === "final" ? a : b;
+  return b.text.length > a.text.length ? b : a;
+}
+
+/**
+ * 같은 문단이 두 줄로 보이는 것을 막습니다.
+ *
+ * 공유 페이지에서 한 문단은 **두 가지 길**로 패널에 옵니다.
+ *
+ *     진행 중  tiro.partial  → id `ts-<교시>-partial-<번호>`  ┐ 같은 문단인데
+ *     확정 전  tiro.segment  → id `ts-058` (state partial)   ┘ id 가 다릅니다
+ *     확정     tiro.segment  → id `ts-058` (state final)
+ *
+ * 2026-09-03 실측에서 같은 문단이 패널에 두 번 그려졌습니다. 두 가지로 거릅니다.
+ *
+ *   ① `seq` 가 같으면 더 나아간 것 하나만 남깁니다(final > partial, 같으면 긴 글).
+ *   ② 남은 `partial` 중, 다른 줄의 글이 그 글로 시작하면(자라는 중인 같은 문단) 버립니다.
+ *
+ * 확정된 줄끼리는 서로 지우지 않습니다 — 짧은 문장이 우연히 다른 문장의 앞머리와 같아도
+ * `final` 은 ②의 대상이 아닙니다.
+ */
+export function dedupeSegments(segments: readonly TranscriptSegment[]): TranscriptSegment[] {
+  const bySeq = new Map<number, TranscriptSegment>();
+  for (const segment of segments) {
+    const before = bySeq.get(segment.seq);
+    bySeq.set(segment.seq, before === undefined ? segment : moreAdvanced(before, segment));
+  }
+  // 긴 글부터 훑으며 담습니다. 글이 같은 두 조각도 뒤엣것 하나만 빠지도록 id 로 순서를 못 박습니다.
+  const ordered = [...bySeq.values()].sort((a, b) => b.text.length - a.text.length || (a.id < b.id ? -1 : 1));
+  const kept: TranscriptSegment[] = [];
+  for (const segment of ordered) {
+    if (segment.state !== "final" && kept.some((other) => other.text.startsWith(segment.text))) continue;
+    kept.push(segment);
+  }
+  return kept;
+}
+
 /**
  * `untilMs` 까지 도착한 조각을 시간순 줄로 만듭니다. 시각은 말한 시각(spokenAt)이 있으면 그것,
  * 없으면 도착 시각입니다.
@@ -57,8 +96,7 @@ export function toTranscriptLines(
   terms: readonly string[],
   untilMs: number,
 ): TranscriptLine[] {
-  return segments
-    .filter((segment) => parseIso(segment.arrivedAt) <= untilMs)
+  return dedupeSegments(segments.filter((segment) => parseIso(segment.arrivedAt) <= untilMs))
     .sort(byArrival)
     .map((segment) => ({
       id: segment.id,
