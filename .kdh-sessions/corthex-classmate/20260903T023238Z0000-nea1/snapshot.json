@@ -1,0 +1,34 @@
+{
+  "active_run_refs": [],
+  "blockers": [],
+  "conv_hooks": {
+    "reason": "KDH_HOOK_STATUS_CMD is not set; compatibility-retired hook status probe is disabled",
+    "status": "disabled"
+  },
+  "created_at": "2026-09-03T02:32:38+00:00",
+  "cwd": "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate",
+  "excluded": [
+    "secrets, shell history, tmux scrollback, in-memory tool state, raw provider stdout"
+  ],
+  "git": {
+    "branch": "main",
+    "head": "812f846929a4250c4770e621c2ddc123a2f36ceb",
+    "status_short": ""
+  },
+  "next_action": "3라운드 워커 A(batch-3/live-quality: partial 중복·UTC 시각·기록 바닥줄·selector-broken 진단)와 B(batch-3/panel-ask: 짐작 실데이터화·자세히 텍스트 입력창·후속 칩 실호출)의 보고를 받아 opus 검토 → main 에 --no-ff 병합 → 전체 검증(pnpm test/typecheck/build/e2e · cargo test) → 로컬 커밋 → 대시보드 재배포",
+  "recovery_files": [
+    {
+      "bytes": 5901,
+      "path": "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate\\AGENTS.md",
+      "sha256": "65098fdbaa5d9a2cfd0c5a7618fc41f38f763a4ba4bf8249fa6603740e58fc16"
+    },
+    {
+      "bytes": 11,
+      "path": "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate\\CLAUDE.md",
+      "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"
+    }
+  ],
+  "schema": "kdh.session.v1",
+  "session_id": "corthex-classmate",
+  "snapshot_id": "20260903T023238Z0000-nea1"
+}
