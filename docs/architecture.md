@@ -1,7 +1,12 @@
-# Corthex Classmate — 구조 (2라운드 병합 뒤, 2026-09-03)
+# Corthex Classmate — 구조 (7라운드 병합 뒤, 2026-09-03)
 
-Phase 2 2라운드(사이드패널 4화면 · 서비스 워커 · 튜터 파이프라인 · 설치 묶음)를 병합한 시점의 구조입니다. "지금 있는 것" 과 "남은 것(사람 확인 · 3라운드)" 을 구분해 적습니다.
+Phase 2 2라운드(사이드패널 4화면 · 서비스 워커 · 튜터 파이프라인 · 설치 묶음) 위에
+3~7라운드(질문 경로 · 라이브 품질 · 대화 칸 · 조각 스트리밍 · Meet 화면 한 장)를 얹은 시점의 구조입니다.
+"지금 있는 것" 과 "남은 것(사람 확인 · 다음 라운드)" 을 구분해 적습니다.
 정본 결정은 `docs/DECISIONS.md`, 계약은 `packages/contracts`(고정) 입니다.
+
+**여기에는 시험 건수·장 수·파일 크기 같은 숫자를 적지 않습니다.** 손으로 적은 수는 실측이
+바뀔 때마다 뒤처집니다(`docs/retrospective.md` §5-4). 그 숫자는 `docs/WORKLOG.md` 의 검증 출력에만 둡니다.
 
 ## 1. 한눈에
 
@@ -28,17 +33,17 @@ Phase 2 2라운드(사이드패널 4화면 · 서비스 워커 · 튜터 파이�
 
 ## 2. 패키지 지도
 
-| 자리 | 역할 | 시험 |
-|---|---|---|
-| `packages/contracts` | JSON Schema 8종(전사 세그먼트 · 화면 프레임 · 편집기 문맥 · 질문 · 답 · 세션 사건 등) + 생성 타입. `frozen.sha256` 로 고정. 제품 코드는 `import type` 만 | 57 |
-| `packages/design-tokens` | 디자인 정본 토큰 CSS(변수 196개) · 글꼴은 npm 번들 · `tokens.ts` 생성물 | 17 |
-| `packages/ui-base` | 기본 부품(Button · Chip · Disclosure · CodeBlock · Evidence · Icon 선별 맵 31 …) | 74 |
-| `packages/ui-classmate` | 수업 부품 10개(TranscriptFlow · MarginNote · GuessList · NowLine · SourceFooter · AnswerCard …). 기본 요소는 `@classmate/ui-base` barrel(2라운드에 `internal/base` 복제 삭제) | 78 |
-| `packages/tutor-core` | 순수 TS 상태기계 · 봉인 · 접힘 타이머 · 오류→대기→복구 | 71 |
-| `packages/report-ui` | 세션 번들 → `period-<n>.html` + `hub.html` 정적 생성(React 템플릿, `dangerouslySetInnerHTML` 0) | 74 |
-| `apps/browser-extension` | 사이드패널 4화면(`src/panel`) · 서비스 워커 판단(`src/background`) · 패널 어댑터(`src/live`) · Tiro 커넥터(`src/tiro`) · Meet 캡처(`src/capture`) · E2E · 정본 비교 스크립트 | 411 + E2E 16 |
-| `apps/native-host` | 루트 `classmate-host`(Router · `src/store` · `src/tutor` 파이프라인) + `crates/transport` + `crates/providers` | 254 |
-| `installer/windows` | `cargo build --release` → `dist/classmate-host.exe` · 확장 zip(dev/store) · 고정 확장 id(공개키만) · 레지스트리 등록 계획(dry-run) · 스모크 · `docs/first-class.md` | 57 |
+| 자리 | 역할 |
+|---|---|
+| `packages/contracts` | JSON Schema 8종(전사 세그먼트 · 화면 프레임 · 편집기 문맥 · 질문 · 답 · 세션 사건 등) + 생성 타입. `frozen.sha256` 로 고정. 제품 코드는 `import type` 만 |
+| `packages/design-tokens` | 디자인 정본 토큰 CSS · 글꼴은 npm 번들 · `tokens.ts` 생성물 |
+| `packages/ui-base` | 기본 부품(Button · Chip · Disclosure · CodeBlock · Evidence · Icon 선별 맵 …) |
+| `packages/ui-classmate` | 수업 부품(TranscriptFlow · MarginNote · GuessList · NowLine · SourceFooter · AnswerCard …). 기본 요소는 `@classmate/ui-base` barrel(2라운드에 `internal/base` 복제 삭제) |
+| `packages/tutor-core` | 순수 TS 상태기계 · 봉인 · 접힘 타이머 · 오류→대기→복구 |
+| `packages/report-ui` | 세션 번들 → `period-<n>.html` + `hub.html` 정적 생성(React 템플릿, `dangerouslySetInnerHTML` 0) |
+| `apps/browser-extension` | 사이드패널 4화면(`src/panel`) · 서비스 워커 판단(`src/background`) · 패널 어댑터(`src/live`) · Tiro 커넥터(`src/tiro`) · Meet 캡처(`src/capture`) · E2E · 정본 비교 스크립트 |
+| `apps/native-host` | 루트 `classmate-host`(Router · `src/store` · `src/tutor` 파이프라인) + `crates/transport` + `crates/providers` |
+| `installer/windows` | `cargo build --release` → `dist/classmate-host.exe` · 확장 zip(dev/store) · 고정 확장 id(공개키만) · 레지스트리 등록 계획(dry-run) · 스모크 · `docs/first-class.md` |
 
 ## 3. 골든 시나리오의 흐름 — "왜 new로 직접 만들면 안 돼요?"
 
@@ -95,11 +100,13 @@ DELAYED_CHECK 는 골격입니다(`docs/TASKS.md` 보류 항목). 전이표는 `
 | `tutor.ask {periodId, questionId, kind, word?, question?, provider, snapshot}` | `tutor.accepted {periodId, questionId}` | 교시마다 `TutorPipeline` 하나 · CLI 는 `CLASSMATE_CLAUDE_CLI` 로만 |
 | `tutor.retry {periodId, questionId}` | `tutor.accepted` | 받은 적 없는 질문이면 `unknown-question` |
 | (자발 push) | `tutor.event {periodId, event}` | `question.asked`(호스트 기록본) · `answer.completed/failed/queued/recovered` · `connector.status(provider)` — `tutor.ask` 전에는 0건 |
+| (자발 push) | `tutor.delta {periodId, questionId, seq, chars, text?}` | 답이 만들어지는 **동안** 흐르는 조각. 사건이 아니라서 SQLite 에 담지 않고, 라우터가 `live.delta` 로 패널에 흘립니다. 정본은 `apps/native-host/src/tutor/delta.rs` 와 `crates/transport` 의 `PUSH_TUTOR_DELTA` |
 | (실패) | `error {type, message, reason, received}` | 네 칸 항상 문자열 · 봉투 위반 `envelope-invalid` · `question-too-long` · `malformed-snapshot` · `provider-unavailable` · 프로세스는 계속 삶 |
 
-패널 ↔ 서비스 워커(포트 `classmate-panel`): 워커 → 패널 `live.event | live.segment | live.frame | live.editor`, 패널 → 워커 `panel.event`(스토어가 낸 사건) · `panel.ask {request}` · `classmate.reconnect {connector}`. 정본은 `apps/browser-extension/src/live/messages.ts` 입니다.
+패널 ↔ 서비스 워커(포트 `classmate-panel`): 워커 → 패널 `live.event | live.segment | live.frame | live.editor | live.delta`(마지막 것만 교시 로그에 담지 않습니다), 패널 → 워커 `panel.event`(스토어가 낸 사건) · `panel.ask {request}` · `classmate.reconnect {connector}`. 정본은 `apps/browser-extension/src/live/messages.ts` 입니다.
 
 ## 6. 남은 것
 
-- 사람 확인이 필요한 것('대기'): 레지스트리 등록 `install.mjs --apply` · 깨끗한 Windows VM 설치 1회 · 65분 리허설 · Chrome 안 실제 확장 ↔ 도우미 왕복 · 실제 `claude` 첫 호출(비용) · Tiro 공유 페이지 · Meet 탭 · IntelliJ 실측 · origin/Web Store.
-- 3라운드 후보(`docs/TASKS.md` 2라운드 후속): 설정 값 배선(answerLength · periodNumber 즉시 반영 · capture 3칸) · 캡처 시작/중지 버튼 · "오늘 기록 지우기" 호스트 봉투 · 교시 종료 시 파이프라인 정리 · IntelliJ MCP 배선 · Phase 3 상태(FEEDBACK · FADE_SUPPORT · DELAYED_CHECK) · Tiro 최종본 교정 · report-ui 회상 기록.
+- 사람 확인이 끝난 것: 레지스트리 등록 `install.mjs --apply` · Chrome 안 실제 확장 ↔ 도우미 왕복 · 실제 `claude` 첫 호출 · 원격 저장소와 첫 push(`git ls-remote origin refs/heads/main` 이 로컬 `main` 과 같음).
+- 아직 사람이 해야 하는 것('대기'): 깨끗한 Windows VM 설치 1회 · 65분 리허설 · Tiro 공유 링크로 Gate A 실측 · Meet 화면 실측(몇 장 담기는가) · IntelliJ MCP 실측 · Chrome Web Store.
+- 코드에 남은 것(`docs/TASKS.md` 의 「4~7라운드에서 남은 일」과 `docs/plan/round-8-units.md` §0): 설정 값 배선(answerLength · periodNumber 즉시 반영 · capture 3칸) · 캡처 시작/중지 버튼(지금은 `chrome.action.onClicked` 손시험 갈래) · 전역 단축키(`chrome.commands`) · "오늘 기록 지우기" 호스트 봉투 · 교시 종료 시 파이프라인 정리 · IntelliJ MCP 배선 · 교시 뒤 4상태로 들어가는 문(`kind:"next"` 를 내는 코드가 0곳) · Tiro 최종본 교정 · report-ui 회상 기록.
