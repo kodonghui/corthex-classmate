@@ -364,8 +364,13 @@ function noteOf(bundle: GoldenBundle, state: ReplayState): NoteView {
 }
 
 /** 디자인 규칙: 메모가 떠 있으면 4줄, 아니면 5줄만 보입니다. */
+// 재생(fixture) 화면은 장면 9개를 정확히 재현해야 해서 보이는 줄 수를 묶어 둡니다.
+// 라이브는 다릅니다 — 학습자가 위로 올려 지난 이야기를 다시 읽어야 하므로 자르지 않습니다.
+// (2026-09-03: 5줄만 남기고 위를 통째로 버리고 있어서 "올릴 게 없다"는 말이 나왔습니다.)
 const VISIBLE_WITH_NOTE = 4;
 const VISIBLE_WITHOUT_NOTE = 5;
+/** 라이브에서 붙잡아 두는 줄 수. 한 교시 문단이 100~150개라 넉넉히 잡습니다. */
+const LIVE_VISIBLE = 400;
 
 function footerOf(bundle: GoldenBundle, state: ReplayState): FooterView {
   const ages = sourceAges(bundle, state.now);
@@ -421,10 +426,16 @@ export function listeningAskParent(bundle: GoldenBundle): Id {
 }
 
 /** 듣는 중 화면(A~E · H)의 값 전부입니다. */
-export function listeningView(bundle: GoldenBundle, state: ReplayState, allLines: readonly TranscriptLine[]): ListeningView {
+export function listeningView(
+  bundle: GoldenBundle,
+  state: ReplayState,
+  allLines: readonly TranscriptLine[],
+  live = false,
+): ListeningView {
   const note = noteOf(bundle, state);
   const open = note.kind !== "none" && note.kind !== "collapsed";
-  const lines = allLines.slice(-(open ? VISIBLE_WITH_NOTE : VISIBLE_WITHOUT_NOTE));
+  const keep = live ? LIVE_VISIBLE : open ? VISIBLE_WITH_NOTE : VISIBLE_WITHOUT_NOTE;
+  const lines = allLines.slice(-keep);
   const moment = currentMoment(state);
   const answer = currentAnswer(bundle, state);
   const paused = tiroPaused(state);

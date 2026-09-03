@@ -209,7 +209,7 @@ export function PanelApp({
         />
       ) : (
         <ListeningScreen
-          view={listeningView(store.bundle, state, lines)}
+          view={listeningView(store.bundle, state, lines, store.isLive)}
           onTerm={(lineId, segmentIndex, word) => store.catchTerm(lineId, segmentIndex, word)}
           onSentence={(lineId) => store.catchSentence(lineId)}
           onGuess={(guessId) => store.chooseGuess(guessId)}
