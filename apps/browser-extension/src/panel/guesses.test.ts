@@ -26,9 +26,16 @@ describe("codeTokens", () => {
     ]);
   });
 
-  it("세 글자 이하와 한글만 있는 문장에서는 아무것도 뽑지 않는다", () => {
-    expect(codeTokens(["Map 과 new 를 씁니다"])).toEqual([]);
+  it("세 글자짜리 그냥 영어와 한글만 있는 문장에서는 아무것도 뽑지 않는다", () => {
+    expect(codeTokens(["Map 을 하나 만듭니다"])).toEqual([]);
     expect(codeTokens(["이제 생성 책임을 컨테이너에 맡겨 볼게요"])).toEqual([]);
+  });
+
+  it("밑줄이 그어지는 낱말은 짐작에도 나온다", () => {
+    // 자격 판정이 `live-terms.isLessonToken` 한 곳이라 두 쓰임이 같은 답을 냅니다.
+    // 예전에는 여기만 네 글자 이상을 요구해 `new` · `AOP` 가 밑줄만 되고 짐작에는 없었습니다.
+    expect(codeTokens(["Map 과 new 를 씁니다"])).toEqual(["new"]);
+    expect(codeTokens(["AOP 와 DI 를 봅니다"])).toEqual(["AOP", "DI"]);
   });
 
   it("같은 낱말은 대소문자를 무시하고 한 번만 센다", () => {
