@@ -139,6 +139,8 @@ test.describe.configure({ mode: 'serial' });
 
 let context: BrowserContext;
 let page: Page;
+/** 확장 id. 라이브 장면이 자기 탭을 새로 열 때도 씁니다. */
+let extensionId = '';
 const consoleErrors: string[] = [];
 const pageErrors: string[] = [];
 
@@ -151,7 +153,7 @@ test.beforeAll(async () => {
   });
   const [existing] = context.serviceWorkers();
   const worker = existing ?? (await context.waitForEvent('serviceworker'));
-  const extensionId = new URL(worker.url()).host;
+  extensionId = new URL(worker.url()).host;
 
   page = await context.newPage();
   page.on('console', (message) => {
@@ -335,6 +337,113 @@ test('16 자세히 맨 아래 입력창 — 적어 보내면 이어 물은 줄�
   await field.fill('한 번 더 물어요');
   await field.press('Enter');
   await expect(page.locator('.cm-reply__q')).toHaveCount(2);
+});
+
+/*
+  라이브 배치(단위 A). 재생(`?replay=`)이 아니라 **주소 없는 라이브**로 열어야 대화 칸이 섭니다
+  (`view.canAsk` = `store.isLive`). 그래서 이 장면만 자기 탭을 새로 엽니다 — 앞 장면들이 쓰는
+  재생 탭은 그대로 두어야 골든 9장면이 흔들리지 않습니다.
+
+  스크린샷은 남기지 않습니다(골든 9장 + 부속 장면만 저장소에 담습니다). 단정만 합니다.
+*/
+test('17 라이브 대화 칸 — 누르지 않아도 글 칸이 보이고 전사·대화가 따로 구른다', async () => {
+  const live = await context.newPage();
+  // 좁은 쪽(360)에서 봅니다. 가로 스크롤이 생기면 여기서 걸립니다.
+  await live.setViewportSize({ width: 360, height: 720 });
+  await live.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+  // 라이브는 설정을 읽은 뒤에야 화면이 섭니다. 손잡이가 붙고 `live` 가 참이면 다 선 것입니다.
+  await live.waitForFunction(() => window.classmateReplay?.live === true);
+
+  // 전사를 구를 만큼 채웁니다. 라이브 스토어는 seq 가 다른 확정 조각을 각각 한 줄로 그립니다.
+  await live.evaluate(() => {
+    const handle = window.classmateReplay;
+    if (handle === undefined) return;
+    const base = Date.now();
+    for (let seq = 1; seq <= 30; seq += 1) {
+      handle.pushSegment({
+        id: `ts-live-e2e-${String(seq).padStart(3, '0')}`,
+        periodId: 'e2e-live',
+        seq,
+        text: `스프링이 객체를 대신 만들어 주는 이야기 ${seq}번째 문장입니다`,
+        state: 'final',
+        arrivedAt: new Date(base - (30 - seq) * 1_000).toISOString(),
+        source: 'tiro-share',
+      });
+    }
+  });
+
+  // ① 누르는 동작 없이 글 칸이 이미 보입니다. 예전에는 접힌 한 줄을 눌러야 나왔습니다.
+  const field = live.getByPlaceholder('지금 궁금한 걸 적어요');
+  await expect(field).toBeVisible();
+  await expect(field).toBeEditable();
+  await expect(live.locator('.cm-chat__log')).toBeVisible();
+  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '33');
+  expect(
+    await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
+  ).toBe(true);
+
+  // ② 대화 칸이 구를 만큼 문답을 쌓습니다. 답은 오지 않으므로 전부 기다리는 줄로 남습니다.
+  const questions = [
+    '방금 말한 생성 책임이 무슨 뜻인지 조금 더 풀어서 알려 주세요',
+    '그러면 지금 화면에 있는 코드는 어느 쪽에 해당하나요',
+    '이걸 안 쓰면 어떤 점이 실제로 불편해지는지 궁금해요',
+    '제 코드에서는 어디를 고쳐야 같은 모양이 되는지 알려 주세요',
+    '지금 배운 것과 지난 시간에 배운 것이 어떻게 이어지나요',
+    '시험에 나온다면 어떤 식으로 물어볼 수 있을까요',
+  ];
+  for (const question of questions) {
+    await field.fill(question);
+    await field.press('Enter');
+  }
+  await expect(live.locator('.cm-chat__log .cm-reply__q')).toHaveCount(questions.length);
+  await expect(live.getByText('답을 만들고 있어요').first()).toBeVisible();
+  await expect(field).toHaveValue('');
+
+  /** 두 칸의 스크롤 자리와 "구를 거리가 있는가" 입니다. */
+  const measure = async (): Promise<{
+    readonly bodyTop: number;
+    readonly logTop: number;
+    readonly bodyRoom: number;
+    readonly logRoom: number;
+  }> =>
+    live.evaluate(() => {
+      const box = (selector: string): { top: number; room: number } => {
+        const el = document.querySelector(selector);
+        return el === null ? { top: -1, room: -1 } : { top: el.scrollTop, room: el.scrollHeight - el.clientHeight };
+      };
+      const body = box('.cm-screen__body--flow');
+      const log = box('.cm-chat__log');
+      return { bodyTop: body.top, logTop: log.top, bodyRoom: body.room, logRoom: log.room };
+    });
+
+  // 둘 다 구를 거리가 있고, 둘 다 자기 바닥에 붙어 있습니다.
+  const start = await measure();
+  expect(start.bodyRoom).toBeGreaterThan(0);
+  expect(start.logRoom).toBeGreaterThan(0);
+  expect(start.bodyTop).toBeGreaterThan(0);
+  expect(start.logTop).toBeGreaterThan(0);
+
+  // ③ 대화 칸을 위로 올려도 전사는 제자리입니다.
+  await live.evaluate(() => {
+    const log = document.querySelector('.cm-chat__log');
+    if (log !== null) log.scrollTop = 0;
+  });
+  const afterLog = await measure();
+  expect(afterLog.logTop).toBe(0);
+  expect(afterLog.bodyTop).toBe(start.bodyTop);
+
+  // ④ 전사를 위로 올려도 대화 칸은 제자리입니다.
+  await live.evaluate(() => {
+    const body = document.querySelector('.cm-screen__body--flow');
+    if (body !== null) body.scrollTop = 0;
+  });
+  const afterBody = await measure();
+  expect(afterBody.bodyTop).toBe(0);
+  expect(afterBody.logTop).toBe(0);
+
+  // 글 칸은 그동안에도 계속 보입니다.
+  await expect(field).toBeVisible();
+  await live.close();
 });
 
 test('콘솔 오류와 페이지 오류가 없다', async () => {

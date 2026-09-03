@@ -22,16 +22,6 @@
 //   밀려납니다. 그래서 `startStuck: false` 로 열고, 이어 물었을 때만(`pinOn`) 바닥으로 내려가
 //   그때부터 따라갑니다 — 고치기 전 `[view.threads.length]` 효과가 하던 일과 같습니다.
 //
-// 멈춤(`paused`): 상자 **안** 에 글 쓰는 칸이 있는 화면 때문입니다
-//   듣는 중 화면은 전사 상자 안 맨 아래에 묻는 칸을 둡니다. 글을 쓰는 동안에도 바닥을 따라가면
-//   한 글자 칠 때마다 화면이 통째로 튀어 쓰던 자리를 잃습니다. 그래서 `paused` 가 참인 동안 이
-//   훅은 ① 바닥으로 따라가지 않고 ② 붙었나 풀렸나를 **다시 정하지도 않습니다**. ② 가 함께 있어야
-//   하는 까닭: 멈춘 채로 전사가 자라면 상자는 저절로 바닥에서 멀어지고, 쓰는 쪽이 묻는 칸을 보이게
-//   하려고 만드는 자잘한 스크롤도 `scroll` 을 냅니다. 그 거리를 "사용자가 올렸다" 로 읽으면 글을
-//   보낸 뒤에 답이 있는 바닥으로 돌아가지 못합니다. 높이 기록과 `hasNew` 세기는 그대로 합니다.
-//   멈춤이 풀리는 그 그림에서 — 붙어 있던 상태였다면 — 거리를 다시 재지 않고 바로 바닥으로
-//   내려갑니다(`released`). 보내고 나면 답 줄이 그 자리에서 보여야 하니까요.
-//
 // 함정 ①: `el.scrollTop = …` 도 `scroll` 이벤트를 냅니다
 //   그 이벤트를 "사용자가 움직였다" 로 읽으면 첫 자동 스크롤 직후에 바로 풀려 버립니다.
 //   그래서 이 훅은 "누가 움직였나" 를 아예 묻지 않습니다. `scroll` 이 오면 **지금 바닥에서 얼마나
@@ -67,12 +57,6 @@ export interface StickToBottomOptions {
    * 예: 자세히 화면의 이어 물은 줄 수 — 내가 방금 보낸 질문이 접힌 절 아래에 숨지 않게 합니다.
    */
   readonly pinOn?: string | number;
-  /**
-   * 참인 동안 바닥을 따라가지 않고, 붙었나 풀렸나도 다시 정하지 않습니다(맨 위 "멈춤" 주석).
-   * 예: 듣는 중 화면에서 상자 안 묻는 칸에 글을 쓰는 동안. 거짓으로 돌아오는 그림에서 붙어 있던
-   * 상태였다면 거리를 재지 않고 바로 바닥으로 내려갑니다.
-   */
-  readonly paused?: boolean;
 }
 
 export interface StickToBottom<T extends HTMLElement> {
@@ -94,7 +78,7 @@ export interface StickToBottom<T extends HTMLElement> {
  * 줄이 늘었는지 마지막 줄이 한 글자 자랐는지 구분할 필요가 없습니다.
  */
 export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOptions = {}): StickToBottom<T> {
-  const { startStuck = true, pinOn = 0, paused = false } = options;
+  const { startStuck = true, pinOn = 0 } = options;
   const ref = useRef<T>(null);
   // 붙었나 풀렸나는 `scroll` 이벤트 안에서도 최신 값을 읽어야 해서 ref 에도 둡니다.
   const stuckRef = useRef(startStuck);
@@ -102,8 +86,6 @@ export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOp
   const everStuckRef = useRef(startStuck);
   const heightRef = useRef(0);
   const pinRef = useRef(pinOn);
-  // 멈춤은 `scroll` 처리기와 ResizeObserver 안에서도 읽어야 해서 ref 에도 둡니다.
-  const pausedRef = useRef(paused);
   const [stuck, setStuck] = useState(startStuck);
   const [hasNew, setHasNew] = useState(false);
 
@@ -126,26 +108,6 @@ export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOp
     if (el === null) return;
     const height = el.scrollHeight;
 
-    /**
-     * 풀려 있는 동안 아래에 볼 것이 쌓였는지만 다시 봅니다(따라가지는 않습니다).
-     * 켤 때만이 아니라 끌 때도 거리로 봅니다. 풀린 채 내용이 **줄면**(같은 문단의 더 짧은 판이
-     * 오는 경우가 실제로 있습니다) 아래에 볼 것이 없는데도 알림이 켜진 채로 남기 때문입니다.
-     */
-    const countNew = (): void => {
-      const gap = height - el.scrollTop - el.clientHeight;
-      if (gap <= STICK_TO_BOTTOM_SLACK_PX) setHasNew(false);
-      else if (height > heightRef.current) setHasNew(true);
-    };
-
-    // 멈춤(맨 위 "멈춤" 주석). 높이와 `hasNew` 는 그대로 세고, 따라가기와 붙임·풀림만 쉽니다.
-    const released = pausedRef.current && !paused;
-    pausedRef.current = paused;
-    if (paused) {
-      if (!stuckRef.current && everStuckRef.current) countNew();
-      heightRef.current = height;
-      return;
-    }
-
     // `pinOn` 이 바뀌었으면(이어 물었으면) 여기서 다시 붙습니다. 이때는 사용자가 위를 읽고 있던
     // 중이라도 내려가는 것이 뜻이므로, 아래의 거리 재기를 건너뜁니다.
     const pinned = pinOn !== pinRef.current;
@@ -160,11 +122,8 @@ export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOp
     // 기준 높이는 직전 높이와 지금 높이 중 **작은 쪽** 입니다. 자란 경우에는 직전 높이라야 사용자가
     // 올린 만큼이 거리로 잡히고, 줄어든 경우에는 지금 높이라야 브라우저가 잘라 준 `scrollTop` 을
     // "사용자가 올렸다" 로 잘못 읽지 않습니다.
-    //
-    // 멈춤이 방금 풀린 그림(`released`)에서도 건너뜁니다. 멈춰 있는 동안 쌓인 만큼 상자는 이미
-    // 바닥에서 멀어져 있어서, 거리로 보면 "사용자가 올렸다" 로 잘못 읽히기 때문입니다.
     const base = Math.min(heightRef.current, height);
-    const atBottom = pinned || released || base - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_SLACK_PX;
+    const atBottom = pinned || base - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_SLACK_PX;
 
     if (stuckRef.current && atBottom) {
       el.scrollTop = height;
@@ -175,7 +134,11 @@ export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOp
       stuckRef.current = false;
       setStuck(false);
     } else if (everStuckRef.current) {
-      countNew();
+      // 켤 때만이 아니라 끌 때도 거리로 봅니다. 풀린 채 내용이 **줄면**(같은 문단의 더 짧은 판이
+      // 오는 경우가 실제로 있습니다) 아래에 볼 것이 없는데도 알림이 켜진 채로 남기 때문입니다.
+      const gap = height - el.scrollTop - el.clientHeight;
+      if (gap <= STICK_TO_BOTTOM_SLACK_PX) setHasNew(false);
+      else if (height > heightRef.current) setHasNew(true);
     }
     heightRef.current = height;
   });
@@ -186,8 +149,6 @@ export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOp
 
     // 거리만 재고 누가 움직였는지는 묻지 않습니다(맨 위 "함정" 주석).
     const settle = (): void => {
-      // 멈춰 있는 동안에는 다시 정하지 않습니다(맨 위 "멈춤" 주석의 ②).
-      if (pausedRef.current) return;
       const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
       const next = gap <= STICK_TO_BOTTOM_SLACK_PX;
       stuckRef.current = next;
@@ -203,7 +164,7 @@ export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOp
     let observer: ResizeObserver | null = null;
     if (typeof ResizeObserver !== "undefined") {
       observer = new ResizeObserver(() => {
-        if (pausedRef.current || !stuckRef.current) return;
+        if (!stuckRef.current) return;
         el.scrollTop = el.scrollHeight;
         heightRef.current = el.scrollHeight;
       });

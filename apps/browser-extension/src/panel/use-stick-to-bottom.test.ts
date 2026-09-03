@@ -40,11 +40,9 @@ let contentH = 0;
 let top = 0;
 /** 이 시험이 훅에게 준 `startStuck` 입니다. 훅은 첫 그림에서만 읽습니다. */
 let startStuck = true;
-/** 지금 멈춰 있는가입니다(듣는 중 화면에서 글을 쓰는 동안). 훅은 그릴 때마다 읽습니다. */
-let paused = false;
 
 function Probe({ lines, pins }: { readonly lines: readonly string[]; readonly pins: number }): ReactElement {
-  const body = useStickToBottom<HTMLDivElement>({ startStuck, pinOn: pins, paused });
+  const body = useStickToBottom<HTMLDivElement>({ startStuck, pinOn: pins });
   latest = { stuck: body.stuck, hasNew: body.hasNew, toBottom: body.toBottom };
   return createElement(
     "div",
@@ -105,7 +103,6 @@ function mount(begins = true): void {
   top = 0;
   latest = null;
   startStuck = begins;
-  paused = false;
   host = document.createElement("div");
   document.body.append(host);
   const created = createRoot(host);
@@ -148,7 +145,6 @@ afterEach(() => {
   host = null;
   latest = null;
   startStuck = true;
-  paused = false;
 });
 
 describe("useStickToBottom", () => {
@@ -314,33 +310,6 @@ describe("useStickToBottom", () => {
 
     // 붙어 있으니 다시 자랄 때도 따라갑니다.
     paint([...BASE.slice(0, 3), ARRIVED]);
-    expect(box().scrollTop).toBe(bottomTop());
-    expect(handle().stuck).toBe(true);
-    expect(handle().hasNew).toBe(false);
-  });
-
-  it("11. 멈춘 동안에는 따라가지 않고, 멈춤이 풀리면 그때 바닥으로 내려간다", () => {
-    // 듣는 중 화면이 상자 **안** 묻는 칸에 글을 쓰는 동안입니다.
-    mount();
-    paint(BASE);
-    expect(box().scrollTop).toBe(bottomTop());
-
-    // 글을 쓰기 시작했습니다. 이 동안 온 문장은 읽던 자리를 끌어내리지 않습니다.
-    paused = true;
-    const held = box().scrollTop;
-    paint([...BASE, ARRIVED]);
-    expect(box().scrollTop).toBe(held);
-    expect(bottomTop()).toBeGreaterThan(held);
-    // 알림은 켜지 않습니다 — 멈춘 것은 사용자가 올려서가 아니라 우리가 멈춘 것이기 때문입니다.
-    expect(handle().hasNew).toBe(false);
-
-    // 쓰는 쪽이 묻는 칸을 보이게 하려고 만드는 자잘한 스크롤도 "사용자가 올렸다" 로 읽지 않습니다.
-    scrollTo(held + 20);
-    expect(handle().stuck).toBe(true);
-
-    // 보냈습니다(글이 비어 멈춤이 풀립니다). 그 그림에서 바로 바닥으로 내려가 답 줄이 보입니다.
-    paused = false;
-    paint([...BASE, ARRIVED]);
     expect(box().scrollTop).toBe(bottomTop());
     expect(handle().stuck).toBe(true);
     expect(handle().hasNew).toBe(false);

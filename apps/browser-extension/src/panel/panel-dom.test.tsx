@@ -369,15 +369,17 @@ describe("자세히 화면 맨 아래 입력창", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /*
-  듣는 중 화면 맨 아래 한 줄 묻는 자리(단위 C)입니다.
+  듣는 중 화면 아래 약 1/3 을 차지하는 **대화 칸**입니다(단위 A).
 
-    접힘  "궁금한 건 여기에 바로 물어보세요"   ← 안내 글 한 줄 자리를 그대로 씁니다
-    펼침  [ 지금 궁금한 걸 적어요        ↑ ]  ← 누르거나 포커스가 오면
-    보냄  askTyped → AskPort.ask({ kind: "free" })
+    전사   .cm-screen__body--flow   위에서 흐르고 혼자 구릅니다
+    경계   .cm-chat__grip           끌거나 화살표로 비율을 바꿉니다(role="separator")
+    대화   .cm-chat__log            지난 문답이 쌓이고 혼자 구릅니다
+    글 칸  [ 지금 궁금한 걸 적어요 ↑]  누르는 동작 없이 **언제나 열려 있습니다**
+    보냄   askTyped → AskPort.ask({ kind: "free" })
 
-  재생(fixture)에는 물을 곳이 없어 칸을 아예 만들지 않습니다 — 골든 9장면이 걸려 있습니다.
+  재생(fixture)에는 물을 곳이 없어 대화 칸을 아예 만들지 않습니다 — 골든 9장면이 걸려 있습니다.
 */
-describe("듣는 중 화면에서 바로 묻기", () => {
+describe("듣는 중 화면의 대화 칸", () => {
   const PERIOD = "2026-09-02-p3";
   const START = parseIso("2026-09-02T10:00:00+09:00");
 
@@ -460,52 +462,64 @@ describe("듣는 중 화면에서 바로 묻기", () => {
     });
   }
 
-  /** 접힌 한 줄을 눌러 칸을 폅니다. */
-  function open(): HTMLInputElement {
-    click(buttonNamed("궁금한 건 여기에 바로 물어보세요"));
-    return askField();
+  /** 전사와 대화 사이의 경계입니다. */
+  function grip(): HTMLElement {
+    const found = document.querySelector('[role="separator"]');
+    if (!(found instanceof HTMLElement)) throw new Error("경계를 찾지 못했어요");
+    return found;
   }
 
-  it("재생 모드에는 칸이 없고 안내 글도 예전 그대로다", async () => {
+  it("재생 모드에는 대화 칸이 없고 안내 글도 예전 그대로다", async () => {
     const store = new ReplayStore(GOLDEN_BUNDLE);
     store.goto("listening");
     mount(<PanelApp store={store} autoClock={false} settings={createMemorySettingsStorage()} />);
     await flush();
     expect(document.body.textContent).toContain("문장을 누르면 문장 전체를 붙잡아요");
-    expect(document.body.textContent).not.toContain("궁금한 건 여기에 바로 물어보세요");
+    expect(document.querySelector(".cm-chat")).toBeNull();
     expect([...document.querySelectorAll("input")]).toHaveLength(0);
   });
 
-  it("평소에는 안내 글 한 줄만큼만 쓰고, 누르면 칸이 펼쳐진다", async () => {
+  it("글 칸은 누르는 동작 없이 처음부터 열려 있다", async () => {
     await liveRig();
-    // 접혀 있을 때는 글 칸이 아예 없습니다(세로 자리를 새로 먹지 않습니다).
-    expect([...document.querySelectorAll("input")]).toHaveLength(0);
-    expect(document.body.textContent).toContain("궁금한 건 여기에 바로 물어보세요");
-    expect(open().getAttribute("aria-label")).toBe("바로 묻기");
+    // 예전에는 접힌 한 줄을 눌러야 칸이 나왔습니다. 그 한 번이 사라진 것이 이 단위의 요점입니다.
+    expect(document.body.textContent).not.toContain("궁금한 건 여기에 바로 물어보세요");
+    expect([...document.querySelectorAll("input")]).toHaveLength(1);
+    expect(askField().getAttribute("aria-label")).toBe("바로 묻기");
+    expect(askField().getAttribute("placeholder")).toBe("지금 궁금한 걸 적어요");
+    // 아직 물은 것이 없으면 이 칸이 무엇을 하는 자리인지 한 줄로 말합니다.
+    expect(document.body.textContent).toContain("여기에 적어 물으면 답이 이 칸에 쌓여요");
   });
 
-  it("Esc 는 적던 글을 버리고 칸에서 빠져나온다(키보드만으로 도로 접기)", async () => {
+  it("전사 칸과 대화 칸은 서로 다른 스크롤 상자다", async () => {
+    await liveRig();
+    const body = document.querySelector(".cm-screen__body--flow");
+    const log = document.querySelector(".cm-chat__log");
+    expect(body).not.toBeNull();
+    expect(log).not.toBeNull();
+    // 한쪽이 다른 쪽 안에 있으면 스크롤이 서로에게 새어 나갑니다.
+    expect(body?.contains(log as Node)).toBe(false);
+    expect(log?.contains(body as Node)).toBe(false);
+  });
+
+  it("Esc 는 적던 글만 버리고 칸은 그대로 열려 있다", async () => {
     const rig = await liveRig();
-    const input = open();
-    typeInto(input, "이게 무슨 말이에요?");
-    press(input, "Escape");
-    // 글이 비고 포커스도 떠나므로 그 자리는 다시 안내 글 한 줄이 됩니다.
-    expect([...document.querySelectorAll("input")]).toHaveLength(0);
-    expect(document.body.textContent).toContain("궁금한 건 여기에 바로 물어보세요");
+    typeInto(askField(), "이게 무슨 말이에요?");
+    press(askField(), "Escape");
+    expect(askField().value).toBe("");
+    // 접히지 않습니다 — 늘 열려 있는 것이 이 칸의 약속입니다.
+    expect([...document.querySelectorAll("input")]).toHaveLength(1);
     expect(rig.asks).toHaveLength(0);
   });
 
-  it("아무것도 안 적고 칸을 떠나면 도로 접힌다", async () => {
+  it("아무것도 안 적고 칸을 떠나도 접히지 않는다", async () => {
     await liveRig();
-    blur(open());
-    expect([...document.querySelectorAll("input")]).toHaveLength(0);
-    expect(document.body.textContent).toContain("궁금한 건 여기에 바로 물어보세요");
+    blur(askField());
+    expect([...document.querySelectorAll("input")]).toHaveLength(1);
   });
 
   it("빈 글과 공백뿐인 글은 나가지 않는다", async () => {
     const rig = await liveRig();
-    const input = open();
-    press(input, "Enter");
+    press(askField(), "Enter");
     typeInto(askField(), "   ");
     expect(buttonNamed("보내기").disabled).toBe(true);
     press(askField(), "Enter");
@@ -514,7 +528,7 @@ describe("듣는 중 화면에서 바로 묻기", () => {
 
   it("Enter 를 치면 kind free 질문으로 나가고 답을 기다리는 한 줄이 남는다", async () => {
     const rig = await liveRig();
-    typeInto(open(), "지금 그게 왜 필요해요?");
+    typeInto(askField(), "지금 그게 왜 필요해요?");
     press(askField(), "Enter");
 
     expect(rig.asks).toHaveLength(1);
@@ -531,9 +545,9 @@ describe("듣는 중 화면에서 바로 묻기", () => {
     expect(document.body.textContent).toContain("답을 만들고 있어요");
   });
 
-  it("답이 오면 그 자리가 결론으로 바뀌고, 닫으면 도로 조용해진다", async () => {
+  it("답이 오면 그 자리가 결론으로 바뀌고, 닫으면 대화 칸에서 사라진다", async () => {
     const rig = await liveRig();
-    typeInto(open(), "지금 그게 왜 필요해요?");
+    typeInto(askField(), "지금 그게 왜 필요해요?");
     press(askField(), "Enter");
     rig.answer("바꿔 끼울 자리를 남겨 두려고요");
 
@@ -544,17 +558,84 @@ describe("듣는 중 화면에서 바로 묻기", () => {
     expect(document.body.textContent).not.toContain("바꿔 끼울 자리를 남겨 두려고요");
   });
 
-  it("글을 쓰는 동안 온 문장은 조용한 표시로만 알리고, 글을 비우면 사라진다", async () => {
+  it("주고받은 문답이 대화 칸에 그대로 쌓인다 — 마지막 하나만 남기지 않는다", async () => {
     const rig = await liveRig();
-    const input = open();
-    typeInto(input, "이거");
+    typeInto(askField(), "첫 번째 질문이에요");
+    press(askField(), "Enter");
+    rig.answer("첫 번째 답이에요");
+    typeInto(askField(), "두 번째 질문이에요");
+    press(askField(), "Enter");
+
+    const log = document.querySelector(".cm-chat__log");
+    expect(log?.textContent).toContain("첫 번째 질문이에요");
+    expect(log?.textContent).toContain("첫 번째 답이에요");
+    expect(log?.textContent).toContain("두 번째 질문이에요");
+    // 답을 기다리는 줄에는 기다리는 표시가 함께 보입니다.
+    expect(log?.textContent).toContain("답을 만들고 있어요");
+  });
+
+  /**
+   * happy-dom 은 실제 배치를 하지 않아 스크롤 값이 전부 0 입니다("바닥에 있다"로 읽힙니다).
+   * 위로 올려 읽는 형편은 그 값을 직접 심어 만듭니다.
+   */
+  function scrollTranscriptUp(): HTMLElement {
+    const found = document.querySelector(".cm-screen__body--flow");
+    if (!(found instanceof HTMLElement)) throw new Error("전사 칸을 찾지 못했어요");
+    Object.defineProperty(found, "scrollHeight", { value: 900, configurable: true });
+    Object.defineProperty(found, "clientHeight", { value: 300, configurable: true });
+    Object.defineProperty(found, "scrollTop", { value: 100, writable: true, configurable: true });
+    act(() => {
+      found.dispatchEvent(new Event("scroll", { bubbles: true }));
+    });
+    return found;
+  }
+
+  it("위로 올려 읽는 동안 온 문장은 전사를 끌어내리지 않고 한 줄로만 알린다", async () => {
+    const rig = await liveRig();
+    const body = scrollTranscriptUp();
     rig.push(2, "그래서 스프링이 대신 만들어 줍니다");
 
-    // 전사는 계속 흐르지만(줄은 화면에 있습니다) 바닥으로 끌지 않고 한 줄로만 알립니다.
+    // 전사는 계속 흐르지만(줄은 화면에 있습니다) 읽던 자리를 바닥으로 끌지 않습니다.
     expect(document.body.textContent).toContain("그래서 스프링이 대신 만들어 줍니다");
     expect(document.body.textContent).toContain("새 문장 1개");
+    expect(body.scrollTop).toBe(100);
 
-    typeInto(askField(), "");
+    // 눌러서 따라가면 바닥으로 붙고 알림도 사라집니다.
+    click(buttonNamed("새 문장 1개"));
     expect(document.body.textContent).not.toContain("새 문장 1개");
+    expect(body.scrollTop).toBe(900);
+  });
+
+  it("바닥에서 듣는 동안에는 새 문장이 그냥 따라옵니다", async () => {
+    const rig = await liveRig();
+    rig.push(2, "그래서 스프링이 대신 만들어 줍니다");
+    expect(document.body.textContent).not.toContain("새 문장 1개");
+  });
+
+  it("경계를 화살표로 움직여 대화 칸 높이를 바꾼다", async () => {
+    await liveRig();
+    // 기본은 패널 높이의 1/3 입니다.
+    expect(grip().getAttribute("aria-valuenow")).toBe("33");
+
+    act(() => {
+      grip().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    });
+    expect(grip().getAttribute("aria-valuenow")).toBe("38");
+
+    // 위끝(60%)을 넘지 않습니다 — 전사가 사라지면 안 됩니다.
+    for (let i = 0; i < 10; i += 1) {
+      act(() => {
+        grip().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+      });
+    }
+    expect(grip().getAttribute("aria-valuenow")).toBe("60");
+
+    // 아래끝(20%)도 마찬가지입니다 — 글 칸이 사라지면 안 됩니다.
+    for (let i = 0; i < 20; i += 1) {
+      act(() => {
+        grip().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+      });
+    }
+    expect(grip().getAttribute("aria-valuenow")).toBe("20");
   });
 });
