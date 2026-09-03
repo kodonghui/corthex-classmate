@@ -7,7 +7,7 @@ import { PanelApp } from '../../src/panel/PanelApp';
 import type { AskPort } from '../../src/panel/ports';
 import { ReplayStore } from '../../src/panel/replay-store';
 import type { Settings } from '../../src/panel/settings-store';
-import { detectSettingsStorage, readSettings } from '../../src/panel/settings-store';
+import { detectSettingsStorage, readSettings, withTextScaleApplied } from '../../src/panel/settings-store';
 import { makePeriodId } from '../../src/tiro/period';
 
 /**
@@ -22,7 +22,7 @@ import { makePeriodId } from '../../src/tiro/period';
  * 라이브 모드의 조립 순서(왜 이 순서인가):
  *
  * ```text
- *   readSettings(chrome.storage.local)  ── 교시 번호 · 주제 · 제공자 · 자동 접기
+ *   readSettings(chrome.storage.local)  ── 교시 번호 · 주제 · 제공자 · 자동 접기 · 글씨 크기
  *            │
  *            ▼
  *   ReplayStore.live({ periodId, startMs, subject, env, askPort })
@@ -95,11 +95,20 @@ function FixtureApp({ mode }: { readonly mode: 'auto' | 'manual' }): React.JSX.E
 function LiveApp(): React.JSX.Element | null {
   const [setup, setSetup] = useState<LiveSetup | null>(null);
 
+  /*
+    보관소는 한 번만 만들어 이 컴포넌트의 첫 읽기와 PanelApp 이 **함께** 씁니다.
+
+    덧옷(withTextScaleApplied)이 그 길목에서 글씨 크기를 <html> 에 얹습니다. 읽기 한 번으로
+    "패널을 열 때 이미 고른 크기", 쓰기 한 번으로 "설정에서 고르는 즉시" 가 함께 됩니다.
+    fixture 경로(FixtureApp)에는 씌우지 않으므로 골든 재생 장면은 늘 기본 크기입니다.
+  */
+  const storage = useMemo(() => withTextScaleApplied(detectSettingsStorage(), document.documentElement), []);
+
   useEffect(() => {
     let alive = true;
     let opened: LiveSetup | null = null;
     // 설정은 비동기로 읽습니다(chrome.storage.local). 그 수십 ms 동안은 빈 화면입니다.
-    void readSettings(detectSettingsStorage()).then((settings) => {
+    void readSettings(storage).then((settings) => {
       if (!alive) return;
       opened = openLive(settings, chrome.runtime);
       setSetup(opened);
@@ -108,13 +117,14 @@ function LiveApp(): React.JSX.Element | null {
       alive = false;
       opened?.live.detach();
     };
-  }, []);
+  }, [storage]);
 
   if (setup === null) return null;
   return (
     <PanelApp
       store={setup.store}
       autoClock
+      settings={storage}
       onReconnect={(connector) => setup.live.reconnect(connector)}
     />
   );

@@ -5,6 +5,7 @@
 //
 //   설정 화면   아직 배선 안 된 칸(캡처 세 칸 · 답변 길이 · 오늘 기록 지우기)이 정말 잠겨 있는가
 //   PanelApp    설정 변경이 굴러가는 스토어에 닿는가 · 늦게 온 저장소 값이 방금 누른 값을 덮는가
+//   글씨 크기   고른 그 자리에서 문서 뿌리에 이름표가 붙는가(다시 열 때까지 기다리지 않는가)
 //
 // happy-dom 은 이미 devDependency 입니다(새 의존성 없음). React 19 의 `act` 로 감쌉니다.
 
@@ -19,7 +20,13 @@ import { ReplayStore } from "./replay-store";
 import { DetailScreen } from "./screens/DetailScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import type { Settings, SettingsStorage } from "./settings-store";
-import { createMemorySettingsStorage, DEFAULT_SETTINGS, SETTINGS_KEYS } from "./settings-store";
+import {
+  createMemorySettingsStorage,
+  DEFAULT_SETTINGS,
+  SETTINGS_KEYS,
+  TEXT_SCALE_ATTRIBUTE,
+  withTextScaleApplied,
+} from "./settings-store";
 
 declare global {
   // React 가 act() 안이라는 것을 알아보는 깃발입니다.
@@ -242,6 +249,51 @@ describe("PanelApp — 설정과 스토어", () => {
     await flush();
     click(buttonNamed("설정"));
     expect(inputLabelled("단축키 Alt+S").checked).toBe(false);
+  });
+});
+
+describe("글씨 크기", () => {
+  /* 이름표는 문서 뿌리에 붙습니다. 한 시험이 남긴 이름표가 다음 시험으로 새지 않게 떼어 냅니다. */
+  afterEach(() => {
+    document.documentElement.removeAttribute(TEXT_SCALE_ATTRIBUTE);
+  });
+
+  /** 덧옷 입힌 보관소로 PanelApp 을 세우고 설정 화면까지 엽니다. */
+  async function openSettings(seed: Record<string, unknown> = {}): Promise<void> {
+    const storage = withTextScaleApplied(createMemorySettingsStorage(seed), document.documentElement);
+    mount(<PanelApp store={new ReplayStore(GOLDEN_BUNDLE)} autoClock={false} settings={storage} />);
+    await flush();
+    click(buttonNamed("설정"));
+  }
+
+  it("고른 그 자리에서 뿌리에 이름표가 붙는다 — 다시 열 때까지 기다리지 않는다", async () => {
+    await openSettings();
+    // 기본값(보통)에서는 이름표가 없어야 합니다. 골든 장면의 픽셀이 지금과 같아야 하기 때문입니다.
+    expect(document.documentElement.hasAttribute(TEXT_SCALE_ATTRIBUTE)).toBe(false);
+
+    click(inputLabelled("크게"));
+    expect(document.documentElement.getAttribute(TEXT_SCALE_ATTRIBUTE)).toBe("lg");
+    expect(inputLabelled("크게").checked).toBe(true);
+
+    click(inputLabelled("아주 크게"));
+    expect(document.documentElement.getAttribute(TEXT_SCALE_ATTRIBUTE)).toBe("xl");
+
+    // 보통으로 되돌리면 이름표를 떼어 원래 크기로 돌아갑니다.
+    click(inputLabelled("보통"));
+    expect(document.documentElement.hasAttribute(TEXT_SCALE_ATTRIBUTE)).toBe(false);
+  });
+
+  it("저장된 단계는 패널을 여는 그때 이미 붙어 있다", async () => {
+    await openSettings({ [SETTINGS_KEYS.textScale]: "sm" });
+    expect(document.documentElement.getAttribute(TEXT_SCALE_ATTRIBUTE)).toBe("sm");
+    expect(inputLabelled("작게").checked).toBe(true);
+  });
+
+  it("잠긴 칸들과 달리 이 라디오는 눌립니다", async () => {
+    await openSettings();
+    for (const label of ["작게", "보통", "크게", "아주 크게"]) {
+      expect(inputLabelled(label).disabled).toBe(false);
+    }
   });
 });
 
