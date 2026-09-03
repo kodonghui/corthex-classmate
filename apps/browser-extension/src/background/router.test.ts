@@ -455,7 +455,11 @@ describe('Router · 들어온 말 → 나가는 것', () => {
       .map((event) => event.id);
     expect(new Set(ids).size).toBe(3);
 
-    // 패널도 같은 규칙으로 거릅니다. 걸러지지 않으면 같은 문단이 화면에 두 줄로 보입니다.
+    // 패널에도 이 3건이 그대로 갑니다. **여기서 보는 것은 라우터의 출력까지입니다** —
+    // 이 3건이 화면에서 한 줄로 합쳐지는지는 패널 스토어의 몫이고, 지금 스토어
+    // (`src/panel/replay-store.ts` 의 `pushSegment`)는 이미 아는 id 를 통째로 버려 뒤 2건이
+    // 화면에 오르지 못합니다(알려진 결함 · 패널 단위에서 upsert 로 고칩니다). 그러니 이 줄을
+    // 「화면에 한 줄로 보인다」의 근거로 읽으면 안 됩니다.
     const toPanel = harness.panel.received.filter((message) => message.type === LIVE_SEGMENT);
     expect(toPanel).toHaveLength(3);
   });

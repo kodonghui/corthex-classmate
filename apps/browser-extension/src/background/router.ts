@@ -890,7 +890,15 @@ function isCaptureError(value: unknown): value is CaptureErrorMessage {
  *
  * 계약 `TranscriptSegment.state` 에 `partial` 자리가 있어서 새 타입을 만들지 않았습니다.
  * 식별자는 **문단 자리(index)로 고정**합니다. 글자가 바뀔 때마다 새 식별자를 주면 패널에
- * 같은 문단이 여러 줄로 쌓이고, 고정하면 스토어가 같은 줄을 갱신합니다.
+ * 같은 문단이 여러 줄로 쌓이기 때문입니다.
+ *
+ * 다만 **고정한다고 화면 줄이 갱신되는 것은 아직 아닙니다.** 지금 패널 스토어
+ * (`src/panel/replay-store.ts` 의 `pushSegment`)는 이미 아는 id 를 갱신이 아니라 무시로
+ * 처리해, 자란 글자와 확정본이 화면에 오르지 못합니다(알려진 결함 · 패널 단위에서 upsert 로
+ * 고칩니다). 그리고 이 함수가 붙이는 `ts-<periodId>-partial-<index>` 는 관찰기가 확정 때
+ * 쓰는 `ts-001` 계열과 **다른 이름**이라, 스토어가 upsert 로 바뀌어도 두 계열은 서로 다른
+ * 줄로 남습니다. 한 문단을 한 줄로 모으는 일은 그 두 이름을 잇는 자리까지 손봐야 끝납니다.
+ *
  * 이 세그먼트는 **호스트로 가지 않습니다** — 확정되면 `tiro.segment` 가 진짜 식별자로 옵니다.
  */
 export function toPartialSegment(

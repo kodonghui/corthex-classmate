@@ -127,7 +127,7 @@ describe('startShareObserver — 첫 스캔', () => {
       onSegment: (segment) => segments.push(segment),
     });
 
-    // 시각은 UTC(`Z`) 가 아니라 로컬 오프셋 표기로 적힙니다(`toLocalIso`).
+    // 시각은 UTC(`Z`) 가 아니라 수업 시간대(KST) 오프셋 표기로 적힙니다(`toLocalIso`).
     const expected = toLocalIso(new Date('2026-09-02T10:32:00+09:00'));
     expect(segments.map((s) => s.arrivedAt)).toEqual([expected, expected, expected, expected]);
 
@@ -436,6 +436,10 @@ describe('startShareObserver — 선택자 깨짐', () => {
     // `tiro.stop` → `tiro.start` 를 보냅니다. content script 는 그 두 말을
     // `stopWithFlush(connector)` 와 `connector.start()` 로 옮깁니다. 여기서 그 두 줄을
     // 그대로 부르고, 멈춘 뒤 다시 시작한 관찰기가 **새로** 파싱하는지 봅니다.
+    //
+    // 여기서 보는 것은 **관찰기까지**입니다. 이 시험이 통과한다고 패널 화면의 줄까지
+    // 되살아난다는 뜻은 아닙니다 — 재시작 뒤 화면이 어디서 막히는지는 README 의
+    // 「다시 시작하면 `seq` 가 1부터 다시 셉니다」에 그림으로 적어 두었습니다.
     document.body.innerHTML = brokenHtml;
     const clock = fakeClock('2026-09-02T10:32:00+09:00');
     const segments: TranscriptSegment[] = [];
@@ -466,6 +470,9 @@ describe('startShareObserver — 선택자 깨짐', () => {
     // tiro.start — 관찰기를 새로 세웁니다. 붙자마자 한 번 훑으므로 곧바로 문단이 나옵니다.
     connector.start();
     expect(segments).toHaveLength(4);
+    // 순번은 1 부터 다시 셉니다. **일부러 그렇습니다** — 같은 문단이 같은 id 로 다시 와야
+    // 라우터가 새로고침 중복을 알아보고 거릅니다(`router.test.ts` 의 새로고침 시험).
+    // 이어 세면 화면에 이미 있는 문단 전부가 새 id 로 다시 올라와 전사가 두 벌이 됩니다.
     expect(segments[0]?.seq).toBe(1);
     // 구독은 살아 있어야 합니다. 끊겨 있으면 전사가 조용히 사라집니다.
     expect(broken).toHaveLength(1);
