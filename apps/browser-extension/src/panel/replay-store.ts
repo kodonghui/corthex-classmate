@@ -57,7 +57,7 @@ import { makeIdToken, panelEventId, panelQuestionId } from "./event-ids";
 import type { GoldenBundle } from "./golden-bundle";
 import { emptyBundle, GOLDEN_TERMS, guessesForLine } from "./golden-bundle";
 import type { Guess } from "./guesses";
-import { codeTokens, guessesFromSentence, MAX_TOKEN_GUESSES, WHOLE_SENTENCE_TERM } from "./guesses";
+import { guessesFromSentence, WHOLE_SENTENCE_TERM } from "./guesses";
 import { termsInText } from "./live-terms";
 import type { AskPort, AskRequest, PanelInbox, PanelOutbox } from "./ports";
 import { foldSegments, resolveAlias, segmentKeyOfWord, toTranscriptLines } from "./transcript-lines";
@@ -733,11 +733,18 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
    * 점선 밑줄을 그을 낱말입니다. **점선 자리가 곧 누를 수 있는 자리**입니다(`onTerm` → `catchTerm`).
    *
    *   재생(fixture)  골든 시나리오의 낱말 둘(`new` · `생성자`)
-   *   라이브         줄마다 코드처럼 생긴 낱말 최대 2개(짐작 목록과 같은 규칙) + 이미 붙잡은 낱말
+   *   라이브         줄마다 `termsInText` 가 고른 낱말 **전부** + 이미 붙잡은 낱말
    *
    * 라이브에서도 fixture 낱말만 쓰면 선생님이 하지도 않은 낱말에만 점선이 가고, 문장을 붙잡아
    * 고른 짐작 낱말(`enableWebSecurity` 같은 것)은 전사 어디에도 표시되지 않습니다. 누를 자리
    * 자체가 없어 `catchTerm` 이 라이브에서 죽은 길이 됩니다(2026-09-03 검토).
+   *
+   * 전에는 여기서 `codeTokens(..., MAX_TOKEN_GUESSES)` 도 함께 불렀습니다. 그 상한 2는 "혹시
+   * 이게 막혔나요?" **짐작 목록**을 두 개로 줄이려는 것이지 밑줄을 줄이려는 것이 아닙니다.
+   * 그래서 한 문단에 `before` · `after` · `around` · `pointcut` 이 다 나와도 앞의 둘에만
+   * 밑줄이 섰습니다(약자와 낙타등은 `termsInText` 로 따로 들어와 살아남고, 그냥 영어 낱말만
+   * 잘려 나갔습니다). 어느 낱말이 남을지 규칙이 눈에 안 보여 제멋대로 서는 것처럼 보였습니다
+   * (2026-09-03 "단어 밑줄이 자기 맘대로"). 밑줄은 자격을 갖춘 낱말 전부에 긋습니다.
    *
    * 전사와 순간이 그대로면 지난번에 뽑아 둔 목록을 그대로 씁니다 — `lines()` 는 화면이 다시
    * 그려질 때마다 불립니다.
@@ -759,9 +766,8 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       list.push(term);
     };
     for (const segment of transcript) {
-      for (const token of codeTokens([segment.text], MAX_TOKEN_GUESSES)) add(token);
-      // 코드 낱말만 보면 우리말 강의에서 밑줄이 거의 안 생깁니다(2026-09-03 3교시 실측).
-      // 그래서 우리말 기술 용어 사전도 함께 먹입니다.
+      // `termsInText` 하나가 영문 낱말과 우리말 용어를 함께 돌려줍니다. 코드 낱말만 보면
+      // 우리말 강의에서 밑줄이 거의 안 생깁니다(2026-09-03 3교시 실측).
       for (const term of termsInText(segment.text)) add(term);
     }
     // 이미 붙잡은 낱말은 목록 규칙에 안 걸려도 점선으로 남깁니다(자세히 화면의 표시 자리).
