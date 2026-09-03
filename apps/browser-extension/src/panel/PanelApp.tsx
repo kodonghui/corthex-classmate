@@ -18,7 +18,7 @@ import { formatIso } from "@classmate/tutor-core";
 import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { historyView } from "./history-view";
-import { detailView, detailViewFor, listeningView } from "./lesson-view";
+import { detailView, detailViewFor, listeningAskParent, listeningView } from "./lesson-view";
 import type { ReconnectTarget } from "./ports";
 import { installReplayHandle } from "./replay-handle";
 import type { ReplayStore } from "./replay-store";
@@ -209,7 +209,7 @@ export function PanelApp({
         />
       ) : (
         <ListeningScreen
-          view={listeningView(store.bundle, state, lines)}
+          view={listeningView(store.bundle, state, lines, store.isLive)}
           onTerm={(lineId, segmentIndex, word) => store.catchTerm(lineId, segmentIndex, word)}
           onSentence={(lineId) => store.catchSentence(lineId)}
           onGuess={(guessId) => store.chooseGuess(guessId)}
@@ -222,6 +222,9 @@ export function PanelApp({
             setOverlay("history");
           }}
           onReconnect={(connector) => onReconnect?.(connector)}
+          // 듣다가 바로 물은 것은 스토어의 자유 질문 갈래(kind "free")로 그대로 나갑니다.
+          // 매달 답이 없으므로 교시 한 칸(`listeningAskParent`)에 모읍니다.
+          onAsk={(text) => store.askTyped(listeningAskParent(store.bundle), text)}
         />
       )}
     </div>

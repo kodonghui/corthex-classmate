@@ -3,19 +3,27 @@
 //   계약  { id, seq, text: "객체를 직접 new로 만들면 …", arrivedAt, spokenAt, state }
 //   화면  { id, time: "10:32:10", segments: [{ text: "객체를 직접 " }, { text: "new", term: true }, { text: "로 만들면 …" }] }
 //
-// 점선 밑줄(term)은 낱말 목록에 있는 글자 그대로의 자리에만 긋습니다. 형태소 분석은 하지 않습니다.
+// 점선 밑줄(term)은 낱말 목록에 있는 글자 그대로의 자리에만 긋습니다. 형태소 분석은 하지 않고,
+// 낱말 경계만 `live-terms` 의 `isWordAt` 으로 봅니다.
 
 import type { TranscriptSegment } from "@classmate/contracts";
 import type { TranscriptLine, TranscriptSegment as UiSegment } from "@classmate/ui-classmate";
 import { parseIso } from "@classmate/tutor-core";
 
 import { clockOfIso } from "./clock";
+import { isWordAt } from "./live-terms";
 
 /**
  * 글에서 낱말을 찾아 점선 조각으로 나눕니다. 같은 자리에서 여러 낱말이 맞으면 긴 것을 고릅니다.
  *
  *     splitTerms("객체를 직접 new로 만들면", ["new"])
  *     → [{ text: "객체를 직접 " }, { text: "new", term: true }, { text: "로 만들면" }]
+ *
+ * 글자가 맞아도 **낱말 경계가 아니면 긋지 않습니다.** 목록은 전사 전체에서 한 번 만드는데,
+ * 어느 줄에서는 낱말이던 것이 다른 줄에서는 남의 낱말 안쪽 조각이기 때문입니다.
+ *
+ *     목록에 "인가"(권한)  →  "무엇인가요" 의 가운데에는 긋지 않습니다
+ *     목록에 "동기"        →  "비동기" · "동기화" 안쪽에는 긋지 않습니다
  */
 export function splitTerms(text: string, terms: readonly string[]): UiSegment[] {
   const sorted = [...terms].filter((term) => term.length > 0).sort((a, b) => b.length - a.length);
@@ -23,7 +31,7 @@ export function splitTerms(text: string, terms: readonly string[]): UiSegment[] 
   let plain = "";
   let i = 0;
   while (i < text.length) {
-    const hit = sorted.find((term) => text.startsWith(term, i));
+    const hit = sorted.find((term) => text.startsWith(term, i) && isWordAt(text, term, i));
     if (hit === undefined) {
       plain += text[i];
       i += 1;

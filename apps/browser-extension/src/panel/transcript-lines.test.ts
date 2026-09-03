@@ -34,11 +34,19 @@ describe("splitTerms", () => {
   });
 
   it("맞붙은 낱말은 각각 한 조각이고 빈 조각은 만들지 않는다", () => {
-    expect(splitTerms("newnew", ["new"])).toEqual([
-      { text: "new", term: true },
-      { text: "new", term: true },
+    expect(splitTerms("@Bean@Bean", ["@Bean"])).toEqual([
+      { text: "@Bean", term: true },
+      { text: "@Bean", term: true },
     ]);
     expect(splitTerms("", ["new"])).toEqual([]);
+  });
+
+  it("낱말 경계가 아니면 글자가 맞아도 긋지 않는다", () => {
+    // 목록은 전사 전체에서 한 번 만듭니다. 다른 줄에서 낱말이던 것이 이 줄에서는 남의 낱말
+    // 안쪽 조각일 수 있어, 그을 때 한 번 더 경계를 봅니다(`live-terms.isWordAt`).
+    expect(splitTerms("newValue 를 씁니다", ["new"])).toEqual([{ text: "newValue 를 씁니다" }]);
+    expect(splitTerms("이게 무엇인가요", ["인가"])).toEqual([{ text: "이게 무엇인가요" }]);
+    expect(splitTerms("동기화 블록", ["동기"])).toEqual([{ text: "동기화 블록" }]);
   });
 });
 

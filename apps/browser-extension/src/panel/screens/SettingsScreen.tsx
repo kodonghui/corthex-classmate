@@ -1,17 +1,19 @@
 // 설정 화면 — 제품에 정말 필요한 것만. 카드 없이 헤어라인으로만 나눈 줄들입니다.
 // 정본: design-system/ui_kits/sidepanel/SettingsScreen.jsx · Classmate Side Panel.dc.html:101-120.
 //
-// 정본과 다른 곳 두 군데(둘 다 의도한 것입니다):
+// 정본과 다른 곳 세 군데(모두 의도한 것입니다):
 //  1. "붙잡을 때 함께 저장" 바로 아래에 개인정보 세 칸을 답니다. 정본에는 없고 불변 원칙 §5 가 정한 문구입니다.
 //  2. "답변" 절에 제공자 고르기를 더합니다. 정본에는 없고 2라운드 고정 계약(다)이 정한 값입니다.
 //     codex 는 한도가 돌아오기 전까지 고를 수 없어 잠가 둡니다.
+//  3. "글씨 크기" 절을 더합니다. 정본에는 없고 사용자가 청한 값입니다. 패널은 폭 320~400px 로 좁고
+//     화면과 눈은 사람마다 달라서, 여기 있는 다른 잠긴 칸들과 달리 **지금 바로 듣는** 설정입니다.
 
 import { Button, Checkbox, Dialog, Input, RadioGroup, Select, Switch, PanelHeader } from "@classmate/ui-base";
 import { useState } from "react";
 
 import { PERIOD_NUMBER_MAX, PERIOD_NUMBER_MIN } from "../../tiro/period";
 import type { Settings } from "../settings-store";
-import { PRIVACY_CELLS, subjectInput } from "../settings-store";
+import { PRIVACY_CELLS, subjectInput, TEXT_SCALE_STEPS, textScaleInput } from "../settings-store";
 
 export interface SettingsScreenProps {
   readonly values: Settings;
@@ -44,6 +46,13 @@ const PROVIDER_OPTIONS = [
   { value: "codex", label: "Codex", description: "한도 복구 뒤에 고를 수 있어요", disabled: true },
 ];
 
+/*
+  단계와 차례는 `settings-store` 의 `TEXT_SCALE_STEPS` 가 정합니다. 여기서는 그대로 라디오로 폅니다.
+  설명(description)은 달지 않습니다 — 고른 결과가 그 자리에서 글씨로 보이므로 말이 필요 없고,
+  네 줄에 설명까지 붙이면 좁은 패널에서 절 하나가 지나치게 길어집니다.
+*/
+const TEXT_SCALE_OPTIONS = TEXT_SCALE_STEPS.map((step) => ({ value: step.value, label: step.label }));
+
 export function SettingsScreen({ values, count, onBack, onChange, onClearToday }: SettingsScreenProps): React.JSX.Element {
   const [confirm, setConfirm] = useState(false);
 
@@ -74,6 +83,21 @@ export function SettingsScreen({ values, count, onBack, onChange, onClearToday }
             onChange={(value) => onChange("provider", value === "codex" ? "codex" : "claude")}
             options={PROVIDER_OPTIONS}
           />
+        </section>
+
+        <section className="cm-set">
+          <div className="cm-set__h">글씨 크기</div>
+          <RadioGroup
+            name="text-scale"
+            value={values.textScale}
+            onChange={(value) => onChange("textScale", textScaleInput(value))}
+            options={TEXT_SCALE_OPTIONS}
+          />
+          {/*
+            이 절의 안내는 "다음 라운드" 가 아닙니다. 고른 순간 뿌리 요소에 이름표가 붙어
+            (settings-store 의 withTextScaleApplied) 화면이 그 자리에서 바뀝니다.
+          */}
+          <p className="cm-set__note">고르면 그 자리에서 바뀌어요 — 전사와 답변 글씨가 함께 커져요</p>
         </section>
 
         <section className="cm-set">

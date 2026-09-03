@@ -57,7 +57,7 @@ import { makeIdToken, panelEventId, panelQuestionId } from "./event-ids";
 import type { GoldenBundle } from "./golden-bundle";
 import { emptyBundle, GOLDEN_TERMS, guessesForLine } from "./golden-bundle";
 import type { Guess } from "./guesses";
-import { codeTokens, guessesFromSentence, MAX_TOKEN_GUESSES, WHOLE_SENTENCE_TERM } from "./guesses";
+import { guessesFromSentence, WHOLE_SENTENCE_TERM } from "./guesses";
 import { termsInText } from "./live-terms";
 import type { AskPort, AskRequest, PanelInbox, PanelOutbox } from "./ports";
 import { foldSegments, resolveAlias, segmentKeyOfWord, toTranscriptLines } from "./transcript-lines";
@@ -172,6 +172,34 @@ export const ASK_TIMEOUT_MESSAGE =
 
 /** 질문 뒤 이만큼(ms) 답이 없으면 튜터가 멈춘 것으로 봅니다. */
 export const ASK_TIMEOUT_MS = 60_000;
+
+/**
+ * 라이브 봉인에 담을 전사 **글자 수** 상한입니다.
+ *
+ * 왜 조각 수가 아니라 글자 수인가: 문단 길이가 들쭉날쭉해서 "3조각" 은 어떤 때는 10초,
+ * 어떤 때는 1분이 됩니다. 얼마나 담기는지 예측이 안 됩니다. 글자 수로 두면 어느 수업에서나
+ * 같은 분량이 담깁니다.
+ *
+ * 2000자로 잡은 까닭입니다.
+ *   - 2026-09-03 4교시 실측에서 한 문단이 평균 30~60자, 10~15초였습니다. 기본값 3문단은
+ *     30초 남짓이라 개념 하나가 끝나기도 전에 잘렸습니다.
+ *   - 2000자면 대략 40문단, 강의로 5~8분입니다. 개념 하나의 도입부터 예제까지가 들어옵니다.
+ *   - 호스트는 봉인된 조각의 본문을 한 줄씩 그대로 프롬프트에 붙입니다
+ *     (`apps/native-host/src/tutor/materials.rs` 의 `render`). 한글 2000자는 UTF-8 6KB 로,
+ *     사람이 적는 질문 상한(4096바이트 · `MAX_ASK_QUESTION_BYTES`)의 한 배 반쯤입니다.
+ *     호스트 프롬프트가 감당하는 크기입니다.
+ */
+export const LIVE_SNAPSHOT_MAX_CHARS = 2_000;
+
+/**
+ * 물은 자리 **뒤쪽**을 함께 담아 주는 시간 폭(ms)입니다.
+ *
+ * 한 문장의 뜻이 바로 다음 숨에서 끝나는 일이 잦아 뒤도 조금은 담아야 합니다. 그렇다고 넓게
+ * 담으면 6분 전 문장을 물었을 때 그 사이의 딴 이야기가 통째로 딸려 옵니다(실측 사례 ②).
+ * 그래서 뒤쪽은 **같은 호흡으로 이어진 30초**까지만 봅니다. 앞쪽에는 시간 제한을 두지 않습니다 —
+ * 설명은 앞에서 쌓여 오므로 글자 수 상한이 다할 때까지 거슬러 담습니다.
+ */
+export const LIVE_SNAPSHOT_AFTER_MS = 30_000;
 
 /** 라이브 모드 설정입니다. `ReplayStore.live()` 가 채워 넣습니다. */
 export interface LiveConfig {
@@ -298,6 +326,11 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   readonly #watching = new Map<Id, number>();
   /** 이미 받은 사건 id 입니다. 같은 id 는 두 번 처리하지 않습니다. */
   readonly #seen = new Set<Id>();
+  /**
+   * 질문 id → 그 질문이 봉인한 수업 맥락입니다. **이어 묻기가 같은 자리를 잇는 데** 씁니다
+   * (`#followUpSeal`). 패널이 스스로 붙잡은 질문은 번들에 들어가지 않아 여기에만 남습니다.
+   */
+  readonly #snapshots = new Map<Id, QuestionSnapshot>();
   /** 번들은 라이브 모드에서 자랍니다. 그래서 `readonly` 가 아닙니다. */
   #bundle: GoldenBundle;
   /** 진짜 편집기 문맥이 한 번이라도 왔는지입니다. 자리표시는 봉인에 넣지 않습니다. */
@@ -395,6 +428,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     this.#askedIds.clear();
     this.#watching.clear();
     this.#seen.clear();
+    this.#snapshots.clear();
     this.#state = this.#fresh();
     this.#step(this.#state.now);
     this.#notify();
@@ -472,10 +506,13 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     if (event.type === "question.asked") {
       const questionId = String(event.payload.questionId ?? "");
       const question = this.#bundle.questions[questionId];
-      const snapshot = question?.snapshot ?? this.#seal(event.at);
       const word =
         typeof event.payload.word === "string" ? event.payload.word : (question?.anchor?.word ?? "문장");
       const lineId = question?.anchor?.segmentId ?? this.#state.machine.lastSegmentId ?? "";
+      // 밖에서 온 질문이 봉인을 안 실어 왔으면 여기서 만듭니다. 이때도 **그 질문이 가리키는
+      // 줄**이 창의 중심입니다. 질문이 어느 줄도 안 가리키면 마지막 대목이 중심입니다.
+      const snapshot = question?.snapshot ?? this.#seal(event.at, lineId);
+      this.#snapshots.set(questionId, snapshot);
       input = { kind: "event", event, snapshot };
       moments = [...moments, this.#momentFor(questionId, lineId, word, clockOfIso(event.at), snapshot.ages)];
     }
@@ -733,11 +770,18 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
    * 점선 밑줄을 그을 낱말입니다. **점선 자리가 곧 누를 수 있는 자리**입니다(`onTerm` → `catchTerm`).
    *
    *   재생(fixture)  골든 시나리오의 낱말 둘(`new` · `생성자`)
-   *   라이브         줄마다 코드처럼 생긴 낱말 최대 2개(짐작 목록과 같은 규칙) + 이미 붙잡은 낱말
+   *   라이브         줄마다 `termsInText` 가 고른 낱말 **전부** + 이미 붙잡은 낱말
    *
    * 라이브에서도 fixture 낱말만 쓰면 선생님이 하지도 않은 낱말에만 점선이 가고, 문장을 붙잡아
    * 고른 짐작 낱말(`enableWebSecurity` 같은 것)은 전사 어디에도 표시되지 않습니다. 누를 자리
    * 자체가 없어 `catchTerm` 이 라이브에서 죽은 길이 됩니다(2026-09-03 검토).
+   *
+   * 전에는 여기서 `codeTokens(..., MAX_TOKEN_GUESSES)` 도 함께 불렀습니다. 그 상한 2는 "혹시
+   * 이게 막혔나요?" **짐작 목록**을 두 개로 줄이려는 것이지 밑줄을 줄이려는 것이 아닙니다.
+   * 그래서 한 문단에 `before` · `after` · `around` · `pointcut` 이 다 나와도 앞의 둘에만
+   * 밑줄이 섰습니다(약자와 낙타등은 `termsInText` 로 따로 들어와 살아남고, 그냥 영어 낱말만
+   * 잘려 나갔습니다). 어느 낱말이 남을지 규칙이 눈에 안 보여 제멋대로 서는 것처럼 보였습니다
+   * (2026-09-03 "단어 밑줄이 자기 맘대로"). 밑줄은 자격을 갖춘 낱말 전부에 긋습니다.
    *
    * 전사와 순간이 그대로면 지난번에 뽑아 둔 목록을 그대로 씁니다 — `lines()` 는 화면이 다시
    * 그려질 때마다 불립니다.
@@ -759,9 +803,8 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       list.push(term);
     };
     for (const segment of transcript) {
-      for (const token of codeTokens([segment.text], MAX_TOKEN_GUESSES)) add(token);
-      // 코드 낱말만 보면 우리말 강의에서 밑줄이 거의 안 생깁니다(2026-09-03 3교시 실측).
-      // 그래서 우리말 기술 용어 사전도 함께 먹입니다.
+      // `termsInText` 하나가 영문 낱말과 우리말 용어를 함께 돌려줍니다. 코드 낱말만 보면
+      // 우리말 강의에서 밑줄이 거의 안 생깁니다(2026-09-03 3교시 실측).
       for (const term of termsInText(segment.text)) add(term);
     }
     // 이미 붙잡은 낱말은 목록 규칙에 안 걸려도 점선으로 남깁니다(자세히 화면의 표시 자리).
@@ -1110,7 +1153,9 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   #stuck({ lineId, term, segKey, time, question, word }: StuckOptions): void {
     const now = this.#state.now;
     const questionId = this.#nextQuestionId();
-    const snapshot = this.#seal(formatIso(now));
+    // 붙잡은 그 줄이 봉인 창의 중심입니다. "지금 시각의 최근 몇 개" 가 아닙니다.
+    const snapshot = this.#seal(formatIso(now), lineId);
+    this.#snapshots.set(questionId, snapshot);
     this.#remember(questionId, "confused", question ?? questionTextOf(word), word);
     this.#set({
       moments: [...this.#state.moments, { questionId, lineId, term, time, segKey, ages: snapshot.ages }],
@@ -1135,6 +1180,9 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
    *   라이브         붙잡은 문장과 **바로 앞 2문장**에서 그 자리에서 만든 짐작(`guesses.ts`)
    *
    * 라이브에서 fixture 짐작을 쓰면 선생님이 하지도 않은 말이 "혹시 이게 막혔나요?" 에 뜹니다.
+   *
+   * "바로 앞 2문장" 은 **접은 뒤**에 셉니다. 접기 전에는 같은 문단의 진행 중(partial) 판과
+   * 확정 판이 둘 다 앞줄로 잡혀, 앞 2문장이 실은 앞 1문단인 일이 생깁니다.
    */
   #guessesFor(lineId: Id): Guess[] {
     if (this.#live === null) {
@@ -1147,8 +1195,9 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
         word: guess.term,
       }));
     }
-    const ordered = [...this.#bundle.transcript].sort((a, b) => a.seq - b.seq);
-    const index = ordered.findIndex((item) => item.id === lineId);
+    const { kept, alias } = foldSegments(this.#bundle.transcript);
+    const ordered = [...kept].sort((a, b) => a.seq - b.seq);
+    const index = ordered.findIndex((item) => item.id === resolveAlias(alias, lineId));
     if (index < 0) return guessesFromSentence("");
     const sentence = ordered[index]?.text ?? "";
     const before = ordered
@@ -1213,12 +1262,16 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
    *
    * 상태기계는 건드리지 않습니다. 그래서 자세히 화면의 본 답이 그대로 남아 있고, 같은 순간에
    * 몇 번이든 이어 물을 수 있습니다. 답 사건은 `pushEvent` 가 이 스레드로 되돌려 줍니다.
+   *
+   * 봉인은 **앞 질문이 보던 자리를 잇습니다**(`#followUpSeal`). 듣는 중 화면에서 그냥 적어
+   * 보낸 첫 질문은 이을 앞 질문이 없어 마지막 대목을 중심으로 새로 봉인합니다.
    */
   #ask(parentId: Id, label: string, questionText: string): void {
     const now = this.#state.now;
     const at = formatIso(now);
     const questionId = this.#nextQuestionId();
-    const snapshot = this.#seal(at);
+    const snapshot = this.#followUpSeal(parentId, at);
+    this.#snapshots.set(questionId, snapshot);
     const question: Question = {
       id: questionId,
       periodId: this.#bundle.periodId,
@@ -1296,12 +1349,117 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     return { ...this.#state.threads, [parentId]: rows };
   }
 
-  #seal(askedAt: IsoDateTime): QuestionSnapshot {
+  /**
+   * 질문 하나에 붙일 수업 맥락을 봉인합니다.
+   *
+   *   재생(fixture)  예전 그대로 — `sealSnapshot` 의 기본값(지금 시각의 최근 3문단)입니다.
+   *                  골든 9장면의 봉인이 fixture 와 한 글자도 달라지면 안 됩니다.
+   *   라이브         **물은 자리(`anchorLineId`)를 중심으로** 앞뒤를 넓게 담습니다.
+   *
+   * @param anchorLineId 학습자가 누른 줄(또는 인용한 줄)입니다. 없으면 마지막 대목이 중심입니다.
+   */
+  #seal(askedAt: IsoDateTime, anchorLineId: Id | null = null): QuestionSnapshot {
+    const around = this.#live === null ? null : this.#contextWindow(askedAt, anchorLineId);
     return sealSnapshot({
       askedAt,
-      transcript: this.#bundle.transcript,
+      transcript: around ?? this.#bundle.transcript,
+      // 라이브는 창을 여기서 이미 골랐습니다. tutor-core 가 뒤에서 3개로 다시 자르지 않게 합니다.
+      ...(around === null ? {} : { recentParagraphs: Math.max(around.length, 1) }),
       frames: this.#bundle.frames,
       // 라이브 자리표시(ec-live-none)는 봉인에 넣지 않습니다. 진짜 문맥이 와야 나이가 셉니다.
+      editor: this.#hasEditor ? [this.#bundle.editor] : [],
+    });
+  }
+
+  /**
+   * 라이브 봉인에 담을 전사 창입니다. **물은 자리가 창의 중심**입니다.
+   *
+   *     …앞 문단 …앞 문단 [물은 문단] 바로 뒤 문단 │ 30초 넘긴 뒤 문단은 버림
+   *     └────── 글자 수 상한(2000자)까지 거슬러 담음 ──────┘
+   *
+   * 전에는 여기가 없었고 `sealSnapshot` 이 **지금 시각의 최근 3조각**을 담았습니다. 그래서
+   * 14:12 에 나온 AOP 문장을 인용해 14:18 에 물으면 봉인에는 그 사이 잡담이 실렸습니다
+   * (2026-09-03 4교시 실측 사례 ②). 물은 자리와 봉인한 자리가 서로 남남이었습니다.
+   *
+   * 담기 전에 `foldSegments` 로 접습니다. 진행 중(partial) 판과 확정 판이 같은 문단인데도
+   * 자리를 둘 차지해, 실측에서 3자리 중 하나를 `…-partial-51` 이 먹었습니다.
+   *
+   * 담는 순서는 ① 물은 문단 ② 바로 뒤(30초 안) ③ 남은 자리 전부를 앞쪽으로, 입니다. 앞쪽을
+   * 나중에 채우는 까닭은 뒤쪽 자리를 먼저 확보해 두기 위해서입니다 — 반대로 하면 앞이 상한을
+   * 다 먹어 바로 뒤 한 문단도 못 담습니다.
+   */
+  #contextWindow(askedAt: IsoDateTime, anchorLineId: Id | null): readonly TranscriptSegment[] {
+    const askedMs = parseIso(askedAt);
+    // `kept` 는 시간순입니다(`foldSegments` 설명). 여기서 다시 세우지 않습니다.
+    const { kept, alias } = foldSegments(
+      this.#bundle.transcript.filter((segment) => parseIso(segment.arrivedAt) <= askedMs),
+    );
+    if (kept.length === 0) return [];
+    // 붙잡아 둔 줄이 그 사이 접혔을 수 있습니다. 이긴 줄로 따라갑니다.
+    const wanted = anchorLineId === null || anchorLineId.length === 0 ? null : resolveAlias(alias, anchorLineId);
+    const found = wanted === null ? -1 : kept.findIndex((item) => item.id === wanted);
+    // 누른 줄이 없으면(자유 질문 · 아직 안 온 줄) 지금 보이는 마지막 대목이 중심입니다.
+    const center = found >= 0 ? found : kept.length - 1;
+    const anchor = kept[center];
+    if (anchor === undefined) return [];
+
+    // ① 물은 문단은 상한을 넘더라도 반드시 담습니다. 이것을 빼면 봉인이 물음과 무관해집니다.
+    let used = anchor.text.length;
+    let first = center;
+    let last = center;
+
+    // ② 바로 뒤 — 같은 호흡으로 이어진 것만.
+    const anchorMs = parseIso(anchor.arrivedAt);
+    for (let i = center + 1; i < kept.length; i += 1) {
+      const next = kept[i];
+      if (next === undefined) break;
+      if (parseIso(next.arrivedAt) - anchorMs > LIVE_SNAPSHOT_AFTER_MS) break;
+      if (used + next.text.length > LIVE_SNAPSHOT_MAX_CHARS) break;
+      used += next.text.length;
+      last = i;
+    }
+
+    // ③ 남은 자리는 전부 앞쪽으로. 중간을 건너뛰지 않고 붙어 있는 데까지만 담습니다.
+    for (let i = center - 1; i >= 0; i -= 1) {
+      const prev = kept[i];
+      if (prev === undefined) break;
+      if (used + prev.text.length > LIVE_SNAPSHOT_MAX_CHARS) break;
+      used += prev.text.length;
+      first = i;
+    }
+
+    return kept.slice(first, last + 1);
+  }
+
+  /**
+   * 이어 묻기의 봉인입니다. **앞 질문이 보던 자리를 그대로 잇습니다.**
+   *
+   *     Q  "조인 포인트가 뭐예요?"  ─ 봉인: ts-047 … ts-050 (AOP 대목)
+   *     └─ 이어 묻기 "더 쉽게"      ─ 봉인: ts-047 … ts-050  ← 같은 자리
+   *
+   * 새로 봉인하면 그 사이 수업이 흘러간 만큼 창이 통째로 옮겨 가, "더 쉽게" 가 엉뚱한 대목을
+   * 가리킵니다. 앞 질문에 이어 묻는 말이므로 보던 자리도 이어야 맞습니다.
+   *
+   * 전사만 잇고 화면·편집기는 지금 것을 씁니다 — 이어 물을 때 학습자가 보고 있는 화면은
+   * 지금 화면이고, 호스트도 화면은 장 수만 셉니다(`materials.rs`).
+   *
+   * 자료 나이(`ages`)는 이어 물은 시각 기준으로 다시 셉니다. 같은 자료라도 시간이 흐른 만큼
+   * 오래된 것이 맞습니다. 앞 질문이 없거나(듣는 중 화면에서 그냥 물은 것) 재생 모드면 새로 봉인합니다.
+   */
+  #followUpSeal(parentId: Id, askedAt: IsoDateTime): QuestionSnapshot {
+    const parent = this.#snapshots.get(parentId) ?? this.#bundle.questions[parentId]?.snapshot;
+    if (this.#live === null || parent === undefined) return this.#seal(askedAt);
+    const byId = new Map(this.#bundle.transcript.map((segment) => [segment.id, segment] as const));
+    const sealed = parent.transcriptSegmentIds
+      .map((id) => byId.get(id))
+      .filter((segment): segment is TranscriptSegment => segment !== undefined);
+    // 앞 질문이 전사를 하나도 못 봤으면(교시 시작 직후에 물은 것) 이을 자리가 없습니다. 새로 봉인합니다.
+    if (sealed.length === 0) return this.#seal(askedAt);
+    return sealSnapshot({
+      askedAt,
+      transcript: sealed,
+      recentParagraphs: sealed.length,
+      frames: this.#bundle.frames,
       editor: this.#hasEditor ? [this.#bundle.editor] : [],
     });
   }

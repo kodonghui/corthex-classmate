@@ -109,6 +109,13 @@ export interface ListeningView {
   readonly noteNow: string | null;
   readonly footer: FooterView;
   readonly tiroPaused: boolean;
+  /**
+   * 맨 아래 한 줄에서 바로 물을 수 있는지입니다. 라이브에서만 참입니다 —
+   * 재생(fixture)에는 물을 곳이 없어 칸을 만들지 않고 골든 장면도 예전 그대로입니다.
+   */
+  readonly canAsk: boolean;
+  /** 듣다가 바로 물은 것들입니다. 물은 순서이고 마지막이 가장 나중입니다. */
+  readonly asks: readonly ThreadView[];
 }
 
 /** 자세히 화면에서 이어 물은 한 줄입니다(질문 → 대기 · 답 · 실패). */
@@ -357,8 +364,13 @@ function noteOf(bundle: GoldenBundle, state: ReplayState): NoteView {
 }
 
 /** 디자인 규칙: 메모가 떠 있으면 4줄, 아니면 5줄만 보입니다. */
+// 재생(fixture) 화면은 장면 9개를 정확히 재현해야 해서 보이는 줄 수를 묶어 둡니다.
+// 라이브는 다릅니다 — 학습자가 위로 올려 지난 이야기를 다시 읽어야 하므로 자르지 않습니다.
+// (2026-09-03: 5줄만 남기고 위를 통째로 버리고 있어서 "올릴 게 없다"는 말이 나왔습니다.)
 const VISIBLE_WITH_NOTE = 4;
 const VISIBLE_WITHOUT_NOTE = 5;
+/** 라이브에서 붙잡아 두는 줄 수. 한 교시 문단이 100~150개라 넉넉히 잡습니다. */
+const LIVE_VISIBLE = 400;
 
 function footerOf(bundle: GoldenBundle, state: ReplayState): FooterView {
   const ages = sourceAges(bundle, state.now);
@@ -395,11 +407,35 @@ function footerOf(bundle: GoldenBundle, state: ReplayState): FooterView {
   return { sources, count: state.moments.length, warn };
 }
 
+/**
+ * 듣는 중 화면에서 **바로 물은** 질문들이 매달리는 자리입니다.
+ *
+ * 스토어의 자유 질문(`ReplayStore.askTyped`)은 "어느 답에 이어 물었나" 를 부모 id 로 받습니다.
+ * 그런데 듣다가 바로 묻는 것은 이어 묻기가 아니라 그 자체가 첫 질문이라 매달 답이 없습니다.
+ * 그래서 교시 id 한 칸을 씁니다.
+ *
+ *   threads["q-…-001"]      자세히 화면에서 그 답에 이어 물은 것들
+ *   threads["2026-…-p3"]    듣는 중 화면에서 그냥 물은 것들   ← 이 함수가 주는 열쇠
+ *
+ * 질문 id 는 `q-` 로 시작하고 교시 id 는 날짜로 시작하므로 두 칸은 겹치지 않습니다.
+ * 부모가 질문이 아니어서 `askTyped` 는 앞선 결론을 못 찾고, 사람이 적은 글만 그대로 밖에
+ * 나갑니다 — 이어 묻기가 아닌 첫 질문이므로 그게 맞습니다.
+ */
+export function listeningAskParent(bundle: GoldenBundle): Id {
+  return bundle.periodId;
+}
+
 /** 듣는 중 화면(A~E · H)의 값 전부입니다. */
-export function listeningView(bundle: GoldenBundle, state: ReplayState, allLines: readonly TranscriptLine[]): ListeningView {
+export function listeningView(
+  bundle: GoldenBundle,
+  state: ReplayState,
+  allLines: readonly TranscriptLine[],
+  live = false,
+): ListeningView {
   const note = noteOf(bundle, state);
   const open = note.kind !== "none" && note.kind !== "collapsed";
-  const lines = allLines.slice(-(open ? VISIBLE_WITH_NOTE : VISIBLE_WITHOUT_NOTE));
+  const keep = live ? LIVE_VISIBLE : open ? VISIBLE_WITH_NOTE : VISIBLE_WITHOUT_NOTE;
+  const lines = allLines.slice(-keep);
   const moment = currentMoment(state);
   const answer = currentAnswer(bundle, state);
   const paused = tiroPaused(state);
@@ -418,6 +454,8 @@ export function listeningView(bundle: GoldenBundle, state: ReplayState, allLines
     noteNow: note.kind === "ready" && answer?.nowLine !== undefined ? answer.nowLine : null,
     footer: footerOf(bundle, state),
     tiroPaused: paused,
+    canAsk: state.live,
+    asks: threadsOf(bundle, state, listeningAskParent(bundle)),
   };
 }
 

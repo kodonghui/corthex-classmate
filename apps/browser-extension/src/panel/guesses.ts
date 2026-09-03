@@ -13,20 +13,7 @@
 // 브라우저 API 도 상태도 없습니다. 순수 함수만 둡니다.
 
 import { askAboutSentence, askAboutToken } from "./ask-text";
-
-/**
- * 코드처럼 생긴 낱말 하나입니다.
- *
- *     enableWebSecurity        낱말 하나
- *     @EnableAspectJAutoProxy  어노테이션
- *     context.getBean          점 표기
- *
- * 첫 글자는 영문, 그 뒤로 영문·숫자·밑줄. 점으로 이어 붙은 것도 한 낱말로 봅니다.
- */
-const TOKEN_PATTERN = /@?[A-Za-z][A-Za-z0-9_$]*(?:\.[A-Za-z][A-Za-z0-9_$]*)*/g;
-
-/** 이보다 짧은 낱말(`the` · `and` · `Map`)은 짐작으로 내놓지 않습니다. */
-const MIN_TOKEN_LENGTH = 4;
+import { lessonTokens } from "./live-terms";
 
 /** 문장 전체를 묻는 짐작의 라벨입니다. 늘 목록 맨 끝에 둡니다. */
 export const WHOLE_SENTENCE_LABEL = "이 문장 전체가 무슨 뜻인지";
@@ -62,6 +49,15 @@ export function looksLikeCode(token: string): boolean {
  * 글에서 낱말 후보를 뽑습니다. 코드처럼 생긴 것이 앞, 그냥 영어 낱말이 뒤입니다.
  * 같은 낱말은 대소문자를 무시하고 한 번만 셉니다.
  *
+ * **어떤 낱말이 후보인지는 여기서 정하지 않습니다.** `live-terms` 의 `lessonTokens` 가 정합니다.
+ * 점선 밑줄도 같은 함수를 쓰므로, 밑줄이 그어진 낱말은 짐작에도 나오고 그 반대도 참입니다.
+ * 예전에는 여기만 네 글자 이상을 요구해 `AOP` 는 밑줄만, `Spring` 은 짐작만 되었습니다
+ * (2026-09-03 "단어 밑줄이 자기 맘대로").
+ *
+ * 여기서 하는 일은 **줄 세우기와 개수 자르기**뿐입니다. 짐작은 두 개까지만 보여 주지만
+ * (`MAX_TOKEN_GUESSES`) 밑줄은 자격을 갖춘 낱말 전부에 긋습니다 — 그래서 `limit` 은 이 쓰임의
+ * 몫이고, 밑줄 쪽은 `lessonTokens` 를 바로 부릅니다.
+ *
  * @param texts 가까운 글이 앞에 오도록 넘깁니다(붙잡은 문장 → 바로 앞 문장 → 그 앞 문장).
  */
 export function codeTokens(texts: readonly string[], limit: number = MAX_TOKEN_GUESSES): string[] {
@@ -69,9 +65,7 @@ export function codeTokens(texts: readonly string[], limit: number = MAX_TOKEN_G
   const strong: string[] = [];
   const plain: string[] = [];
   for (const text of texts) {
-    for (const token of text.match(TOKEN_PATTERN) ?? []) {
-      const core = token.startsWith("@") ? token.slice(1) : token;
-      if (core.length < MIN_TOKEN_LENGTH) continue;
+    for (const token of lessonTokens(text)) {
       const key = token.toLowerCase();
       if (seen.has(key)) continue;
       seen.add(key);
