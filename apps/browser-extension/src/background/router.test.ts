@@ -23,8 +23,12 @@ import { Router, captureStateToConnector, clampUtf8, toPartialSegment } from './
 import type { ClassmateSettings } from './settings';
 
 const PERIOD = '2026-09-02-p3';
-/** 시험이 시계에 흔들리지 않게 **로컬** 날짜 조각으로 만듭니다(`makePeriodId` 가 로컬을 봅니다). */
-const NOW = new Date(2026, 8, 2, 10, 32, 18);
+// 절대 시각으로 못 박습니다. 숫자 인자를 받는 `new Date(2026, 8, 2, 10, 32, 18)` 은 그 숫자를
+// **돌리는 PC 의 지역시**로 읽습니다. 라우터는 이 값을 `toKstIso` 로 언제나 `+09:00` 으로 적으므로
+// (`background/ids.ts`), KST 기계에서만 10:32:18 이 되고 UTC 기계에서는 19:32:18 이 됩니다.
+// 2026-09-04 CI 첫 초록 시도에서 실제로 터졌습니다(run 33801564903, 268줄).
+// CI 러너는 일부러 UTC 로 둡니다 — 이런 어긋남을 잡아 주는 것이 그 값어치입니다.
+const NOW = new Date('2026-09-02T10:32:18+09:00');
 
 function segment(seq: number, state: TranscriptSegment['state'] = 'final'): TranscriptSegment {
   return {
