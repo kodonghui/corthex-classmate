@@ -186,11 +186,12 @@ describe("들어오는 자료", () => {
   it("전사를 넣으면 곧바로 화면 줄이 된다", () => {
     const { store } = rig();
     store.pushSegment(segment(1, "오늘은 IoC 컨테이너를 봅니다", 4));
-    store.pushSegment(segment(2, "객체를 직접 new로 만들면 강하게 묶여요", 6));
+    store.pushSegment(segment(2, "여기서 enableWebSecurity 를 켜 주면 필터가 붙어요", 6));
     const view = home(store);
     expect(view.lines.map((line) => line.id)).toEqual(["ts-live-001", "ts-live-002"]);
     expect(view.header.time).toBe("10:00:06");
-    expect(view.lines[1]?.segments.some((s) => s.term === true && s.text === "new")).toBe(true);
+    // 점선은 **지금 전사에서 뽑은** 낱말에만 갑니다(fixture 의 `new` · `생성자` 는 쓰지 않습니다).
+    expect(view.lines[1]?.segments.some((s) => s.term === true && s.text === "enableWebSecurity")).toBe(true);
   });
 
   it("같은 전사 조각을 두 번 넣어도 한 줄이고, 순서는 seq 를 따른다", () => {
@@ -283,6 +284,18 @@ describe("붙잡기 → AskPort", () => {
     );
     // 메모 제목은 고른 낱말입니다.
     expect(store.getState().moments[0]?.term).toBe("context.getBean");
+  });
+
+  it("고른 짐작 낱말은 전사에 점선으로 그어져 표시 자리가 생긴다", () => {
+    const { store } = rig();
+    store.pushSegment(segment(1, "context.getBean 으로 꺼내 씁니다", 5));
+    store.catchSentence("ts-live-001");
+    store.chooseGuess("g1");
+    const state = store.getState();
+    // 점선은 fixture 낱말(new · 생성자)이 아니라 이 문장에서 뽑은 낱말에 갑니다.
+    expect(store.lines(state.now)[0]?.segments[0]).toEqual({ text: "context.getBean", term: true });
+    const view = detailViewFor(store.bundle, state, store.lines(state.now), state.machine.questionId ?? "");
+    expect(view?.marked).toEqual(["ts-live-001:0"]);
   });
 
   it("문장 전체 짐작은 낱말 없이 문장을 묻는다", () => {
@@ -683,6 +696,42 @@ describe("같은 문단이 다시 올 때", () => {
     expect(lines).toHaveLength(1);
     expect(lines[0]?.segments.map((item) => item.text).join("")).toBe("컨테이너가 대신 만들어 주면 우리는");
   });
+
+  it("붙잡은 진행 중 줄이 확정본에 접혀도 인용 줄과 표시가 따라간다", () => {
+    const { store } = rig();
+    // 사람이 실제로 붙잡는 줄은 tiro.partial 이 만든 줄입니다(id 도 seq 도 확정본과 다릅니다).
+    store.pushSegment({
+      ...segment(41, "여기서 enableWebSecurity 를 켜 주면", 5),
+      id: `ts-${PERIOD}-partial-40`,
+      state: "partial",
+    });
+    store.catchSentence(`ts-${PERIOD}-partial-40`);
+    store.chooseGuess("g1");
+    const questionId = store.getState().machine.questionId ?? "";
+    expect(store.getState().moments[0]?.segKey).toBe(`ts-${PERIOD}-partial-40:1`);
+
+    store.pushSegment(segment(1, "여기서 enableWebSecurity 를 켜 주면 필터가 붙습니다", 7));
+    const state = store.getState();
+    expect(state.moments[0]?.lineId).toBe("ts-live-001");
+    const view = detailViewFor(store.bundle, state, store.lines(state.now), questionId);
+    expect(view?.line?.id).toBe("ts-live-001");
+    expect(view?.marked).toEqual(["ts-live-001:1"]);
+  });
+
+  it("같은 id 의 글이 앞머리부터 다시 오면 표시가 그 낱말을 따라간다", () => {
+    const { store } = rig();
+    store.pushSegment({ ...segment(1, "enableWebSecurity 를 켜 주면", 5), state: "partial" });
+    store.catchTerm("ts-live-001", 0, "enableWebSecurity");
+    const questionId = store.getState().machine.questionId ?? "";
+    expect(store.getState().moments[0]?.segKey).toBe("ts-live-001:0");
+
+    // 앞머리가 다시 읽히며 같은 id 의 글이 통째로 갈아 끼워집니다. 조각 번호가 하나 밀립니다.
+    store.pushSegment(segment(1, "그러니까 enableWebSecurity 를 켜 주면 곤란해요", 6));
+    const state = store.getState();
+    expect(state.moments[0]?.segKey).toBe("ts-live-001:1");
+    const view = detailViewFor(store.bundle, state, store.lines(state.now), questionId);
+    expect(view?.marked).toEqual(["ts-live-001:1"]);
+  });
 });
 
 describe("자세히 화면에서 이어 묻기", () => {
@@ -769,6 +818,44 @@ describe("자세히 화면에서 이어 묻기", () => {
     expect(threads[0]?.loading).toBe(false);
     // 본 답은 멈추지 않았습니다.
     expect(bench.store.getState().machine.note).toBe("detail");
+  });
+
+  it("멈춘 뒤 answer.queued 가 뒤따라도 멈춤 안내가 그대로 남는다", () => {
+    const { bench, parentId } = opened();
+    const { store } = bench;
+    store.askTyped(parentId, "그럼 언제 써요?");
+    const followId = "q-2026-09-02-p9-xtesttok0-002";
+    // 계약의 멈춤 흐름입니다 — answer.failed 1초 뒤에 answer.queued 가 옵니다.
+    store.pushEvent(
+      event("ev-x-102", 20, "answer.failed", {
+        questionId: followId,
+        provider: "mock",
+        message: ASK_TIMEOUT_MESSAGE,
+      }),
+    );
+    store.pushEvent(
+      event("ev-x-103", 21, "answer.queued", { questionId: followId, answerId: "ans-live-002-queued" }),
+    );
+    expect(threadsOf(store, parentId)[0]).toMatchObject({ loading: false, failure: ASK_TIMEOUT_MESSAGE });
+    // 시계를 한참 밀어도 "답을 만들고 있어요" 로 되돌아가지 않습니다.
+    bench.tickAt(200);
+    expect(threadsOf(store, parentId)[0]).toMatchObject({ loading: false, failure: ASK_TIMEOUT_MESSAGE });
+  });
+
+  it("멈춘 적 없이 answer.queued 만 오면 그때부터 60초를 다시 센다", () => {
+    const { bench, parentId } = opened();
+    const { store } = bench;
+    store.askTyped(parentId, "그럼 언제 써요?");
+    const followId = "q-2026-09-02-p9-xtesttok0-002";
+    store.pushEvent(
+      event("ev-x-104", 30, "answer.queued", { questionId: followId, answerId: "ans-live-002-queued" }),
+    );
+    // 물어본 지 60초는 지났지만 줄 세운 뒤로는 50초입니다.
+    bench.tickAt(80);
+    expect(threadsOf(store, parentId)[0]).toMatchObject({ loading: true, failure: null });
+    // 줄 세운 뒤 65초 — 이제는 멈춘 것으로 봅니다.
+    bench.tickAt(95);
+    expect(threadsOf(store, parentId)[0]).toMatchObject({ loading: false, failure: ASK_TIMEOUT_MESSAGE });
   });
 
   it("여러 번 이어 물을 수 있고 순서대로 쌓인다", () => {

@@ -43,6 +43,7 @@ import type {
 } from "@classmate/contracts";
 import type { Effect, Env, MachineInput, MachineState } from "@classmate/tutor-core";
 import { createEnv, formatIso, initialState, parseIso, sealSnapshot, transition } from "@classmate/tutor-core";
+import type { TranscriptLine } from "@classmate/ui-classmate";
 
 import {
   ASK_EASIER,
@@ -56,9 +57,9 @@ import { makeIdToken, panelEventId, panelQuestionId } from "./event-ids";
 import type { GoldenBundle } from "./golden-bundle";
 import { emptyBundle, GOLDEN_TERMS, guessesForLine } from "./golden-bundle";
 import type { Guess } from "./guesses";
-import { guessesFromSentence } from "./guesses";
+import { codeTokens, guessesFromSentence, MAX_TOKEN_GUESSES, WHOLE_SENTENCE_TERM } from "./guesses";
 import type { AskPort, AskRequest, PanelInbox, PanelOutbox } from "./ports";
-import { segmentKeyOfWord, toTranscriptLines } from "./transcript-lines";
+import { foldSegments, resolveAlias, segmentKeyOfWord, toTranscriptLines } from "./transcript-lines";
 
 export type Screen = "home" | "detail";
 
@@ -241,6 +242,20 @@ function numberOf(payload: SessionEvent["payload"], key: string): number | null 
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+/**
+ * 그 열쇠(`<줄 id>:<조각 번호>`)가 아직 그 낱말을 가리키고 있는지입니다.
+ *
+ *     ts-058:0  →  ["new"(점선), " 로 만들면"]        가리킴 O
+ *     ts-058:0  →  ["그러니까 ", "new"(점선), " …"]   가리킴 X — 앞머리가 자라 번호가 밀렸습니다
+ */
+function holdsTerm(line: TranscriptLine, segKey: string | null, term: string): boolean {
+  if (segKey === null) return false;
+  const index = Number.parseInt(segKey.slice(segKey.lastIndexOf(":") + 1), 10);
+  if (!Number.isInteger(index)) return false;
+  const piece = line.segments[index];
+  return piece !== undefined && piece.term === true && piece.text === term;
+}
+
 /** 낱말 하나를 붙잡았을 때 밖으로 보낼 질문 문장입니다. */
 export function questionTextOf(word: string | undefined): string {
   return word === undefined || word.length === 0 ? "이 부분이 무슨 뜻이에요?" : `${word} 이 무슨 뜻이에요?`;
@@ -287,6 +302,15 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   /** 진짜 편집기 문맥이 한 번이라도 왔는지입니다. 자리표시는 봉인에 넣지 않습니다. */
   #hasEditor: boolean;
   #state: ReplayState;
+  /**
+   * 라이브 점선 낱말을 기억해 둡니다. 전사와 순간이 그대로면 낱말을 다시 뽑지 않습니다
+   * (`lines()` 는 화면이 다시 그려질 때마다 불립니다).
+   */
+  #liveTerms: {
+    readonly transcript: readonly TranscriptSegment[];
+    readonly moments: readonly Moment[];
+    readonly list: readonly string[];
+  } | null = null;
   #pending: SessionEvent[] = [];
   #panelQuestionSeq = 0;
   #emitSeq = 0;
@@ -481,6 +505,8 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       this.#bundle = { ...this.#bundle, transcript };
     }
     this.#moveClock(parseIso(segment.arrivedAt));
+    // 줄이 접히거나 글이 갈아 끼워졌을 수 있습니다. 붙잡아 둔 자리를 새 줄에 다시 맞춥니다.
+    this.#realignMoments();
     this.#touch();
   }
 
@@ -692,7 +718,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
 
   /** 지금까지 도착한 전사를 화면 줄로 만듭니다. */
   lines(untilMs: number = this.#state.now) {
-    return toTranscriptLines(this.#bundle.transcript, GOLDEN_TERMS, untilMs);
+    return toTranscriptLines(this.#bundle.transcript, this.#termList(), untilMs);
   }
 
   /** 스토어와 같은 날짜의 시각(ms)을 만듭니다. `clockMs("10:32:16")`. */
@@ -701,6 +727,84 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   }
 
   // ── 안쪽 ─────────────────────────────────────────────────────────────────────
+
+  /**
+   * 점선 밑줄을 그을 낱말입니다. **점선 자리가 곧 누를 수 있는 자리**입니다(`onTerm` → `catchTerm`).
+   *
+   *   재생(fixture)  골든 시나리오의 낱말 둘(`new` · `생성자`)
+   *   라이브         줄마다 코드처럼 생긴 낱말 최대 2개(짐작 목록과 같은 규칙) + 이미 붙잡은 낱말
+   *
+   * 라이브에서도 fixture 낱말만 쓰면 선생님이 하지도 않은 낱말에만 점선이 가고, 문장을 붙잡아
+   * 고른 짐작 낱말(`enableWebSecurity` 같은 것)은 전사 어디에도 표시되지 않습니다. 누를 자리
+   * 자체가 없어 `catchTerm` 이 라이브에서 죽은 길이 됩니다(2026-09-03 검토).
+   *
+   * 전사와 순간이 그대로면 지난번에 뽑아 둔 목록을 그대로 씁니다 — `lines()` 는 화면이 다시
+   * 그려질 때마다 불립니다.
+   */
+  #termList(): readonly string[] {
+    if (this.#live === null) return GOLDEN_TERMS;
+    const cached = this.#liveTerms;
+    const { transcript } = this.#bundle;
+    const { moments } = this.#state;
+    if (cached !== null && cached.transcript === transcript && cached.moments === moments) {
+      return cached.list;
+    }
+    const seen = new Set<string>();
+    const list: string[] = [];
+    const add = (term: string): void => {
+      const key = term.toLowerCase();
+      if (term.length === 0 || seen.has(key)) return;
+      seen.add(key);
+      list.push(term);
+    };
+    for (const segment of transcript) {
+      for (const token of codeTokens([segment.text], MAX_TOKEN_GUESSES)) add(token);
+    }
+    // 이미 붙잡은 낱말은 목록 규칙에 안 걸려도 점선으로 남깁니다(자세히 화면의 표시 자리).
+    for (const moment of moments) {
+      if (moment.term !== WHOLE_SENTENCE_TERM) add(moment.term);
+    }
+    this.#liveTerms = { transcript, moments, list };
+    return list;
+  }
+
+  /**
+   * 전사가 바뀌면 붙잡은 자리를 다시 맞춥니다.
+   *
+   *     진행 중 줄을 붙잡음 ─▶ 그 문단이 다른 id 로 확정 ─▶ moment.lineId 를 이긴 줄로 옮깁니다
+   *     같은 id 의 글이 갈아 끼워짐(앞머리가 자람)        ─▶ segKey 의 조각 번호를 다시 셉니다
+   *
+   * 이걸 안 하면 자세히 화면의 인용 전사 줄이 통째로 사라지거나(줄을 못 찾음), 표시가 엉뚱한
+   * 글자에 붙습니다(조각 번호가 밀림). 둘 다 2026-09-03 검토에서 재현됐습니다.
+   *
+   * 아직 그 낱말을 제대로 가리키고 있는 열쇠는 건드리지 않습니다 — 같은 낱말이 한 줄에 두 번
+   * 나오면 다시 세다가 사람이 누른 자리가 아닌 첫 자리로 옮겨 가기 때문입니다.
+   */
+  #realignMoments(): void {
+    if (this.#state.moments.length === 0) return;
+    const until = this.#state.now;
+    const { alias } = foldSegments(
+      this.#bundle.transcript.filter((segment) => parseIso(segment.arrivedAt) <= until),
+    );
+    const lines = this.lines(until);
+    let moved = false;
+    const moments = this.#state.moments.map<Moment>((moment) => {
+      const lineId = resolveAlias(alias, moment.lineId);
+      const line = lines.find((item) => item.id === lineId);
+      // 아직 안 온 줄(시계보다 뒤)이거나 사라진 줄이면 그대로 둡니다. 없는 자리로 옮기지 않습니다.
+      if (line === undefined) return moment;
+      const segKey =
+        moment.term === WHOLE_SENTENCE_TERM
+          ? null
+          : lineId === moment.lineId && holdsTerm(line, moment.segKey, moment.term)
+            ? moment.segKey
+            : segmentKeyOfWord(line, moment.term);
+      if (lineId === moment.lineId && segKey === moment.segKey) return moment;
+      moved = true;
+      return { ...moment, lineId, segKey };
+    });
+    if (moved) this.#set({ moments });
+  }
 
   /** 날짜를 빌려 오는 기준 시각입니다. 재생은 fixture 첫 사건, 라이브는 `startMs` 입니다. */
   #anchorIso(): IsoDateTime {
@@ -925,8 +1029,16 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
           this.#bundle = { ...this.#bundle, answers: { ...this.#bundle.answers, [answerId]: answer } };
         }
         const questionId = stringOf(payload, "questionId");
-        // 어떤 답 사건이든 하나만 오면 그 질문은 더 기다리지 않습니다.
-        if (questionId !== null) this.#watching.delete(questionId);
+        if (questionId === null) return;
+        if (event.type === "answer.queued" && !this.#alreadyStopped(questionId)) {
+          // 줄 세워 뒀다는 알림은 답이 아닙니다. 시계를 풀어 버리면 아무 안내도 없이 영영
+          // 기다리게 되므로 여기서 다시 겁니다. 멈춤 안내가 이미 떠 있으면 걸지 않습니다 —
+          // 같은 멈춤을 60초마다 한 번 더 적을 까닭이 없습니다.
+          this.#watching.set(questionId, this.#state.now + this.#askTimeoutMs);
+          return;
+        }
+        // 그 밖의 답 사건이 하나라도 오면 그 질문은 더 기다리지 않습니다.
+        this.#watching.delete(questionId);
         return;
       }
     }
@@ -1000,6 +1112,8 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       moments: [...this.#state.moments, { questionId, lineId, term, time, segKey, ages: snapshot.ages }],
       chip: null,
     });
+    // 붙잡은 낱말은 이제 점선 목록에 들어갑니다(라이브). 그 자리에서 열쇠를 한 번 맞춰 둡니다.
+    this.#realignMoments();
     this.#apply({
       kind: "stuck",
       now,
@@ -1169,6 +1283,10 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
           message: stringOf(event.payload, "message") ?? ASK_TIMEOUT_MESSAGE,
         };
       }
+      // `answer.queued` — "줄 세워 뒀다" 는 알림이지 답이 아닙니다. 이미 떠 있는 멈춤 안내를
+      // 지우지 않습니다. 지우면 계약의 멈춤 흐름(failed 1초 뒤 queued)에서 안내가 1초만
+      // 보이고 사라진 뒤 그 줄이 영영 "답을 만들고 있어요" 로 돕니다(2026-09-03 검토).
+      if (item.state === "failed") return item;
       return { ...item, state: "waiting", message: null };
     });
     return { ...this.#state.threads, [parentId]: rows };
@@ -1187,6 +1305,21 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   /** 그 질문의 순간을 이미 만들어 두었는지입니다. 같은 질문은 순간 하나뿐입니다. */
   #hasMomentFor(questionId: string | null): boolean {
     return questionId !== null && this.#state.moments.some((item) => item.questionId === questionId);
+  }
+
+  /**
+   * 이 질문에 멈춤 안내가 이미 떠 있는지입니다.
+   *
+   *     이어 물은 줄   threads[*] 의 그 줄이 `failed`
+   *     본 질문        기계가 그 질문을 들고 provider 가 `failed`
+   */
+  #alreadyStopped(questionId: Id): boolean {
+    const stoppedThread = Object.values(this.#state.threads).some((rows) =>
+      rows.some((item) => item.id === questionId && item.state === "failed"),
+    );
+    if (stoppedThread) return true;
+    const { machine } = this.#state;
+    return machine.questionId === questionId && machine.provider === "failed";
   }
 
   /** 이어 물은 후속 질문인지입니다. 후속은 붙잡은 순간(Moment)을 만들지 않습니다. */
