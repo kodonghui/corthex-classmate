@@ -38,6 +38,7 @@ pub mod prompt;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
@@ -178,7 +179,7 @@ pub enum TutorError {
     ProviderUnavailable,
     /// 봉투나 봉인 자료가 계약과 어긋납니다. 담긴 문구에는 어긋난 자리만 있습니다.
     MalformedSnapshot(String),
-    /// 이 파이프라인이 모르는 질문 식별자입니다.
+    /// 이 파이프라인이 모르는 질문 식별자이거나, 이미 답이 붙어 다시 물을 것이 없는 질문입니다.
     UnknownQuestion,
     /// 파이프라인이 이미 멈췄습니다.
     Stopped,
@@ -205,7 +206,9 @@ impl fmt::Display for TutorError {
             Self::MalformedSnapshot(detail) => {
                 write!(formatter, "봉인 자료가 계약과 어긋납니다 · {detail}")
             }
-            Self::UnknownQuestion => write!(formatter, "모르는 질문 식별자입니다"),
+            Self::UnknownQuestion => {
+                write!(formatter, "모르는 질문이거나 재시도할 것이 없는 질문입니다")
+            }
             Self::Stopped => write!(formatter, "파이프라인이 이미 멈췄습니다"),
         }
     }
@@ -248,7 +251,12 @@ impl TutorPipeline {
         clock: Arc<dyn TutorClock>,
     ) -> TutorHandle {
         let (commands, inbox) = mpsc::channel();
+        // 손잡이와 워커가 **같은 집합**을 봅니다. 답이 붙은 질문을 워커가 여기서 빼 주어야
+        // 손잡이의 `retry` 가 "다시 물을 것이 없는 질문" 을 곧바로 거절할 수 있습니다.
         let known = Arc::new(Mutex::new(HashSet::new()));
+        // 세우는 중이라는 표시입니다. 워커가 물음 하나에 매여 있는 동안에도 밖에서 세울 수
+        // 있어야 종료가 문서의 상한(한 물음 = 최대 45초) 안에 듭니다.
+        let stop = Arc::new(AtomicBool::new(false));
 
         let worker = Worker {
             data_dir,
@@ -266,6 +274,8 @@ impl TutorPipeline {
             next_answer_seq: 1,
             pending: HashMap::new(),
             connected: true,
+            known: Arc::clone(&known),
+            stop: Arc::clone(&stop),
         };
         let thread = thread::spawn(move || worker.run(inbox));
 
@@ -274,6 +284,7 @@ impl TutorPipeline {
             provider_name: config.provider_name,
             clock,
             known,
+            stop,
             commands,
             thread,
         }
@@ -286,6 +297,7 @@ pub struct TutorHandle {
     provider_name: String,
     clock: Arc<dyn TutorClock>,
     known: Arc<Mutex<HashSet<String>>>,
+    stop: Arc<AtomicBool>,
     commands: Sender<Command>,
     thread: JoinHandle<()>,
 }
@@ -318,6 +330,11 @@ impl TutorHandle {
     }
 
     /// 멈춘 답을 사람이 다시 묻습니다. 자동 재시도를 다 쓴 뒤의 유일한 길입니다.
+    ///
+    /// **답이 이미 붙은 질문은 받지 않습니다.** 워커가 성공한 질문을 `known` 에서 빼므로
+    /// 여기서 [`TutorError::UnknownQuestion`] 으로 되돌아갑니다. 예전에는 물은 적 있는 id 면
+    /// 모두 받아 `tutor.accepted` 로 답해 놓고 워커가 아무것도 하지 않아, 확장이 오지 않을
+    /// `tutor.event` 를 영원히 기다렸습니다(2라운드 검토 #4).
     pub fn retry(&self, question_id: &str) -> Result<(), TutorError> {
         let known = self.known.lock().map_err(|_| TutorError::Stopped)?;
         if !known.contains(question_id) {
@@ -335,8 +352,14 @@ impl TutorHandle {
     /// 이미 걸린 물음 하나가 끝나기를 기다리므로 최대 `timeout` 만큼 걸릴 수 있습니다.
     pub fn shutdown(self) {
         let TutorHandle {
-            commands, thread, ..
+            commands,
+            thread,
+            stop,
+            ..
         } = self;
+        // 부탁을 보내기 **전에** 깃발부터 세웁니다. 워커가 물음 하나에 매여 있어도 그 회차가
+        // 끝나는 순간 이것을 보고, 같은 질문을 다시 묻거나 밀린 재시도를 돌리지 않습니다.
+        stop.store(true, Ordering::SeqCst);
         let _ = commands.send(Command::Shutdown);
         drop(commands);
         if thread.join().is_err() {
@@ -477,6 +500,10 @@ struct Worker {
     next_answer_seq: u64,
     pending: HashMap<String, Pending>,
     connected: bool,
+    /// 손잡이와 함께 쓰는 "물은 적 있는 질문" 집합입니다. 답이 붙으면 여기서 뺍니다.
+    known: Arc<Mutex<HashSet<String>>>,
+    /// 밖에서 세운 종료 표시입니다. 물음 하나에 매인 동안에도 볼 수 있습니다.
+    stop: Arc<AtomicBool>,
 }
 
 impl Worker {
@@ -495,6 +522,11 @@ impl Worker {
         }
 
         loop {
+            // 밀린 재시도를 돌리기 **전에** 봅니다. 세우는 중이라면 도래한 재시도 하나가
+            // 종료를 또 한 회차(최대 timeout)만큼 늦추기 때문입니다(2라운드 검토 #7).
+            if self.stopping() {
+                break;
+            }
             self.fire_due_retries();
 
             let received = match self.next_retry_wait() {
@@ -531,11 +563,19 @@ impl Worker {
         due.sort();
 
         for question_id in due {
+            if self.stopping() {
+                return;
+            }
             if let Some(pending) = self.pending.get_mut(&question_id) {
                 pending.next_attempt_at = None;
             }
             self.attempt(&question_id, false);
         }
+    }
+
+    /// 밖에서 세우라고 했는지입니다. 회차 사이마다 봅니다.
+    fn stopping(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
     }
 
     /// 다음 자동 재시도까지 남은 시간입니다. 기다릴 것이 없으면 `None` 입니다.
@@ -625,10 +665,17 @@ impl Worker {
         let body = self.build_body(&sealed);
         let mut outcome = self.ask_once(&body, &sealed, &answer_id, status);
         if matches!(outcome, Err(AttemptError::Answer(_))) {
-            eprintln!(
-                "classmate-host tutor: 답 모양이 계약과 어긋나 같은 질문으로 한 번 더 묻습니다"
-            );
-            outcome = self.ask_once(&body, &sealed, &answer_id, status);
+            if self.stopping() {
+                // 세우는 중입니다. 여기서 한 번 더 물으면 종료가 또 한 회차만큼 늦어집니다.
+                eprintln!(
+                    "classmate-host tutor: 세우는 중이라 계약에 어긋난 답을 다시 묻지 않습니다"
+                );
+            } else {
+                eprintln!(
+                    "classmate-host tutor: 답 모양이 계약과 어긋나 같은 질문으로 한 번 더 묻습니다"
+                );
+                outcome = self.ask_once(&body, &sealed, &answer_id, status);
+            }
         }
 
         match outcome {
@@ -723,6 +770,10 @@ impl Worker {
             "answer.completed"
         };
 
+        // 사건을 밀기 **전에** 뺍니다. 확장이 answer.completed 를 보고 곧바로 tutor.retry 를
+        // 보내도 그때는 이미 "다시 물을 것이 없는 질문" 이어야 하기 때문입니다.
+        self.forget(question_id);
+
         let payload = json!({
             "questionId": question_id,
             "answerId": answer_id,
@@ -737,6 +788,19 @@ impl Worker {
             pending.next_attempt_at = None;
         }
         self.mark_provider_connected();
+    }
+
+    /// 답이 붙은 질문을 손잡이와 함께 쓰는 집합에서 뺍니다.
+    ///
+    /// 이 집합은 손잡이의 `retry` 가 보는 자리입니다. 여기서 빼지 않으면 답이 끝난 질문도
+    /// `tutor.accepted` 를 받고 그 뒤로 아무 사건도 오지 않습니다(2라운드 검토 #4·#11).
+    fn forget(&self, question_id: &str) {
+        match self.known.lock() {
+            Ok(mut known) => {
+                known.remove(question_id);
+            }
+            Err(_) => eprintln!("classmate-host tutor: 질문 집합을 잠그지 못했습니다"),
+        }
     }
 
     fn on_failure(&mut self, question_id: &str, reason: &'static str, manual: bool) {
@@ -803,12 +867,19 @@ impl Worker {
             .map(|pending| pending.auto_retries_used)
             .unwrap_or_default();
         let delay = delay_at(&self.retry_delays, used);
-        let allowed = !manual && used < self.max_auto_retries;
+        // 남은 자동 재시도가 있으면 사람이 눌렀든 아니든 다음 자리를 잡아 둡니다. 예전에는
+        // `!manual` 이 붙어 있어, 1회차 실패 뒤 기다리는 사이 학생이 "다시" 를 한 번 누르고
+        // 그 시도도 실패하면 남은 자동 재시도가 통째로 사라졌습니다(2라운드 검토 #5).
+        let allowed = used < self.max_auto_retries;
 
         if let Some(pending) = self.pending.get_mut(question_id) {
             pending.failed_once = true;
             if allowed {
-                pending.auto_retries_used += 1;
+                // 사람이 누른 시도는 자동 재시도 횟수를 쓰지 않습니다. 자동으로 도는 회차만
+                // 셈에 넣어야 5·15·45초 표가 사람의 손놀림에 따라 줄지 않습니다.
+                if !manual {
+                    pending.auto_retries_used += 1;
+                }
                 pending.next_attempt_at = Some(Instant::now() + delay);
             } else {
                 pending.next_attempt_at = None;

@@ -25,7 +25,7 @@ crate 는 `classmate-host`, 모듈 경로는 `classmate_host::tutor` 입니다.
     │                                           │     list_since(0, 10000)
     │                                           │     · 봉인된 segmentId 의 payload.segment.text (도착 순)
     │                                           │     · 봉인된 editorContextId 의 payload.context.excerpt
-    │                                           │     · screen.frame 은 장 수만
+    │                                           │     · 봉인된 screenFrameId 의 screen.frame 만 장 수로
     │                                           │     (하나도 없어도 "자료 없음" 으로 진행)
     │                                           │
     │                                           ├─ ③ 제공자 호출
@@ -72,7 +72,7 @@ crate 는 `classmate-host`, 모듈 경로는 `classmate_host::tutor` 입니다.
 | `answer.failed` | 한 번의 물음이 실패할 때마다 | `{questionId, provider, message}` · `message` 는 고정 문구(아래 3절) |
 | `answer.queued` | 그 질문이 **처음** 실패했을 때 한 번 | `{questionId, answerId: "<ans-id>-queued", evidence: "stale", answer}` · `answer.status = "queued"` |
 | `answer.recovered` | 멈췄던 질문이 다시 물어 답을 받았을 때 | `{questionId, answerId, evidence: "partial", provider, answer}` · `answer.status = "recovered"` |
-| `connector.status` | 제공자가 끊기거나 돌아올 때(상태가 바뀔 때만) | `{connector: "provider", state: "off"|"connected", reason?}` |
+| `connector.status` | 제공자가 끊기거나 돌아올 때(상태가 바뀔 때만) | `{connector: "provider", state: "off"\|"connected", reason?}` |
 
 읽기만 하는 사건은 둘입니다. 확장이 이미 저장소에 넣어 둔 것입니다.
 
@@ -80,7 +80,7 @@ crate 는 `classmate-host`, 모듈 경로는 `classmate_host::tutor` 입니다.
 |---|---|---|
 | `transcript.segment` | `payload.segmentId` · `payload.segment.text` | 본문 없음으로 두고 진행 |
 | `editor.context` | `payload.editorContextId` · `payload.context.{excerpt, filePath, visibleRange}` | 편집기 자료 없음으로 진행 |
-| `screen.frame` | 장 수만 셉니다 | 0장 |
+| `screen.frame` | 봉인한 `screenFrameId` 와 같은 것만 장 수로 셉니다 | 0장 |
 
 ### 이름 짓기
 
@@ -160,7 +160,7 @@ handle.shutdown();
 |---|---|---|
 | `ProviderUnavailable` | `provider-unavailable` | 봉투의 `provider` 가 이 파이프라인의 제공자와 다를 때 |
 | `MalformedSnapshot(_)` | `malformed-snapshot` | 봉투에 칸이 빠졌거나 Question 계약 검사에 걸릴 때 |
-| `UnknownQuestion` | `unknown-question` | `retry` 가 이 파이프라인이 모르는 질문 id 일 때 |
+| `UnknownQuestion` | `unknown-question` | `retry` 가 이 파이프라인이 모르는 질문 id 일 때 · **이미 답이 붙어 다시 물을 것이 없는 질문**일 때(답이 붙으면 손잡이의 집합에서 빠집니다 · 낱말은 늘리지 않습니다) |
 | `Stopped` | `stopped` | 파이프라인 스레드가 이미 끝났을 때 |
 
 `ask` 와 `retry` 는 **부르는 쪽 스레드에서 곧바로** 판정합니다. 앞선 물음이 45초를 쓰고 있어도

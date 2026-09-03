@@ -592,6 +592,115 @@ fn a_manual_retry_answers_a_question_that_used_up_its_automatic_tries() {
 }
 
 #[test]
+fn a_retry_of_a_question_that_already_has_an_answer_is_refused() {
+    // 답이 붙은 질문을 다시 물어 봐야 파이프라인이 할 일이 없습니다. 예전에는 그래도
+    // 받아 주어(=라우터가 tutor.accepted 를 보내고) 확장이 오지 않을 사건을 기다렸습니다.
+    let dir = temp_dir("done-retry");
+    let (handle, inbox) = start(
+        &dir,
+        fake_provider(&[]),
+        fast_config(Duration::from_secs(30), 0),
+    );
+
+    handle.ask(envelope("q-p3-012")).expect("물음을 받습니다");
+    let pushed = collect_pushes(&inbox, 2);
+    assert_eq!(
+        kinds_of(&pushed),
+        vec!["question.asked", "answer.completed"]
+    );
+
+    let error = handle.retry("q-p3-012").expect_err("답이 끝난 질문");
+    assert_eq!(error, TutorError::UnknownQuestion);
+    assert_eq!(error.reason(), "unknown-question");
+    handle.shutdown();
+}
+
+#[test]
+fn a_manual_retry_does_not_throw_away_the_automatic_retries_that_are_left() {
+    // 1회차가 실패해 다음 자동 재시도를 기다리는 사이 학생이 "다시" 를 누르고 그 시도도
+    // 실패하면, 예전에는 남은 자동 재시도가 통째로 사라져 답이 queued 로 굳었습니다.
+    let dir = temp_dir("manual-keeps-auto");
+    let state = dir.join("calls.txt");
+    let state_arg = state.to_string_lossy().to_string();
+    // 앞의 두 번은 실패하고 세 번째에 성공합니다.
+    let provider = fake_provider(&["--state-file", &state_arg, "--fail-times", "2"]);
+    // 자동 재시도는 두 번까지, 간격은 사람이 먼저 누를 수 있을 만큼 넉넉히 둡니다.
+    let config = TutorConfig {
+        timeout: Duration::from_secs(30),
+        retry_delays: vec![Duration::from_secs(2)],
+        max_auto_retries: 2,
+        ..TutorConfig::default()
+    };
+
+    let (handle, inbox) = start(&dir, provider, config);
+    handle.ask(envelope("q-p3-013")).expect("물음을 받습니다");
+
+    // question.asked · failed · queued · off — 여기까지가 1회차 실패입니다.
+    let first = collect_pushes(&inbox, 4);
+    assert_eq!(
+        kinds_of(&first),
+        vec![
+            "question.asked",
+            "answer.failed",
+            "answer.queued",
+            "connector.status",
+        ]
+    );
+
+    // 자동 재시도가 도래하기 전에 사람이 누릅니다. 이 시도도 실패합니다.
+    handle.retry("q-p3-013").expect("다시 묻기");
+
+    // 사람의 실패(=answer.failed) 뒤에도 남은 자동 재시도가 살아 있어 세 번째에 회복됩니다.
+    let rest = collect_pushes(&inbox, 3);
+    assert_eq!(
+        kinds_of(&rest),
+        vec!["answer.failed", "answer.recovered", "connector.status"],
+        "사람이 한 번 눌렀다고 남은 자동 재시도가 사라지면 안 됩니다"
+    );
+    handle.shutdown();
+
+    let calls = std::fs::read_to_string(&state).expect("호출 수");
+    assert_eq!(calls.trim(), "3", "자동 1회 · 사람 1회 · 자동 1회");
+}
+
+#[test]
+fn a_shutdown_stops_the_second_try_of_the_same_question() {
+    // 답이 계약과 어긋나면 같은 질문으로 한 번 더 묻습니다. 그 사이에 stdin 이 닫히면
+    // 두 번째 물음은 시작하지 않아야 종료가 문서의 상한(한 물음 = 최대 45초) 안에 듭니다.
+    let dir = temp_dir("stopping");
+    let state = dir.join("calls.txt");
+    let state_arg = state.to_string_lossy().to_string();
+    // 언제나 계약에 걸리는 답을 1.5초 늦게 내놓습니다. 그 사이에 세울 시간을 만듭니다.
+    let provider = fake_provider(&[
+        "--state-file",
+        &state_arg,
+        "--too-long",
+        "--delay-ms",
+        "1500",
+    ]);
+
+    let (handle, _inbox) = start(&dir, provider, fast_config(Duration::from_secs(30), 0));
+    handle.ask(envelope("q-p3-014")).expect("물음을 받습니다");
+
+    // 첫 회차가 아직 자고 있는 동안 세웁니다.
+    std::thread::sleep(Duration::from_millis(600));
+    let started = Instant::now();
+    handle.shutdown();
+
+    let calls = std::fs::read_to_string(&state).expect("호출 수");
+    assert_eq!(
+        calls.trim(),
+        "1",
+        "세우는 중에는 같은 질문을 다시 묻지 않습니다"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(20),
+        "세우는 데 너무 오래 걸렸습니다 · {:?}",
+        started.elapsed()
+    );
+}
+
+#[test]
 fn a_retry_for_an_unknown_question_is_refused() {
     let dir = temp_dir("unknown");
     let (handle, _inbox) = start(

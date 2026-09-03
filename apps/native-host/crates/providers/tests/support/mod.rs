@@ -74,6 +74,44 @@ pub fn pid_is_alive(pid: u32) -> bool {
         .any(|token| token == pid.to_string())
 }
 
+/// `--pid-file` 이 적히기를 기다렸다가 첫 줄의 PID 를 돌려줍니다.
+///
+/// 자식을 띄운 뒤 그 PID 를 **미리** 잡아 두려고 씁니다. 회차가 끝나지 않는 상황을 보는
+/// 시험이 마감에서 그 자식을 스스로 거둘 수 있어야 하기 때문입니다.
+pub fn wait_for_pid(path: &std::path::Path, timeout: std::time::Duration) -> u32 {
+    let deadline = std::time::Instant::now() + timeout;
+    loop {
+        if let Ok(text) = std::fs::read_to_string(path) {
+            if let Some(pid) = text
+                .lines()
+                .next()
+                .and_then(|line| line.trim().parse().ok())
+            {
+                return pid;
+            }
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "{} 에 PID 가 적히지 않았습니다",
+            path.display()
+        );
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    }
+}
+
+/// PID 를 트리째 끝냅니다. 시험이 남긴 자식을 거두는 자리입니다.
+pub fn kill_pid_tree(pid: u32) {
+    if !cfg!(windows) {
+        return;
+    }
+    let pid = pid.to_string();
+    let _ = std::process::Command::new("taskkill")
+        .args(["/PID", &pid, "/T", "/F"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status();
+}
+
 /// PID 가 사라질 때까지 잠깐 기다립니다. 사라졌으면 `true` 입니다.
 ///
 /// `taskkill /F` 는 종료를 요청하고 바로 돌아오므로, 목록에서 빠지기까지 몇 밀리초가 걸릴 수 있습니다.

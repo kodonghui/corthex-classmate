@@ -64,7 +64,7 @@ pub enum ExtraCheck {
     FrameBody,
     /// `provider` 가 [`ASK_PROVIDERS`] 안의 이름이어야 하고, `snapshot` 이 계약
     /// `question.schema.json` 의 `/properties/snapshot` 정의에 맞아야 하며,
-    /// `question` 이 있으면 [`QUESTION_MAX_BYTES`] 이하의 문자열이어야 합니다.
+    /// `question` 과 `word` 는 있으면 [`QUESTION_MAX_BYTES`] 이하의 문자열이어야 합니다.
     AskSnapshot,
 }
 
@@ -262,16 +262,22 @@ pub fn validate_envelope(message: &Value) -> Result<&'static EnvelopeRule, Vec<V
 /// 세 낱말뿐이고 보는 순서가 곧 우선순위입니다.
 ///
 /// ```text
-/// /question 이 어긋났나?  ─예─▶ question-too-long
+/// /question 이나 /word 가 어긋났나? ─예─▶ question-too-long
 ///        │아니오
 /// /snapshot 아래가 어긋났나? ─예─▶ malformed-snapshot
 ///        │아니오
 ///        └────────────────────────▶ envelope-invalid
 /// ```
 ///
+/// `/word` 가 `/question` 과 같은 낱말을 받는 것은, 질문 문장이 없을 때 붙잡은 낱말이 그대로
+/// 질문 자리로 흘러가기 때문입니다. 확장이 분기할 낱말을 늘리지 않으려고 같은 것을 씁니다.
+///
 /// 어긋난 자리가 없으면(빈 목록) 부를 자리가 아니지만, 그래도 기본 낱말을 돌려줍니다.
 pub fn envelope_reason(violations: &[Violation]) -> &'static str {
-    if violations.iter().any(|found| found.path == "/question") {
+    if violations
+        .iter()
+        .any(|found| found.path == "/question" || found.path == "/word")
+    {
         REASON_QUESTION_TOO_LONG
     } else if violations
         .iter()
@@ -289,10 +295,13 @@ pub fn envelope_reason(violations: &[Violation]) -> &'static str {
 ///   목록 밖의 값을 그대로 흘려보내지 않습니다.
 /// - `snapshot` 은 계약 `question.schema.json` 의 `/properties/snapshot`(QuestionSnapshot)
 ///   정의로 검사합니다. 질문 시점에 봉인한 자료 묶음이라 이 모양이 깨지면 답을 만들 수 없습니다.
-/// - `question` 은 없어도 되지만, 있으면 UTF-8 [`QUESTION_MAX_BYTES`] 이하의 문자열입니다.
+/// - `question` 과 `word` 는 없어도 되지만, 있으면 UTF-8 [`QUESTION_MAX_BYTES`] 이하의
+///   문자열입니다. `question` 이 없으면 파이프라인이 `word` 를 질문 자리에 그대로 쓰고
+///   `question.asked` payload 에도 같은 값을 실으므로, 둘을 같은 자로 재지 않으면 상한이
+///   한쪽으로 뚫립니다(2라운드 검토 #2).
 ///
-/// `kind` 와 `word` 는 여기서 보지 않습니다. 무엇을 어떻게 물었는지는 파이프라인(단위 6)이
-/// 봉인할 때 다시 보므로 봉투 검사에서 겹쳐 막지 않습니다.
+/// `kind` 는 여기서 보지 않습니다. 무엇을 어떻게 물었는지는 파이프라인(단위 6)이 봉인할 때
+/// 다시 보므로 봉투 검사에서 겹쳐 막지 않습니다.
 /// 어긋난 자리만 알리고 받은 값은 문구에 담지 않습니다(§4-7).
 fn ask_violations(fields: &serde_json::Map<String, Value>) -> Vec<Violation> {
     let mut violations = Vec::new();
@@ -341,6 +350,23 @@ fn ask_violations(fields: &serde_json::Map<String, Value>) -> Vec<Violation> {
     if let Some(message) = question {
         violations.push(Violation {
             path: "/question".to_string(),
+            message,
+            kind: ViolationKind::Value,
+        });
+    }
+
+    let word = match fields.get("word") {
+        None => None,
+        Some(Value::String(text)) if text.len() <= QUESTION_MAX_BYTES => None,
+        Some(Value::String(text)) => Some(format!(
+            "붙잡은 낱말은 UTF-8 {QUESTION_MAX_BYTES} 바이트 이하여야 합니다 · 받은 것은 {} 바이트입니다",
+            text.len()
+        )),
+        Some(_) => Some("붙잡은 낱말은 문자열이어야 합니다".to_string()),
+    };
+    if let Some(message) = word {
+        violations.push(Violation {
+            path: "/word".to_string(),
             message,
             kind: ViolationKind::Value,
         });
@@ -477,14 +503,48 @@ mod tests {
     /// 2라운드에서 `Router` 가 `src/main.rs` 에서 `src/router.rs` 로 옮겨 왔습니다.
     const HOST_ROUTER_RS: &str = include_str!("../../../src/router.rs");
 
-    /// `src/router.rs` 에서 봉투 이름으로 갈래를 나누는 자리를 긁어 옵니다.
+    /// `router.rs` 원문에서 나눠 주는 함수 하나의 본문만 잘라 냅니다.
     ///
-    /// `Router::handle` 의 `"event.append" => …` 같은 줄을 봅니다. 한 줄에 이름을 둘 이상
-    /// 묶은 갈래(`"a" | "b" =>`)는 뒤엣것만 잡히므로 router.rs 는 갈래를 한 줄에 하나씩 씁니다.
-    fn router_types_in_router_rs() -> Vec<String> {
+    /// 예전에는 파일 전체를 긁었습니다. 그러면 갈래 하나를 지워도 그 이름을 적은 **주석이나
+    /// 시험 줄**이 남아 있을 때 대조가 그대로 통과했습니다(거짓 음성 · 2라운드 검토 #9).
+    /// 이제는 실제로 나눠 주는 자리만 봅니다.
+    fn handle_body(text: &str) -> String {
+        const HEAD: &str = "pub fn handle(";
+        let at = text
+            .find(HEAD)
+            .expect("router.rs 에 나눠 주는 함수가 있어야 합니다");
+        let rest = &text[at..];
+        let open = rest.find('{').expect("본문 여는 중괄호가 있어야 합니다");
+
+        let mut depth = 0usize;
+        for (index, letter) in rest[open..].char_indices() {
+            match letter {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return rest[open..=open + index].to_string();
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("본문 닫는 중괄호를 찾지 못했습니다");
+    }
+
+    /// 나눠 주는 본문에서 봉투 이름으로 갈래를 나누는 자리를 긁어 옵니다.
+    ///
+    /// `"event.append" => …` 같은 줄을 봅니다. 한 줄에 이름을 둘 이상 묶은 갈래
+    /// (`"a" | "b" =>`)는 뒤엣것만 잡히므로 router.rs 는 갈래를 한 줄에 하나씩 씁니다.
+    /// 주석으로 시작하는 줄은 건너뜁니다 — 주석은 나눠 주는 자리가 아니기 때문입니다.
+    fn router_types_in(body: &str) -> Vec<String> {
         let mut found = Vec::new();
 
-        for line in HOST_ROUTER_RS.lines() {
+        for line in body.lines() {
+            let line = line.trim_start();
+            if line.starts_with("//") {
+                continue;
+            }
             let Some(arrow) = line.find("=>") else {
                 continue;
             };
@@ -659,9 +719,51 @@ mod tests {
         ours.sort_unstable();
 
         assert_eq!(
-            router_types_in_router_rs(),
+            router_types_in(&handle_body(HOST_ROUTER_RS)),
             ours,
             "봉투 표와 src/router.rs 의 갈래가 어긋납니다"
+        );
+    }
+
+    #[test]
+    fn the_scraper_reads_only_the_dispatch_body_and_skips_comments() {
+        // 대조가 헛돌지 않는지를 **검사기 자체**로 확인합니다. 나눠 주는 함수 밖의 갈래와
+        // 주석 안의 갈래가 세어지면, 갈래를 지워도 대조가 통과해 버립니다(거짓 음성).
+        let sample = concat!(
+            "fn elsewhere(&self) -> Value {
+",
+            "    match kind {
+",
+            "        \"ghost.outside\" => hello(),
+",
+            "        _ => none(),
+",
+            "    }
+",
+            "}
+",
+            "
+",
+            "pub fn handle(&mut self, msg: Value) -> Value {
+",
+            "    match kind {
+",
+            "        // \"ghost.comment\" => hello(),
+",
+            "        \"ping\" => hello(),
+",
+            "        _ => unknown_message_type(&msg),
+",
+            "    }
+",
+            "}
+",
+        );
+
+        assert_eq!(
+            router_types_in(&handle_body(sample)),
+            vec!["ping".to_string()],
+            "나눠 주는 본문의 갈래 하나만 세어야 합니다"
         );
     }
 
@@ -775,6 +877,38 @@ mod tests {
         let mut wordless = tutor_ask_message();
         wordless.as_object_mut().expect("객체다").remove("question");
         assert!(validate_envelope(&wordless).is_ok());
+    }
+
+    #[test]
+    fn a_word_is_measured_with_the_same_limit_as_the_question() {
+        // question 이 없으면 파이프라인은 word 를 질문 자리에 그대로 씁니다. 여기서 재지
+        // 않으면 1 MiB 짜리 word 하나가 상한을 지나 CLI stdin 과 되나가는 알림으로 흘러갑니다.
+        let mut message = tutor_ask_message();
+        message.as_object_mut().expect("객체다").remove("question");
+
+        message["word"] = json!("a".repeat(QUESTION_MAX_BYTES));
+        assert!(
+            validate_envelope(&message).is_ok(),
+            "상한과 같으면 통과합니다"
+        );
+
+        message["word"] = json!("a".repeat(QUESTION_MAX_BYTES + 1));
+        let violations = validate_envelope(&message).expect_err("한 바이트 넘었습니다");
+        assert_eq!(paths(&violations), vec!["/word"]);
+        assert_eq!(envelope_reason(&violations), REASON_QUESTION_TOO_LONG);
+        assert!(
+            !describe(&violations).contains("aaaa"),
+            "원문이 새면 안 됩니다: {}",
+            describe(&violations)
+        );
+
+        // 낱말은 없어도 됩니다(문장으로만 물은 경우).
+        let mut sentence_only = tutor_ask_message();
+        sentence_only
+            .as_object_mut()
+            .expect("객체다")
+            .remove("word");
+        assert!(validate_envelope(&sentence_only).is_ok());
     }
 
     #[test]

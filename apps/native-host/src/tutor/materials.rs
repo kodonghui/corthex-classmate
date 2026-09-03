@@ -10,7 +10,7 @@
 //! ```text
 //! snapshot.transcriptSegmentIds ─┐
 //! snapshot.editorContextId ──────┼─▶ list_since(0, …) 로 읽은 기록들과 맞대어 본문만 뽑는다
-//! (화면 프레임)  ────────────────┘        └─▶ 화면은 장 수만 센다 (그림은 모델에 보내지 않는다)
+//! snapshot.screenFrameId ────────┘        └─▶ 화면은 장 수만 센다 (그림은 모델에 보내지 않는다)
 //! ```
 //!
 //! 없어도 진행합니다
@@ -67,7 +67,10 @@ pub struct Materials {
     pub transcript: Vec<TranscriptLine>,
     /// 봉인된 편집기 문맥입니다. 같은 식별자가 여러 번 오면 마지막 것이 남습니다.
     pub editor: Option<EditorExcerpt>,
-    /// 이 교시에 저장된 화면 프레임 장 수입니다. 그림 자체는 모델에 보내지 않습니다.
+    /// **봉인한** 화면 프레임 장 수입니다. 그림 자체는 모델에 보내지 않습니다.
+    ///
+    /// 그 교시의 모든 프레임이 아니라 `snapshot.screen_frame_id` 와 같은 것만 셉니다.
+    /// 질문 시점에 굳은 묶음이므로 45초 뒤 재시도에서도 같은 수가 나와야 합니다.
     pub screen_frames: usize,
 }
 
@@ -142,7 +145,16 @@ pub fn collect(events: &[StoredEvent], snapshot: &ContextSnapshot) -> Materials 
                     excerpt: excerpt.to_string(),
                 });
             }
-            "screen.frame" => materials.screen_frames += 1,
+            "screen.frame" => {
+                // 봉인한 프레임만 셉니다. 그 교시의 모든 `screen.frame` 을 세면 재시도할
+                // 때마다 같은 봉인인데 자료 문단의 장 수가 달라집니다(2라운드 검토 #13).
+                let Some(frame_id) = payload.get("screenFrameId").and_then(Value::as_str) else {
+                    continue;
+                };
+                if Some(frame_id) == snapshot.screen_frame_id.as_deref() {
+                    materials.screen_frames += 1;
+                }
+            }
             _ => {}
         }
     }
@@ -280,6 +292,26 @@ mod tests {
             materials.editor.as_ref().map(|e| e.visible_range),
             Some(Some((6, 17)))
         );
+    }
+
+    #[test]
+    fn only_the_sealed_screen_frame_is_counted() {
+        // 질문 뒤에 프레임이 더 들어와도 봉인한 묶음은 자라지 않습니다. 예전에는 그 교시의
+        // 모든 screen.frame 을 세어, 45초 뒤 재시도에서 "1장" 이 "6장" 으로 바뀌었습니다.
+        let mut events = golden_events();
+        for seq in 6..11 {
+            events.push(stored(
+                seq,
+                "screen.frame",
+                json!({ "screenFrameId": format!("sf-p3-{seq:03}") }),
+            ));
+        }
+        // 식별자가 아예 없는 줄도 섞어 둡니다.
+        events.push(stored(11, "screen.frame", json!({})));
+
+        let materials = collect(&events, &snapshot());
+        assert_eq!(materials.screen_frames, 1, "봉인한 한 장만 센다");
+        assert!(render(&materials).contains("화면 프레임 1장"));
     }
 
     #[test]

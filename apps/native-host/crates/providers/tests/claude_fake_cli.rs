@@ -13,7 +13,9 @@ use classmate_providers::{
     TutorProvider,
 };
 
-use support::{fake_cli_args, node_runtime, temp_dir, wait_until_dead};
+use support::{
+    fake_cli_args, kill_pid_tree, node_runtime, temp_dir, wait_for_pid, wait_until_dead,
+};
 
 fn provider(extra: &[&str]) -> ClaudeCliProvider {
     ClaudeCliProvider::with_prefix_args(node_runtime(), fake_cli_args(extra))
@@ -77,6 +79,44 @@ fn a_healthy_stream_yields_events_in_order_and_an_outcome() {
     assert_eq!(outcome.model.as_deref(), Some("fake-claude-model"));
     assert_eq!(outcome.cost_usd, Some(0.0));
     assert!(outcome.duration > Duration::ZERO);
+}
+
+#[test]
+fn a_child_that_outlives_its_stdout_is_cut_off_instead_of_hanging_the_round() {
+    // 자식이 stdout 을 닫고도 살아 있는 경우입니다(읽기 스레드가 UTF-8 이 아닌 바이트를 만나
+    // 스스로 끝났습니다). 예전에는 성공 경로의 기다림에 마감이 없어 이 자리가 영원히 잠겼고,
+    // 그러면 파이프라인 스레드와 그것을 기다리는 종료 절차까지 함께 잠깁니다.
+    let dir = temp_dir("linger");
+    let pid_file = dir.join("pids.txt");
+    let pid_arg = pid_file.to_string_lossy().to_string();
+    let provider = provider(&["--pid-file", &pid_arg, "--break-stdout-and-linger"]);
+
+    // 회차가 끝나지 않을 수도 있으므로 다른 스레드에서 부르고, 여기서는 기다리기만 합니다.
+    // 그래야 되돌렸을 때 시험이 멈추지 않고 **떨어집니다**.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let outcome = provider.ask(&request(Duration::from_millis(1_500)), &mut |_event| {});
+        let _ = tx.send(outcome.map(|done| done.text));
+    });
+
+    // 자식의 PID 를 **먼저** 잡아 둡니다. 마감 없이 잠기는 자리로 되돌렸을 때 이 시험이
+    // 멈추지 않고 떨어지려면, 남은 자식을 여기서 스스로 거둘 수 있어야 합니다.
+    let pid = wait_for_pid(&pid_file, Duration::from_secs(15));
+
+    let text = match rx.recv_timeout(Duration::from_secs(20)) {
+        Ok(result) => result.expect("답을 다 받았으므로 회차는 성공입니다"),
+        Err(_) => {
+            kill_pid_tree(pid);
+            panic!("자식이 살아 있다고 회차가 끝나지 않으면 안 됩니다 · 기다림에 마감이 없습니다");
+        }
+    };
+    assert_eq!(text, "결론입니다. 이유는 둘입니다.");
+
+    // 남은 자식은 트리째 끊깁니다. 끊지 않으면 모델 호출이 이어져 과금이 계속됩니다.
+    assert!(
+        wait_until_dead(pid, Duration::from_secs(5)),
+        "마감을 넘긴 자식은 트리째 끊어야 합니다 · pid {pid}"
+    );
 }
 
 #[test]
