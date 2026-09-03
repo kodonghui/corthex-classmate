@@ -36,7 +36,7 @@ import type {
   HostReply,
   TutorEventPush,
 } from './host-messages';
-import { isHelloReply, isResendable, isTutorEventPush } from './host-messages';
+import { isHelloReply, isHostReply, isResendable, isTutorEventPush } from './host-messages';
 
 /** 포트에서 우리가 쓰는 부분만 적었습니다. `chrome.runtime.Port` 가 이 모양을 만족합니다. */
 export interface NativePortLike {
@@ -102,7 +102,22 @@ interface WaitingRequest {
   settle: ((result: HostSendResult) => void) | null;
   /** 시간이 다 되어 포기한 부탁입니다. 뒤늦게 온 답이 다음 부탁과 짝지어지지 않게 자리는 지킵니다. */
   abandoned: boolean;
+  /** 끊겼을 때 이 클라이언트가 들고 있어도 되는지입니다. 부르는 쪽이 정합니다. */
+  resend: boolean;
   timer: number | null;
+}
+
+/** `send` 한 번의 곁다리 부탁입니다. */
+export interface HostSendOptions {
+  /**
+   * 끊겼을 때 이 클라이언트가 들고 있다가 다시 보낼지입니다. 기본 true.
+   *
+   * **프레임은 false 로 보냅니다.** 프레임을 다시 보내는 일은 `NativeHostFrameSink` 가
+   * 이미 맡고 있어서(`flushWaiting`), 여기서도 들고 있으면 같은 장이 두 대기열에 함께
+   * 담깁니다. 도우미가 돌아오면 두 곳이 각각 보내 뒤엣것이 `duplicate-frame` 으로 돌아오고,
+   * 화면 커넥터가 멀쩡한데도 호박색이 됩니다.
+   */
+  resend?: boolean;
 }
 
 export interface HostClientStats {
@@ -199,15 +214,16 @@ export class NativeHostClient {
    * - 끊겼는데 다시 보낼 수 있는 것이면 들고 있습니다 → `{status:'queued'}`
    * - 끊겼고 들고 있을 수 없는 것이면 그 자리에서 포기합니다 → `{status:'dropped'}`
    */
-  send(envelope: HostEnvelope): Promise<HostSendResult> {
+  send(envelope: HostEnvelope, options: HostSendOptions = {}): Promise<HostSendResult> {
+    const resend = options.resend ?? true;
     if (!this.handshaken || this.port === null) {
-      if (isResendable(envelope)) {
+      if (resend && isResendable(envelope)) {
         this.enqueue(envelope);
         return Promise.resolve({ status: 'queued' });
       }
       return Promise.resolve({ status: 'dropped', reason: 'host-offline' });
     }
-    return this.write(envelope);
+    return this.write(envelope, null, resend);
   }
 
   // ── 안쪽 ─────────────────────────────────────────────────────────────────
@@ -232,7 +248,11 @@ export class NativeHostClient {
     }
   }
 
-  private write(envelope: HostEnvelope, settle: ((r: HostSendResult) => void) | null = null): Promise<HostSendResult> {
+  private write(
+    envelope: HostEnvelope,
+    settle: ((r: HostSendResult) => void) | null = null,
+    resend = true,
+  ): Promise<HostSendResult> {
     const port = this.port;
     if (port === null) {
       const offline: HostSendResult = { status: 'dropped', reason: 'host-offline' };
@@ -248,6 +268,7 @@ export class NativeHostClient {
           resolve(result);
         },
         abandoned: false,
+        resend,
         timer: null,
       };
       this.waiting.push(entry);
@@ -322,6 +343,16 @@ export class NativeHostClient {
       return;
     }
 
+    // 우리가 아는 답이 아니면 **대기열을 건드리지 않고** 버립니다.
+    //
+    // 왜 문지기가 필요한가: 모양이 깨진 push 하나(보기 `tutor.event` 인데 `event` 가
+    // 문자열)가 위 갈래를 빠져나가면 그것이 맨 앞 부탁의 답으로 소비됩니다. 그 뒤로는
+    // 모든 `event.ack`·`tutor.accepted`·`error` 가 한 칸씩 밀려 영구히 어긋납니다.
+    if (!isHostReply(message)) {
+      this.warn('도우미가 모양이 다른 말을 보냈어요 · 대기열은 그대로 두고 버립니다');
+      return;
+    }
+
     if (isHelloReply(message) && !this.handshaken) {
       this.handshaken = true;
       this.attempts = 0;
@@ -385,7 +416,7 @@ export class NativeHostClient {
       }
       const settle = entry.settle;
       entry.settle = null;
-      if (isResendable(entry.envelope)) {
+      if (entry.resend && isResendable(entry.envelope)) {
         requeue.push(entry.envelope);
         settle?.({ status: 'queued' });
       } else {
