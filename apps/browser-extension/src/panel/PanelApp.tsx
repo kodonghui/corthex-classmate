@@ -193,10 +193,20 @@ export function PanelApp({
           />
         ) : (
           // 기록에서 연 자세히는 "수업으로 돌아가기" 도 헤더 뒤로도 듣는 중으로 갑니다(정본 dc.html 의 goHome).
-          <DetailScreen view={opened} onBack={goLesson} onFollowUp={(id) => store.followUp(id)} />
+          <DetailScreen
+            view={opened}
+            onBack={goLesson}
+            onFollowUp={(id) => store.followUp(opened.questionId, id)}
+            onAsk={(text) => store.askTyped(opened.questionId, text)}
+          />
         )
       ) : detail !== null ? (
-        <DetailScreen view={detail} onBack={() => store.back()} onFollowUp={(id) => store.followUp(id)} />
+        <DetailScreen
+          view={detail}
+          onBack={() => store.back()}
+          onFollowUp={(id) => store.followUp(detail.questionId, id)}
+          onAsk={(text) => store.askTyped(detail.questionId, text)}
+        />
       ) : (
         <ListeningScreen
           view={listeningView(store.bundle, state, lines)}

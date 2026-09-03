@@ -13,8 +13,10 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { GOLDEN_BUNDLE } from "./golden-bundle";
+import { detailView } from "./lesson-view";
 import { PanelApp } from "./PanelApp";
 import { ReplayStore } from "./replay-store";
+import { DetailScreen } from "./screens/DetailScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import type { Settings, SettingsStorage } from "./settings-store";
 import { createMemorySettingsStorage, DEFAULT_SETTINGS, SETTINGS_KEYS } from "./settings-store";
@@ -240,5 +242,71 @@ describe("PanelApp — 설정과 스토어", () => {
     await flush();
     click(buttonNamed("설정"));
     expect(inputLabelled("단축키 Alt+S").checked).toBe(false);
+  });
+});
+
+describe("자세히 화면 맨 아래 입력창", () => {
+  /** 답까지 받은 자세히 화면을 세웁니다. 입력창은 이 화면에만 있습니다(정본 §3-7). */
+  function detailScreen(): { store: ReplayStore; asked: string[] } {
+    const store = new ReplayStore(GOLDEN_BUNDLE);
+    store.goto("detail");
+    const asked: string[] = [];
+    const state = store.getState();
+    const view = detailView(GOLDEN_BUNDLE, state, store.lines(state.now));
+    if (view === null) throw new Error("붙잡은 순간이 없어요");
+    mount(<DetailScreen view={view} onBack={() => {}} onFollowUp={() => {}} onAsk={(text) => asked.push(text)} />);
+    return { store, asked };
+  }
+
+  /** 입력창입니다. 이 화면의 유일한 글 칸입니다. */
+  function askField(): HTMLInputElement {
+    const found = [...document.querySelectorAll("input")].find((item) => item.type === "text" || item.type === "");
+    if (!(found instanceof HTMLInputElement)) throw new Error("입력창을 찾지 못했어요");
+    return found;
+  }
+
+  function press(input: HTMLInputElement, key: string): void {
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+  }
+
+  it("빈 칸이면 보내기가 잠겨 있고 Enter 로도 보내지지 않는다", () => {
+    const { asked } = detailScreen();
+    expect(buttonNamed("보내기").disabled).toBe(true);
+    press(askField(), "Enter");
+    expect(asked).toHaveLength(0);
+  });
+
+  it("공백만 친 것도 보내지 않는다", () => {
+    const { asked } = detailScreen();
+    typeInto(askField(), "   ");
+    expect(buttonNamed("보내기").disabled).toBe(true);
+    press(askField(), "Enter");
+    expect(asked).toHaveLength(0);
+  });
+
+  it("적고 Enter 를 누르면 그 글이 나가고 칸이 빈다", () => {
+    const { asked } = detailScreen();
+    typeInto(askField(), "그럼 언제 써요?");
+    press(askField(), "Enter");
+    expect(asked).toEqual(["그럼 언제 써요?"]);
+    expect(askField().value).toBe("");
+  });
+
+  it("보내기 단추로도 나간다", () => {
+    const { asked } = detailScreen();
+    typeInto(askField(), "그럼 언제 써요?");
+    click(buttonNamed("보내기"));
+    expect(asked).toEqual(["그럼 언제 써요?"]);
+  });
+
+  it("상한이 가까울 때만 남은 바이트를 알린다", () => {
+    detailScreen();
+    typeInto(askField(), "짧은 질문");
+    expect(document.body.textContent).not.toContain("바이트 남았어요");
+    // 한글 한 글자는 3바이트라 1300자면 3900바이트입니다(남은 196바이트).
+    typeInto(askField(), "가".repeat(1_300));
+    expect(document.body.textContent).toContain("196바이트 남았어요");
   });
 });
