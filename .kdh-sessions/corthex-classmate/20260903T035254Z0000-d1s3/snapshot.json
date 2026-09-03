@@ -1,0 +1,36 @@
+{
+  "active_run_refs": [],
+  "blockers": [
+    "원격 저장소 없음 — 커밋 162개가 이 PC 한 대에만 있음(사용자 승인 대기)"
+  ],
+  "conv_hooks": {
+    "reason": "KDH_HOOK_STATUS_CMD is not set; compatibility-retired hook status probe is disabled",
+    "status": "disabled"
+  },
+  "created_at": "2026-09-03T03:52:54+00:00",
+  "cwd": "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate",
+  "excluded": [
+    "secrets, shell history, tmux scrollback, in-memory tool state, raw provider stdout"
+  ],
+  "git": {
+    "branch": "main",
+    "head": "252e2174c8fb4d28aabf52707dbf3edab0781782",
+    "status_short": "M docs/WORKLOG.md"
+  },
+  "next_action": "사용자가 백업을 승인하면 비공개 origin 생성 후 첫 push, 그다음 batch-3/live-quality → batch-3/panel-ask 순으로 git merge --no-ff",
+  "recovery_files": [
+    {
+      "bytes": 5901,
+      "path": "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate\\AGENTS.md",
+      "sha256": "65098fdbaa5d9a2cfd0c5a7618fc41f38f763a4ba4bf8249fa6603740e58fc16"
+    },
+    {
+      "bytes": 11,
+      "path": "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate\\CLAUDE.md",
+      "sha256": "336cc4fbf19beaada7ccf9986414fa91851a8d7a07dfb3ccbe800a69eed0ab49"
+    }
+  ],
+  "schema": "kdh.session.v1",
+  "session_id": "corthex-classmate",
+  "snapshot_id": "20260903T035254Z0000-d1s3"
+}
