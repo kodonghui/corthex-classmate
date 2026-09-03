@@ -1,4 +1,5 @@
 import { defineBackground } from '#imports';
+import type { ScreenFrame } from '@classmate/contracts';
 import {
   CAPTURE_ERROR,
   CAPTURE_FRAME,
@@ -13,6 +14,8 @@ import { toScreenFrame } from '../src/capture/frame-store';
 import { NativeHostFrameSink } from '../src/capture/frame-sink';
 import { fromBase64 } from '../src/capture/host-messages';
 import type { CaptureFrameMessage } from '../src/capture/messages';
+import type { SnapshotChromeLike } from '../src/capture/snapshot';
+import { buildSnapshotFrame, captureMeetTab } from '../src/capture/snapshot';
 
 import { EventIdFactory, makeWorkerToken } from '../src/background/ids';
 import { createFrameStorePort } from '../src/background/frame-port';
@@ -21,7 +24,7 @@ import type { NativePortLike } from '../src/background/host-client';
 import { NATIVE_HOST_NAME } from '../src/background/host-messages';
 import { PeriodLog } from '../src/background/period-log';
 import { Router } from '../src/background/router';
-import type { PanelPortLike } from '../src/background/router';
+import type { PanelPortLike, ScreenSnapshotSource } from '../src/background/router';
 import { pickSessionArea } from '../src/background/session-area';
 import type { StorageNamespaceLike } from '../src/background/session-area';
 import { createStorageSettings, PERIOD_NUMBER_STORAGE_KEY } from '../src/background/settings';
@@ -130,8 +133,78 @@ export default defineBackground(() => {
     },
   });
 
+  // ── 질문에 붙일 화면 한 장 ──────────────────────────────────────────────
+  //
+  // `src/capture/snapshot.ts` 는 `chrome` 을 주입받습니다. 여기서 **필요한 두 함수만**
+  // 감싸 넘깁니다. 전역을 통째로 넘기지 않는 까닭은 그 파일이 무엇을 만질 수 있는지가
+  // 이 몇 줄로 눈에 보이게 하기 위해서입니다.
+  const snapshotChrome: SnapshotChromeLike = {
+    tabs: {
+      query: (info) => chrome.tabs.query(info),
+      captureVisibleTab: (windowId, options) => chrome.tabs.captureVisibleTab(windowId, options),
+    },
+  };
+
+  /**
+   * 질문에 붙이려고 찍은 장의 순번입니다. 이 서비스 워커가 사는 동안만 셉니다.
+   *
+   * 워커가 내려갔다 뜨면 1부터 다시 세는데, 식별자 가운데에 **찍은 시각 시분초**가 함께
+   * 들어가므로(`sf-p3-ask-103210-001`) 같은 초에 워커가 두 번 뜨지 않는 한 겹치지 않습니다.
+   */
+  let askFrameSequence = 0;
+
+  /**
+   * 질문 한 건에 붙일 화면 한 장을 찍어 도우미에 담고 이름표를 돌려줍니다.
+   *
+   * ```text
+   *   captureMeetTab ──null──▶ null                (Meet 탭이 아니거나 못 찍었습니다)
+   *        │
+   *   buildSnapshotFrame ──throw──▶ null           (교시 이름표가 계약 모양이 아닙니다)
+   *        │
+   *   frameSink.storeAndReport ──false──▶ null     (도우미가 꺼져 있거나 거절했습니다)
+   *        │
+   *        └─true──▶ router.pushFrame → 이름표 반환
+   * ```
+   *
+   * 여기서 **던지지 않습니다.** 라우터에도 막는 겹이 한 번 더 있지만, 화면 한 장이
+   * 질문을 막는 길을 두 곳 다 닫아 둡니다.
+   */
+  const screen: ScreenSnapshotSource = {
+    capture: async (periodId: string): Promise<string | null> => {
+      const shot = await captureMeetTab(snapshotChrome);
+      if (shot === null) return null;
+
+      askFrameSequence += 1;
+      let frame: ScreenFrame;
+      try {
+        frame = buildSnapshotFrame({
+          periodId,
+          capturedAt: new Date(),
+          sequence: askFrameSequence,
+          snapshot: shot,
+        });
+      } catch (error: unknown) {
+        console.warn(
+          '[classmate] 질문에 붙일 화면의 이름표를 짓지 못했어요',
+          error instanceof Error ? error.message : String(error),
+        );
+        return null;
+      }
+
+      // 담긴 것이 확인된 장만 질문이 가리킵니다. 폴백 대기열에 들어간 장은 아직 파일이
+      // 없어서, 가리키면 튜터가 없는 그림을 찾습니다.
+      const stored = await frameSink.storeAndReport(frame, shot.bytes);
+      if (!stored) return null;
+
+      // 패널이 "지금 무엇이 보이는지" 를 그릴 수 있게 화면도 흘려 줍니다.
+      router.pushFrame(frame);
+      return frame.id;
+    },
+  };
+
   const router = new Router({
     host,
+    screen,
     settings: createStorageSettings({
       get: (keys: string[]) => chrome.storage.local.get(keys),
     }),

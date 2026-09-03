@@ -33,6 +33,12 @@
  * | `classmate.reconnect` | 대상마다 다름 (아래) | — |
  * | 호스트 push `tutor.event` | — | `live.event` |
  *
+ * `panel.ask` 한 줄에는 **화면 한 장이 더 붙습니다.** 질문이 오면 먼저 지금 Meet 화면을
+ * 찍어 도우미에 담고, 그 이름표를 `snapshot.screenFrameId` 에 넣은 뒤 `tutor.ask` 를
+ * 보냅니다. 못 찍었거나 {@link SCREEN_SNAPSHOT_TIMEOUT_MS} 를 넘기면 **화면 없이 그냥
+ * 보냅니다** (`attachScreen`). 찍는 일 자체는 `entrypoints/background.ts` 가
+ * `src/capture/snapshot.ts` 로 하고, 여기는 출구 하나(`ScreenSnapshotSource`)만 봅니다.
+ *
  * 전사가 멈추는 두 줄(`tiro.hint_degraded` degraded · `tiro.selector_broken`)은 그때의 DOM
  * 모양 요약을 **서비스 워커 콘솔에만** 한 줄 남깁니다(`warnShape`). 계약 payload 는 늘리지
  * 않습니다 — 사람이 파서를 고칠 때 읽을 단서라 기록이 아니라 콘솔 자리입니다.
@@ -96,6 +102,32 @@ export interface HostGateway {
   reconnectNow(): void;
 }
 
+/**
+ * 질문을 붙잡은 순간의 **화면 한 장**을 구해 오는 자리입니다.
+ *
+ * 라우터는 `chrome` 을 모릅니다. 실제로 찍고 도우미에 담는 일은
+ * `entrypoints/background.ts` 가 `src/capture/snapshot.ts` 로 합니다.
+ *
+ * @returns 도우미가 파일로 남긴 프레임의 이름표. 못 찍었거나 못 담았으면 `null`.
+ *          **던지지 않습니다** — 화면 한 장 때문에 질문이 막히면 안 됩니다.
+ */
+export interface ScreenSnapshotSource {
+  capture(periodId: string): Promise<string | null>;
+}
+
+/**
+ * 질문에 붙일 화면을 기다려 주는 시간의 상한입니다.
+ *
+ * 왜 상한을 두는가: 학습자는 질문을 보내 놓고 답을 **기다리고 있습니다.** 화면 찍기는
+ * `captureVisibleTab` 한 번 + base64 + 로컬 도우미 왕복이라 보통 200~400ms 안에 끝나지만,
+ * 탭이 막 바뀌었거나 도우미가 굼뜨면 몇 초씩 늘어질 수 있습니다. 그때는 **화면을 포기하고
+ * 질문을 먼저 보냅니다.** 답이 늦어지는 것이 화면이 없는 것보다 나쁩니다.
+ *
+ * 1500ms 인 근거: 사람은 1초 안쪽의 멈춤은 "반응했다" 로 느끼고 2초를 넘으면 "멈췄다" 로
+ * 느낍니다. 흔한 경우(400ms)의 세 배 남짓을 주되 2초 벽은 넘지 않는 자리로 잡았습니다.
+ */
+export const SCREEN_SNAPSHOT_TIMEOUT_MS = 1500;
+
 /** 커넥터를 다시 세우는 손잡이입니다. 실제 구현은 `entrypoints/background.ts` 가 넣습니다. */
 export interface ConnectorControls {
   /** 공유 페이지 content script 에 `tiro.stop` 을 보낸 뒤 `tiro.start` 로 다시 시작시킵니다. */
@@ -110,6 +142,13 @@ export interface RouterOptions {
   controls: ConnectorControls;
   log: PeriodLog;
   ids: EventIdFactory;
+  /**
+   * 질문을 붙잡은 순간 화면 한 장을 구해 오는 자리입니다. 넣지 않으면 화면 없이 보냅니다
+   * (1·2라운드 시험은 넣지 않습니다).
+   */
+  screen?: ScreenSnapshotSource;
+  /** 화면 한 장을 기다려 주는 시간의 상한입니다. 기본 {@link SCREEN_SNAPSHOT_TIMEOUT_MS}. */
+  screenTimeoutMs?: number;
   /** 지금 시각입니다. 시험은 고정된 시계를 넣습니다. */
   now?: () => Date;
   /** 사람이 읽을 한 줄입니다. 기본은 `console.warn`. */
@@ -223,6 +262,8 @@ export class Router {
   private readonly controls: ConnectorControls;
   private readonly log: PeriodLog;
   private readonly ids: EventIdFactory;
+  private readonly screen: ScreenSnapshotSource | null;
+  private readonly screenTimeoutMs: number;
   private readonly now: () => Date;
   private readonly warn: (message: string) => void;
   private readonly warnShape: (reason: string, shape: string) => void;
@@ -270,6 +311,8 @@ export class Router {
     this.controls = options.controls;
     this.log = options.log;
     this.ids = options.ids;
+    this.screen = options.screen ?? null;
+    this.screenTimeoutMs = options.screenTimeoutMs ?? SCREEN_SNAPSHOT_TIMEOUT_MS;
     this.now = options.now ?? (() => new Date());
     this.warn = options.warn ?? ((message) => console.warn(`[classmate] ${message}`));
     this.warnShape =
@@ -690,6 +733,8 @@ export class Router {
       this.warn(`질문이 ${MAX_QUESTION_BYTES}바이트를 넘어 앞부분만 보냅니다`);
     }
 
+    const snapshot = await this.attachScreen(periodId, request.snapshot ?? emptySnapshot());
+
     const envelope: HostEnvelope = {
       type: TUTOR_ASK,
       periodId,
@@ -699,7 +744,7 @@ export class Router {
       ...(question.length === 0 ? {} : { question }),
       // 패널이 값을 실어 보내면 그것이 이기고, 낯선 값이면 설정의 기본값으로 되돌립니다.
       provider: request.provider === 'claude' || request.provider === 'codex' ? request.provider : this.provider,
-      snapshot: request.snapshot ?? emptySnapshot(),
+      snapshot,
     };
 
     const result = await this.host.send(envelope);
@@ -723,6 +768,67 @@ export class Router {
       );
     }
     await this.reportAskResult(result);
+  }
+
+  /**
+   * 질문 스냅숏에 **지금 화면 한 장**을 붙입니다.
+   *
+   * ```text
+   *   질문 도착
+   *      │
+   *      ├─▶ screen.capture(periodId) ──성공──▶ snapshot.screenFrameId = 받은 이름표
+   *      │            │                          snapshot.ages.screenSec = 0 (방금 찍었습니다)
+   *      │            └──실패 · 상한 초과──▶ 패널이 준 스냅숏 그대로 (화면 없이 나갑니다)
+   *      │
+   *      └─▶ tutor.ask 를 호스트로
+   * ```
+   *
+   * 못 붙이는 길이 셋입니다. **셋 다 질문은 그대로 나갑니다.**
+   *   1. 화면 출구가 없다 — 배선되지 않은 자리(시험·1라운드)입니다.
+   *   2. `capture` 가 `null` 이거나 던졌다 — Meet 탭이 아니거나, 도우미가 꺼져 있어
+   *      담기지 못했습니다.
+   *   3. {@link SCREEN_SNAPSHOT_TIMEOUT_MS} 를 넘겼다 — 사람이 기다리고 있으므로 포기합니다.
+   *
+   * 패널이 이미 `screenFrameId` 를 채워 왔더라도 방금 찍은 장이 **이깁니다.** 질문을 누른
+   * 순간의 화면이 더 정확하기 때문입니다. 반대로 못 찍었으면 패널이 준 것을 그대로 둡니다.
+   */
+  private async attachScreen(
+    periodId: string,
+    base: QuestionSnapshot,
+  ): Promise<QuestionSnapshot> {
+    const screenFrameId = await this.captureScreen(periodId);
+    if (screenFrameId === null) return base;
+    return {
+      ...base,
+      screenFrameId,
+      ages: { ...base.ages, screenSec: 0 },
+    };
+  }
+
+  /** 화면 한 장을 상한 시간 안에서만 기다립니다. 넘기면 `null` 입니다. */
+  private async captureScreen(periodId: string): Promise<string | null> {
+    const source = this.screen;
+    if (source === null) return null;
+
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const capped = new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), this.screenTimeoutMs);
+      });
+      return await Promise.race([
+        // 출구가 던져도 질문은 나가야 합니다. 여기서 한 번 더 막아 둡니다.
+        source.capture(periodId).catch((error: unknown) => {
+          this.warn(
+            `질문에 붙일 화면을 얻지 못했어요 · ${error instanceof Error ? error.message : '알 수 없는 까닭'}`,
+          );
+          return null;
+        }),
+        capped,
+      ]);
+    } finally {
+      // 안 끄면 서비스 워커가 이 타이머 때문에 잠깐 더 깨어 있습니다.
+      if (timer !== undefined) clearTimeout(timer);
+    }
   }
 
   private async reportAskResult(result: HostSendResult): Promise<void> {

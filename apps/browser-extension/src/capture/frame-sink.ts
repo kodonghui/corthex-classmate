@@ -257,6 +257,22 @@ export class NativeHostFrameSink implements FrameSink {
   }
 
   async store(frame: ScreenFrame, bytes: Uint8Array): Promise<void> {
+    await this.storeAndReport(frame, bytes);
+  }
+
+  /**
+   * `store` 와 **같은 일**을 하고, 도우미가 그 장을 실제로 파일로 남겼는지 돌려줍니다.
+   *
+   * 왜 따로 두는가: 질문에 붙이는 화면(`snapshot.screenFrameId`)은 "담아 두었다" 로는
+   * 부족합니다. 도우미가 꺼져 있어 폴백 대기열에 들어간 장은 나중에 저장되지만, 지금
+   * 나가는 질문이 가리킬 수는 없습니다(가리키면 튜터가 없는 파일을 찾습니다). 그래서
+   * `stored` 하나만 true 로 셉니다.
+   *
+   * 파이프라인 쪽 `store` 는 결말을 보지 않으므로 계약(`FrameSink`)은 그대로입니다.
+   *
+   * @returns 도우미가 파일로 남겼으면 true. 크기 초과·이름표 오류·거절·꺼짐은 false.
+   */
+  async storeAndReport(frame: ScreenFrame, bytes: Uint8Array): Promise<boolean> {
     let built: BuildFrameStoreResult;
     try {
       built = buildFrameStore(frame, bytes);
@@ -268,16 +284,16 @@ export class NativeHostFrameSink implements FrameSink {
       this.warn(
         `화면 한 장의 이름표가 계약과 달라 건너뜁니다 · ${error instanceof Error ? error.message : '알 수 없는 까닭'} · 건너뜀 누적 ${this.skippedInvalidCount}장`,
       );
-      return;
+      return false;
     }
     if (built.skipped) {
       this.skippedTooLargeCount += 1;
       this.warn(
         `화면 한 장이 봉투 상한을 넘어 건너뜁니다 · ${built.envelopeBytes}바이트 · 건너뜀 누적 ${this.skippedTooLargeCount}장`,
       );
-      return;
+      return false;
     }
-    await this.deliver(built.message, false);
+    return (await this.deliver(built.message, false)) === 'stored';
   }
 
   /**
@@ -301,7 +317,7 @@ export class NativeHostFrameSink implements FrameSink {
           const message = batch[i];
           if (message === undefined) continue;
           const delivered = await this.deliver(message, true);
-          if (!delivered) {
+          if (delivered === 'offline') {
             // 또 끊겼습니다. 이 장부터 남은 것을 순서 그대로 맨 앞에 되돌립니다.
             this.holdFront(batch.slice(i).filter((item) => item !== undefined));
             return;
@@ -335,12 +351,16 @@ export class NativeHostFrameSink implements FrameSink {
   }
 
   /**
-   * @returns 도우미에 닿았으면 true, 꺼져 있어 들고 있게 됐으면 false 입니다.
+   * @returns 결말 세 낱말 그대로입니다. `offline` 이면 도우미에 닿지 못한 것이고,
+   *          `stored` 와 `rejected` 는 닿은 것입니다. 통로가 던진 것도 `offline` 으로 셉니다.
    *
    * 다시 보내는 길(`isResend`)에서는 **여기서 담지 않습니다.** 실패한 장과 그 뒤의 것을
    * 한 덩어리로 맨 앞에 되돌리는 일은 `flushWaiting` 이 맡습니다.
    */
-  private async deliver(message: FrameStoreMessage, isResend: boolean): Promise<boolean> {
+  private async deliver(
+    message: FrameStoreMessage,
+    isResend: boolean,
+  ): Promise<FrameStoreOutcome['kind']> {
     let outcome: FrameStoreOutcome;
     try {
       outcome = await this.port.store(message);
@@ -350,7 +370,7 @@ export class NativeHostFrameSink implements FrameSink {
         `화면 한 장을 보내지 못했어요 · ${error instanceof Error ? error.message : '알 수 없는 까닭'}`,
       );
       if (!isResend) this.hold(message);
-      return false;
+      return 'offline';
     }
 
     switch (outcome.kind) {
@@ -358,15 +378,15 @@ export class NativeHostFrameSink implements FrameSink {
         this.storedCount += 1;
         if (isResend) this.resentCount += 1;
         this.onStored({ id: message.frame.id, bytes: outcome.bytes, seq: outcome.seq });
-        return true;
+        return 'stored';
       case 'rejected':
         this.rejectedCount += 1;
         this.warn(`도우미가 화면 한 장을 거절했어요 · ${outcome.reason}`);
         this.onRejected(outcome.reason);
-        return true;
+        return 'rejected';
       case 'offline':
         if (!isResend) this.hold(message);
-        return false;
+        return 'offline';
     }
   }
 

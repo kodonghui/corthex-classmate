@@ -96,6 +96,52 @@ describe('NativeHostFrameSink', () => {
     expect(sink.stats()).toMatchObject({ stored: 1, waiting: 0, rejected: 0 });
   });
 
+  // ── storeAndReport ─────────────────────────────────────────────────────
+  //
+  // 질문에 붙일 화면은 "담아 두었다" 로는 부족합니다. 도우미가 파일로 남긴 장만
+  // `snapshot.screenFrameId` 가 가리킬 수 있습니다(가리키면 그 파일이 있어야 합니다).
+
+  it('storeAndReport 는 도우미가 파일로 남겼을 때만 true 입니다', async () => {
+    const port = new FakePort().always({ kind: 'stored', bytes: 16, seq: 3 });
+    const sink = new NativeHostFrameSink(port, { warn: () => {} });
+
+    expect(await sink.storeAndReport(frame(1), bytes())).toBe(true);
+  });
+
+  it('storeAndReport 는 도우미가 꺼져 있으면 false 입니다 (장은 들고 있습니다)', async () => {
+    const port = new FakePort().always({ kind: 'offline' });
+    const sink = new NativeHostFrameSink(port, { warn: () => {} });
+
+    expect(await sink.storeAndReport(frame(1), bytes())).toBe(false);
+    // 버리지는 않습니다. 도우미가 돌아오면 그때 들어갑니다.
+    expect(sink.stats()).toMatchObject({ waiting: 1, stored: 0 });
+  });
+
+  it('storeAndReport 는 도우미가 거절하면 false 입니다', async () => {
+    const port = new FakePort().always({ kind: 'rejected', reason: 'duplicate-frame' });
+    const sink = new NativeHostFrameSink(port, { warn: () => {} });
+
+    expect(await sink.storeAndReport(frame(1), bytes())).toBe(false);
+    expect(sink.stats()).toMatchObject({ rejected: 1, waiting: 0 });
+  });
+
+  it('storeAndReport 는 봉투가 상한을 넘으면 false 입니다', async () => {
+    const port = new FakePort();
+    const sink = new NativeHostFrameSink(port, { warn: () => {} });
+
+    expect(await sink.storeAndReport(frame(1), new Uint8Array(800 * 1024))).toBe(false);
+    expect(port.seen).toEqual([]);
+  });
+
+  it('storeAndReport 는 이름표가 계약과 달라도 던지지 않고 false 입니다', async () => {
+    const port = new FakePort();
+    const sink = new NativeHostFrameSink(port, { warn: () => {} });
+    const broken = { ...frame(1), periodId: '3교시' };
+
+    expect(await sink.storeAndReport(broken, bytes())).toBe(false);
+    expect(port.seen).toEqual([]);
+  });
+
   it('1 MiB 를 넘는 봉투는 보내지 않고 건너뜁니다', async () => {
     const port = new FakePort();
     const sink = new NativeHostFrameSink(port, { warn: () => {} });
