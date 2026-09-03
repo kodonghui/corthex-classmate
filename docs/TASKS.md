@@ -97,7 +97,7 @@
   - [x] (8) installer-windows `224114a` — build-host · extension-key(공개키·id) · package-extension(dev/store) · install dry-run · smoke-host · `docs/first-class.md` · 시험 57
   - [x] (4) design-compare `e24b331` + 통합 C — 정본 dc.html ↔ 구현 9상태 비교 이미지 · README 차이 목록
 - [ ] 2라운드 후속(워커 메모 이월)
-  - [ ] 사이드패널: 설정 값 배선 — `answerLength`("바로 자세히" 자동 이동) · `periodNumber`/`subject` 가 헤더·교시 id 에 즉시 반영(지금은 패널 재열기) · `capture.*` 3칸을 서비스 워커 캡처에 · 점선 낱말 목록을 `GOLDEN_TERMS` 대신 설정/라이브 옵션에서(라이브 전사에 밑줄 거의 없음) · "오늘 기록 지우기" 는 호스트 삭제 봉투가 생기면 `onClearToday` 배선 · 라이브 편집기 자리표시 문구("아직 열린 파일 없음")가 preparing 자료줄에 보임 · 기록에서 연 지난 순간에 후속 칩(스토어에 "어느 질문에 대해 묻는가" 축 필요) · 설정 화면 380×720 스크롤 · `replay-handle`·`classmateConnector` 는 개발 빌드에서만 · 라이브 첫 수십 ms 빈 화면
+  - [ ] 사이드패널: 설정 값 배선 — `answerLength`("바로 자세히" 자동 이동 — 검토 수정 뒤 라디오는 잠금 · 배선할 때 questionId 당 한 번만 자동으로 열어야 `back()` 과 무한 왕복이 안 생김) · `periodNumber`/`subject` 가 헤더·교시 id 에 즉시 반영(지금은 패널 재열기 · 교시 중간에 바꾸면 사건 id `ev-<periodId>-x…` 가 갈라지므로 계약 논의 먼저 · 제공자·자동 접기는 `ReplayStore.updateEnv` 로 즉시 적용됨 · `autoFold` 를 다시 켜도 지금 떠 있는 메모에는 접힘 시계를 새로 걸지 않음) · `capture.*` 3칸(검토 수정 뒤 잠금)을 `ReplayStore#seal` 의 sealSnapshot 입력과 라이브 수집 양쪽에서 읽어 서비스 워커 캡처에 · 점선 낱말 목록을 `GOLDEN_TERMS` 대신 설정/라이브 옵션에서(라이브 전사에 밑줄 거의 없음) · "오늘 기록 지우기"(검토 수정 뒤 잠금 · Dialog 와 `onClearToday` 배선은 남김)는 호스트 삭제 봉투가 생기면 `LiveApp` 이 `onClearToday` 를 넘기고 `disabled`·설명 한 줄만 걷어 냄 · 라이브 편집기 자리표시 문구("아직 열린 파일 없음")가 preparing 자료줄에 보임 · 기록에서 연 지난 순간에 후속 칩(스토어에 "어느 질문에 대해 묻는가" 축 필요) · 설정 화면 380×720 스크롤 · `replay-handle`·`classmateConnector` 는 개발 빌드에서만 · 라이브 첫 수십 ms 빈 화면
   - [ ] design-tokens: `spacing.css` 의 `--panel-inset` 식(`4vw + 0.8px` → 360 에서 15.2px)을 토큰 쪽에서 바로잡을지 결정(지금은 패널 `style.css` 만 `10vw - 22px` 로 덮음)
   - [ ] 서비스 워커: 손시험 갈래(`chrome.action.onClicked` · `classmateCapture`)는 패널 캡처 버튼이 생기면 제거 · IntelliJ MCP 는 `router.pushEditor`/`live.editor` 자리만 · 확장이 `event.append` 에 segment/context 본문을 실어야 호스트 자료가 모임(라우터 표대로 실리는지 실제 Chrome 왕복 '대기') · 서비스 워커가 내려갔다 올라올 때 메모리 상태(교시 id·카운터·보류 큐)의 손실 범위 검토 결과 반영
   - [ ] 호스트: 교시가 바뀌어도 `Router.tutors` 손잡이를 닫지 않음 → `period.ended` 때 닫는 정리 · `ProviderEvent`(TextDelta) 는 버림(부분 답 스트리밍은 패널이 한 줄 답만 그리므로 보류) · 손잡이의 제공자와 봉투 `provider` 가 다르면 `provider-unavailable`(교시 중 제공자 변경은 패널 재열기) · transport 대조 시험이 `router.rs` 의 따옴표 이름 뒤 화살표를 전부 세므로 주석에도 그 모양을 쓰지 않음 · `docs/spikes/gate-c2-provider.md` 의 CLI 인자 표는 5개(`--include-partial-messages`)로 갱신함 · `docs/spikes/gate-d-recovery.md:224` 의 `frame-path-mismatch` 는 이제 봉투 검사 `envelope-invalid` 로 먼저 잡힘(주석 추가)
@@ -148,6 +148,6 @@
 - [!] 로컬 도우미 레지스트리 등록 `node installer/windows/install.mjs --apply`(해제는 `--remove --apply`) — dry-run 계획은 자동으로 나오고 실제 실행은 사람만 (`docs/first-class.md` §3-3)
 - [!] 깨끗한 Windows 11 VM 에서 `docs/first-class.md` §2~§4 를 처음부터 1회 · 65분 리허설 1회 + §4-2 다섯 항목 기록
 - [!] Chrome 안 실제 왕복 손 시험 — 사이드패널(라이브) → 서비스 워커 → 도우미 `tutor.ask` → `tutor.event` (등록 뒤) · dev zip 의 확장 id 가 `installer/windows/extension-key.json` 의 id 와 같은지
-- [!] 실제 `claude` 첫 호출 — `CLASSMATE_CLAUDE_CLI` 를 절대 경로로 두고 질문 1건(비용 승인 뒤) · Chrome Web Store 업로드 · 코드 서명 인증서 구입 여부
+- [!] 실제 `claude` 첫 호출 — `CLASSMATE_CLAUDE_CLI` 를 절대 경로로 두고 질문 1건(비용 승인 뒤 · `installer/windows/smoke-host.mjs` 는 자식 환경에서 CLI 변수를 지우고 임시 데이터 폴더·1999년 교시 id 로 돌므로 스모크로는 실제 CLI 가 불리지 않음, 검토 수정 `ff74cf3`) · Chrome Web Store 업로드 · 코드 서명 인증서 구입 여부
 - [!] `design/_to_delete/` 삭제 여부
 - [!] `%TEMP%/ccsq`(스크래치 Rust target 폴더) 삭제 여부
