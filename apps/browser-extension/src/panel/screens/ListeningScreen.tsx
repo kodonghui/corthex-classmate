@@ -4,10 +4,10 @@
 import { IconButton, PanelHeader } from "@classmate/ui-base";
 import type { FooterWarn } from "@classmate/ui-classmate";
 import { GuessList, MarginNote, NowLine, SourceFooter, SourceStatus, TranscriptFlow } from "@classmate/ui-classmate";
-import { useEffect, useRef } from "react";
 
 import type { FooterWarnView, ListeningView } from "../lesson-view";
 import type { ReconnectTarget } from "../ports";
+import { useStickToBottom } from "../use-stick-to-bottom";
 
 export interface ListeningScreenProps {
   readonly view: ListeningView;
@@ -29,6 +29,18 @@ function Kbd({ children }: { readonly children: string }): React.JSX.Element {
   return <kbd className="cm-kbd">{children}</kbd>;
 }
 
+/**
+ * 스크롤을 올려 둔 동안 새 말이 들어왔을 때 바닥 근처에 뜨는 자리 하나입니다.
+ * 상자 안 마지막 아이라 `sticky` 로 스크롤 바닥에 남습니다. 다시 붙으면 사라집니다.
+ */
+function ToBottom({ onClick }: { readonly onClick: () => void }): React.JSX.Element {
+  return (
+    <div style={{ position: "sticky", bottom: 0, alignSelf: "center", zIndex: 1 }}>
+      <IconButton icon="chevron-down" label="새 문장으로 내려가기" size="sm" variant="secondary" onClick={onClick} />
+    </div>
+  );
+}
+
 /** 안내에서 `reconnect` 를 떼어 내고 그 자리에 누를 손짓을 답니다. */
 function warnProps(warn: FooterWarnView, onReconnect: (connector: ReconnectTarget) => void): FooterWarn {
   const { reconnect, ...rest } = warn;
@@ -47,15 +59,11 @@ export function ListeningScreen({
   onHistory,
   onReconnect,
 }: ListeningScreenProps): React.JSX.Element {
-  const bodyRef = useRef<HTMLDivElement>(null);
+  // 전사는 아래에서 흐릅니다(정본 규칙). 문단이 자라는 동안에도 따라가고, 학습자가 일부러 올리면
+  // 그 자리에 둡니다. 규칙은 `use-stick-to-bottom.ts` 한 곳에 있습니다.
+  const body = useStickToBottom<HTMLDivElement>();
   const { note } = view;
   const { warn } = view.footer;
-
-  // 새 줄이나 메모가 생기면 바닥으로 붙입니다(정본 규칙: 전사는 아래에서 흐릅니다).
-  useEffect(() => {
-    const el = bodyRef.current;
-    if (el !== null) el.scrollTop = el.scrollHeight;
-  }, [view.lines.length, note.kind]);
 
   const renderAfter = (lineId: string): React.ReactNode => {
     if (note.kind === "none" || note.lineId !== lineId) return null;
@@ -140,7 +148,7 @@ export function ListeningScreen({
           <NowLine variant="plain">{view.pinnedNow}</NowLine>
         </div>
       )}
-      <div className="cm-screen__body cm-screen__body--flow" ref={bodyRef}>
+      <div className="cm-screen__body cm-screen__body--flow" ref={body.ref}>
         {view.lines.length === 0 ? <p className="cm-empty">아직 들은 문장이 없어요</p> : null}
         <TranscriptFlow
           lines={[...view.lines]}
@@ -151,6 +159,7 @@ export function ListeningScreen({
           renderAfter={renderAfter}
           tip={tip}
         />
+        {body.hasNew ? <ToBottom onClick={body.toBottom} /> : null}
       </div>
       <SourceFooter
         sources={[...view.footer.sources]}
