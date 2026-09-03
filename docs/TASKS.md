@@ -24,7 +24,7 @@
 - [x] `pnpm install` (186 패키지 · lockfile) · `pnpm -r test` exit 0
 - [x] `cargo build` · `cargo test` exit 0 (GNU 툴체인)
 - [x] 첫 커밋 + WORKLOG 첫 항목
-- [!] 대기 — `gh repo create corthex-classmate --private` (사용자 허락 후)
+- [x] 원격 저장소 `corthex-classmate` 생성과 첫 push — 지금 `origin` 이 있고 `main` 이 올라가 있습니다. 확인: `git ls-remote origin refs/heads/main` → `7d649bd…` = 로컬 `main`
 
 - [x] 검토자 지적 수정: fixtures 두 번째 질문 갈래 파일 · 참조 무결성 테스트 · SessionEvent.payload additionalProperties · id 접두사 통일 · settings.json 권한 좁힘
 - [ ] 다음 대화형 세션에서 `.claude/settings.json` ask 규칙이 실제로 뜨는지 1회 확인 (`git push` 시도)
@@ -51,8 +51,8 @@
 - [x] 준비: `apps/native-host` Cargo 워크스페이스 — 루트 `classmate-host` + `crates/providers`(단위 8) + `crates/transport`(단위 9) · `cargo test --workspace` 43
 - [x] 준비: 교시 세션 번들 정의 `fixtures/README.md`(golden-ioc 폴더 그대로 · 번들 스키마 없음)
 - [x] 준비: DECISIONS — 계약 고정·1라운드 구조 / 디자인 정본 적용 기본값(함정 판정·폰트·아이콘·개인정보 문구)
-- [!] 대기 — origin: `gh repo create`(비공개) 허락 전까지 워커는 브랜치 `batch-1/<단위>` 만 남김 (`gh auth status` 로그인 확인됨 · `git remote -v` 비어 있음)
-- [!] 대기(예약) — 사용자가 2026-09-02 17:3x 에 `/batch` 1라운드 프롬프트(10단위)를 미리 보냄. 본문은 docs/master-prompt.md A-6 1라운드와 동일. **실행 시점: Phase 1 커밋 + "Phase 2 준비 완료 — contracts 고정 · fixtures · 스켈레톤 · origin(대기)" 보고 직후**, 그때 계획 모드 → 사용자 승인 → worktree 워커 10개. origin 이 없으면 브랜치 `batch-1/<단위>` 만 남김. Phase 1 게이트가 이미 만든 코드(5 tiro-connectors · 6 meet-capture · 7 session-store · 9 transport)는 갈아엎지 않고 완성·정리 단위로 다룸.
+- [x] origin: 1라운드 당시에는 원격이 없어 워커가 브랜치 `batch-1/<단위>` 만 남겼습니다. 그 뒤 원격이 생겨 지금은 `main` 과 라운드 브랜치들이 올라가 있습니다(`git remote -v` → `origin`)
+- [x] 예약분 실행 완료(바로 아래 「/batch 1라운드 완료」) — 사용자가 2026-09-02 17:3x 에 `/batch` 1라운드 프롬프트(10단위)를 미리 보냄. 본문은 docs/master-prompt.md A-6 1라운드와 동일. **실행 시점: Phase 1 커밋 + "Phase 2 준비 완료 — contracts 고정 · fixtures · 스켈레톤 · origin(대기)" 보고 직후**, 그때 계획 모드 → 사용자 승인 → worktree 워커 10개. origin 이 없으면 브랜치 `batch-1/<단위>` 만 남김. Phase 1 게이트가 이미 만든 코드(5 tiro-connectors · 6 meet-capture · 7 session-store · 9 transport)는 갈아엎지 않고 완성·정리 단위로 다룸.
 - [x] `/batch` 1라운드 완료 (2026-09-03 00:05, main `83957e3`) — 계획 승인 · worktree `cc-wt/<단위>` 10개 · 브랜치 `batch-1/<단위>` · 병합 순서 1·4·10·2·3 → 5·6 → 7·8·9 · 검토 워크플로(검토 → 반박 검증) 병행
   - [x] (1) design-tokens `f3d950c` — test 17 · 정본 6 css 바이트 동일(예외 `--panel-header-h` 44 한 줄) · 고유 변수 196 스냅샷 · fonts.css npm(`pretendard@1.3.9`·`@fontsource/ibm-plex-mono@5.3.0`) · `src/tokens.ts` 는 생성물(`pnpm --filter @classmate/design-tokens generate`)
   - [x] (4) tutor-core `823daed` — test 54 · 전이표 6상태×20입력(규칙 93) · 봉인 · FoldTimer(주입 시계) · fixtures 재생(state.changed 4건·snapshot 2건 일치)
@@ -130,16 +130,39 @@
 
 ## Phase 3 — 교시 종료 후
 
-- [ ] EXIT_RECALL → FEEDBACK → FADE_SUPPORT → DELAYED_CHECK
+- [ ] EXIT_RECALL → FEEDBACK → FADE_SUPPORT → DELAYED_CHECK — 이 네 상태로 들어가는 문(`kind:"next"`)을 내는 제품 코드가 아직 0곳입니다(`grep -rn 'kind: *"next"' apps packages` 의 시험 밖 한 줄은 `packages/tutor-core/src/machine.ts:156` 의 타입 선언뿐). 8라운드 과설계 검토(`docs/plan/round-8-units.md` §0)는 이것을 「만들 단위가 아니라 기능 셈에서 뺄 후보」로 판정했습니다
 - [ ] Tiro 최종본 교정 + 보정 사전
 - [ ] packages/report-ui 교시 상세 8 + 하루 허브 1
-- [ ] 자세히 화면 맨 아래 자유 텍스트 질문 입력창(`docs/master-prompt.md` §3-7) — `DetailScreen.tsx` 에 입력창 없음. 2026-09-03 대시보드 근거 대조에서 발견. 입력 문장은 `tutor.ask` 의 `question` 칸(≤4096바이트)으로 → 3라운드 B `batch-3/panel-ask`(입력 문장은 kind `free` · `question.text`)
-- [ ] 라이브 짐작 라벨이 fixture 고정(`golden-bundle.ts:165` "왜 new로 직접 만들면 안 되는지") — 2026-09-03 11:24 실전 질문이 그 문장으로 나가 답이 "자료에 없다". 붙잡은 문장 자체를 `question`(kind `free` · `text`)으로 보내거나 문장에서 짐작을 만들기 → 3라운드 B `batch-3/panel-ask`
-- [ ] 후속 칩(더 쉽게 · 왜 필요한데? · 방금 내용)이 모델을 부르지 않고 결론을 되풀이(`replay-store.ts:499` `followUp`) · 모델이 준 `answer.chips` 2개는 화면에 없음 — 2026-09-03 실전 스크린샷으로 확인. 실제 후속 `tutor.ask` 로, 기다리는 동안만 지금 문구 → 3라운드 B
-- [ ] partial 문단 중복 — `ts-058` 이 partial(11:20:56) · partial(11:22:17) · final(11:27:18) 로 3번 `event.append` 되고 패널에 같은 문단이 두 번 보임(탭 숨김 때 `flush()` 가 partial 을 세그먼트로 냄). 패널은 segment id 로 갈아끼우고, 워커는 같은 (id, state, text) 재전송을 거름 → 3라운드 A `batch-3/live-quality`(워커) · B(패널 스토어)
-- [ ] 자세히 화면 문단 시각이 UTC(02:20:46) — content script `arrivedAt` 이 `toISOString()` Z 이고 `clock.ts` `clockOfIso` 가 오프셋을 무시. 패널에서 로컬 시각으로 → 3라운드 A
-- [ ] 기록 화면 바닥줄이 Meet·IntelliJ 도 "기록 중" 으로 고정(`history-view.ts:56`) — 연결 안 된 것은 `—` 로 → 3라운드 A
-- [ ] Tiro 공유 페이지가 `hint-class-partial`(11:27:19 · 11:29:02 복구) · `selector-broken`(11:29:34) 로 잠시 멈춤 — "다시 연결" 복구 여부 확인 · 깨졌을 때 DOM 모양(클래스 이름만, 본문 없이)을 워커 로그에 남겨 파서 보정 근거로 → 3라운드 A
+
+## 3라운드 실측 결함 — 7건 전부 병합 완료 (2026-09-03)
+
+2026-09-03 오전 실전 수업에서 나온 결함 목록입니다. `batch-3/live-quality`(A) 와
+`batch-3/panel-ask`(B) 로 고쳐 `9df97e8` · `fff67dd` 로 main 에 들어갔습니다.
+
+- [x] 자세히 화면 맨 아래 자유 텍스트 질문 입력창(`docs/master-prompt.md` §3-7) — 3라운드 B `d83e0d7`. 지금 `screens/DetailScreen.tsx:134` 에 `placeholder="이어서 물어볼 말을 적어요"` · `aria-label="이어서 묻기"` 가 있고 `onAsk` 가 `tutor.ask` 로 나갑니다
+- [x] 라이브 짐작 라벨이 fixture 고정(`golden-bundle.ts:165` "왜 new로 직접 만들면 안 되는지") — 3라운드 B `a3ed7f0`·`38513d2`. 붙잡은 문장에서 짐작을 만드는 순수 함수 `src/panel/guesses.ts` 가 생겼고 `live-store.test.ts:268` 이 fixture 짐작이 라이브에 안 나오는 것을 못 박습니다
+- [x] 후속 칩이 모델을 부르지 않고 결론을 되풀이 · 모델이 준 `answer.chips` 2개가 화면에 없음 — 3라운드 B. 지금 `replay-store.ts:710` 의 `followUp` 이 실제 `#ask` 를 걸고, 모델 칩은 `model-0`·`model-1` id 로 들어옵니다(`#modelChip` `:1332`)
+- [x] partial 문단 중복(`ts-058` 이 3번 `event.append`) — 3라운드 A `9a7be6d`. 워커가 `(id, state, text)` 지문을 `seenSegments`(`background/router.ts:291`)로 걸러 같은 조각을 다시 붙이지 않습니다
+- [x] 자세히 화면 문단 시각이 UTC — 3라운드 A `75025c3`·`bac90e3`. `src/panel/clock.ts` 가 `Z`·`+09:00`·`+0900` 을 다 읽어 KST 한 축으로 옮깁니다
+- [x] 기록 화면 바닥줄이 Meet·IntelliJ 도 "기록 중" 으로 고정 — 3라운드 A `1a45bb2`. `history-view.ts:81` 의 `footerSourceOf` 가 `connected`→`기록 중`, `off`·보고 없음→`—` 로 나눕니다
+- [x] Tiro 공유 페이지가 잠시 멈췄을 때 DOM 모양이 안 남음 — 3라운드 A `746f813`·`b1fd1eb`·`360c2ec`. `share-parser.ts:234` 의 `domShape`/`formatDomShape` 가 등급이 떨어진 순간에만 모양을 재고(`share-observer.ts:178`), 「다시 연결」이 어디까지 회복하는지는 `src/tiro/README.md` 에 사실대로 적혔습니다
+
+## 4~7라운드에서 남은 일
+
+`docs/WORKLOG.md` 2026-09-03 12:51·15:15 항목과 `docs/plan/round-8-units.md` §0 이 근거입니다.
+각 줄 끝의 확인 명령은 이 문서를 쓸 때(HEAD `7d649bd`) 실제로 돌려 본 것입니다.
+
+- [ ] 드래그로 고른 부분을 그대로 묻는 길이 없음 — 붙잡는 길은 낱말 누름 · 문장 누름 · `Alt+S` · 대화 칸 입력 넷뿐입니다. 확인: `grep -rn -E "dragstart|dragend|onDrag|draggable|selectionchange|getSelection" apps packages installer` → 0줄
+- [ ] 패널이 닫혀 있으면 `Alt+S` 가 안 먹음 — 전역 단축키(`chrome.commands`) 배선이 0곳입니다. 확인: `grep -rn "chrome.commands|\"commands\"" apps/browser-extension` → 0줄. 사이드패널은 `activeTab` 을 주는 네 자리(action 클릭 · 컨텍스트 메뉴 · commands · omnibox)에 없다는 조사(WORKLOG 12:51 발견 1)와 같은 뿌리입니다
+- [ ] 캡처 시작/중지 버튼이 아직 없어 `entrypoints/background.ts:588` 의 `chrome.action.onClicked` 손시험 갈래와 `globalThis.classmateCapture`(`:609`) 손잡이가 그대로 남음. 확인: `grep -rn "onClicked|classmateCapture" apps/browser-extension` → 제품 코드 2곳
+- [ ] 스크린샷이 batch-4~7 화면 변경보다 낡음 — `docs/screenshots/` 는 `2789992`(3라운드)에서 멈췄는데 `ListeningScreen.tsx` 는 그 뒤 `bf09996`(대화 칸) · `56cda04`(기다리는 중 화면)로, `SettingsScreen.tsx` 는 `ed174f5`(글씨 크기 4단계)로 바뀌었습니다. 확인: `git log --oneline -3 -- docs/screenshots/` 와 각 화면 파일의 `git log`
+- [ ] `docs/first-class.md` §3-3 이 예로 든 매니페스트 자리(`C:\CorthexClassmate\com.corthex.classmate.json`)와 이 PC 의 실제 등록 값이 다름 — 실제 값은 저장소 `installer/windows/dist/com.corthex.classmate.json` 의 절대 경로입니다. 확인: `reg query "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.corthex.classmate"`. 깨끗한 PC 절차(문서)와 개발자 PC 실제(레지스트리) 중 어느 쪽을 정본으로 둘지 리허설 전에 정합니다
+- [ ] `CLASSMATE_TUTOR_SESSION=1`(교시 하나에 튜터 프로세스 하나 다시 쓰기)을 실제 CLI 로 검증한 적이 0회라 기본값이 거짓입니다(`apps/native-host/src/router.rs:156` "**기본값은 거짓**"). 확인: 그 줄과 `WORKLOG.md:126`
+- [ ] Meet 화면 실측 — `screen.frame` 이 실제로 몇 장 담기는지, 질문 한 건에 그림이 최대 몇 장 나가는지 아직 잰 적이 없습니다. `snapshot.ts:250` 이 창을 가리지 않고 찾도록 고쳐졌지만(`56cda04`) 그 뒤 실측 기록이 WORKLOG 에 없습니다 → 8라운드 U-06(사람)
+- [ ] 프레임 한 장 단가를 Gemini 기준으로 다시 계산하기 — `docs/spikes/meet-vision.md:383` 은 Claude 기준(약 1,196 시각 토큰 · 약 0.006 USD)만 적혀 있습니다. 확인: `grep -ric "gemini" docs/spikes/meet-vision.md` → 0
+- [~] 시험 네 갈래(vitest · cargo · node --test · e2e)를 루트 명령 하나로 — 루트 `package.json` 의 `test` 는 `pnpm -r --if-present test` 뿐이고 `.github` 폴더는 없습니다. 확인: `ls -a | grep github` → 없음 → 8라운드 U-22
+- [~] 기록 저장이 거절돼도 화면이 모르는 통로 → 8라운드 U-21
+- [~] 한 줄 결론 옆에 답 본문 첫 문단 → 8라운드 U-33 · 밀려난 붙잡기 질문을 대화 칸에서 그 줄로 → U-34
 
 ## 사람이 할 일 (대기)
 
@@ -151,7 +174,7 @@
 - [!] Gate C2 골든 컨텍스트 재측정 비용 승인 (약 1.5 USD 이상 예상)
 - [!] Codex 사용 한도 복구 확인 → Gate C2 Codex 측정
 - [!] 선생님께 Drive "뷰어 다운로드 허용" 요청
-- [!] `gh repo create` 허락
+- [x] `gh repo create` 허락 — 끝났습니다. `origin` 이 붙어 있고 `main` 이 원격과 같습니다(`git ls-remote origin refs/heads/main`)
 - [x] 로컬 도우미 레지스트리 등록 `node installer/windows/install.mjs --apply` — 2026-09-03 오전 사용자가 직접 실행 · `reg query HKCU\Software\Google\Chrome\NativeMessagingHosts\com.corthex.classmate` 가 `dist/com.corthex.classmate.json` 을 가리킴 (해제는 `--remove --apply`)
 - [!] 깨끗한 Windows 11 VM 에서 `docs/first-class.md` §2~§4 를 처음부터 1회 · 65분 리허설 1회 + §4-2 다섯 항목 기록
 - [x] Chrome 안 실제 왕복 손 시험 — 2026-09-03 10:49 dev 확장(id `meldoohgnggckjahcchmfjnngpafcjon`)을 얹고 사이드패널 '수업 · 2교시' 를 열자 도우미가 `%LOCALAPPDATA%\CorthexClassmate\sessions\2026-09-03-p2.sqlite` 를 만듦(패널 → 워커 → `connectNative` → `period.started` → SQLite). `tutor.ask` → `tutor.event` 는 실제 첫 호출 항목과 함께
