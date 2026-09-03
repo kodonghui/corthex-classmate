@@ -44,6 +44,25 @@ import { FOLLOW_UP_WAITING_LINE } from "../replay-store";
 import { useStickToBottom } from "../use-stick-to-bottom";
 import { AnswerStream } from "./AnswerStream";
 
+/** 밀려난 질문이 답을 기다리는 동안 그 줄 옆에 뜨는 글입니다(U-34). */
+const CARRIED_WAITING = "기다리는 중 · 답이 오면 여기에 채워요";
+
+/**
+ * 한 줄 결론과 답 본문 첫 문단을 메모의 결론 칸 하나에 담습니다(U-33).
+ *
+ * MarginNote 의 `children` 은 헤더와 결론 **사이**라 여기에 본문을 넣으면 순서가 뒤집힙니다.
+ * 새 prop 을 만들지 않고 결론 칸에 함께 실어, 접힘·칩·자세히 갈래를 지금 그대로 둡니다.
+ */
+function withBody(conclusion: React.ReactNode, body: string | null): React.ReactNode {
+  if (body === null) return conclusion;
+  return (
+    <>
+      {conclusion}
+      <span className="cm-note__b">{body}</span>
+    </>
+  );
+}
+
 export interface ListeningScreenProps {
   readonly view: ListeningView;
   readonly onTerm: (lineId: string, segmentIndex: number, word: string) => void;
@@ -248,9 +267,63 @@ export function ListeningScreen({
     );
   };
 
+  /**
+   * 답을 기다리는 중에 밀려난 붙잡기 질문입니다(U-34).
+   *
+   * 물어본 **그 문장 옆**에 그대로 둡니다. 아래 대화 칸은 학습자가 직접 친 질문만 담습니다.
+   * 아직이면 「기다리는 중」, 답이 오면 그 자리에서 결론과 본문으로 채워집니다.
+   */
+  const renderCarried = (lineId: string): React.ReactNode => {
+    const rows = view.carried.filter((item) => item.lineId === lineId);
+    if (rows.length === 0) return null;
+    return rows.map((row) =>
+      row.conclusion === null ? (
+        <MarginNote
+          key={row.questionId}
+          term={row.term}
+          time={row.time}
+          state="preparing"
+          warn={row.failure !== null}
+          style={{ marginTop: 12 }}
+          waitingText={
+            row.failure !== null ? (
+              row.failure
+            ) : row.stream === null ? (
+              CARRIED_WAITING
+            ) : (
+              <AnswerStream stream={row.stream} idle={CARRIED_WAITING} sweep={false} />
+            )
+          }
+        />
+      ) : (
+        <MarginNote
+          key={row.questionId}
+          term={row.term}
+          time={row.time}
+          state="ready"
+          style={{ marginTop: 12 }}
+          conclusion={withBody(row.conclusion, row.body)}
+          evidence={[...row.evidence]}
+        />
+      ),
+    );
+  };
+
   const renderAfter = (lineId: string): React.ReactNode => {
     const guesses = renderChoosing(lineId);
-    if (note.kind === "none" || note.lineId !== lineId) return guesses;
+    // 밀려난 질문은 시간상 앞선 것이라 지금 메모보다 **위**에 둡니다 — 이 화면의 다른 자리와
+    // 같은 규칙(먼저 물은 것이 위)입니다.
+    const carried = renderCarried(lineId);
+    if (note.kind === "none" || note.lineId !== lineId) {
+      return carried === null ? (
+        guesses
+      ) : (
+        <>
+          {carried}
+          {guesses}
+        </>
+      );
+    }
     const after = view.noteNow === null ? null : <NowLine style={{ marginTop: 12 }}>{view.noteNow}</NowLine>;
     const block = ((): React.ReactNode => {
       switch (note.kind) {
@@ -294,19 +367,7 @@ export function ListeningScreen({
               term={note.term}
               time={note.time}
               state="ready"
-              // 결론 한 줄 **다음에** 답 본문 첫 문단을 그 자리에 둡니다(U-33). MarginNote 의
-              // children 은 헤더와 결론 사이라 순서가 뒤집히므로, 새 prop 을 만들지 않고
-              // 결론 칸에 함께 싣습니다 — 접힘·칩·자세히 갈래는 지금 그대로 둡니다.
-              conclusion={
-                note.body === null ? (
-                  note.conclusion
-                ) : (
-                  <>
-                    {note.conclusion}
-                    <span className="cm-note__b">{note.body}</span>
-                  </>
-                )
-              }
+              conclusion={withBody(note.conclusion, note.body)}
               evidence={[...note.evidence]}
               chips={[...note.chips]}
               onChip={onChip}
@@ -318,6 +379,7 @@ export function ListeningScreen({
     })();
     return (
       <>
+        {carried}
         {block}
         {after}
         {guesses}

@@ -134,6 +134,13 @@ export interface ReplayState {
   /** 붙잡은 순간 id → 그 순간에 이어 물은 후속들(물은 순서). */
   readonly threads: Readonly<Record<Id, readonly FollowUpAsk[]>>;
   /**
+   * 답을 기다리는 중에 밀려난 붙잡기 질문 id 들입니다(밀려난 순서 · U-34).
+   *
+   * 기계는 질문 하나만 듭니다. 앞 질문은 여기에 이름만 남고, 화면은 그 질문의 `Moment` 가
+   * 가리키는 **그 문장 옆**에 메모를 그대로 둡니다. 대화 칸으로 내려보내지 않습니다.
+   */
+  readonly carried: readonly Id[];
+  /**
    * 아직 답을 기다리는 질문들의 **자라는 결론**입니다. `질문 id → 마지막 조각`.
    *
    *     q-…-001 ─▶ {seq: 3, chars: 82, text: "생성 책임을"}   답이 오면 이 칸이 사라집니다
@@ -927,6 +934,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       chip: null,
       reply: null,
       threads: {},
+      carried: [],
       deltas: {},
       emitted: [],
       received: [],
@@ -1218,12 +1226,16 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
    *              └─▶ 나중에 Q1 의 답이 오면 `#threadsAfter` 가 그 줄을 채웁니다
    * ```
    *
-   * 왜 필요한가: 옮겨 두지 않으면 Q1 의 답이 `#isStaleAnswer` 에 걸려 화면 어디에도 뜨지
-   * 않습니다(기록 화면에만 남습니다). 학습자 입장에서는 물어본 것이 조용히 사라진 것입니다.
-   * 대화 칸은 이미 "물은 것이 쌓이는 자리" 라 새 자리를 만들지 않고 그리로 보냅니다.
+   * 왜 지우면 안 되는가: 옮겨 두지 않으면 Q1 의 답이 `#isStaleAnswer` 에 걸려 화면 어디에도
+   * 뜨지 않습니다(기록 화면에만 남습니다). 학습자 입장에서는 물어본 것이 조용히 사라진
+   * 것입니다. 그러니 이 함수는 남습니다 — 바뀌는 것은 **옮기는 자리**뿐입니다.
    *
-   * 칸 이름은 `lesson-view.ts` 의 `listeningAskParent` 와 같은 **교시 id** 입니다. 그 함수를
-   * 여기서 부르면 lesson-view → replay-store 방향의 import 가 되돌아와 고리가 됩니다.
+   * 어디로 옮기나(U-34 에서 정한 것): **물어본 그 문장 옆, 그 줄의 메모 자리**입니다.
+   * 아래 대화 칸이 아닙니다. 학습자 말 그대로 「대화창은 내가 따로 질문하는거면 좋겠는데」 —
+   * 대화 칸은 사람이 직접 친 질문(`kind free`)만 담습니다. 전사 위 고정 띠도 고려했지만
+   * 쓰지 않았습니다: ① 물은 자리와 답이 떨어져 "무엇에 대한 답인지" 를 다시 찾아야 하고,
+   * ② 그 자리에는 이미 `NowLine` 이 있어 둘이 자리를 다투며, ③ 줄 옆 메모 자리는
+   * `Moment.lineId` 와 `renderAfter(lineId)` 로 이미 있는 자리라 새 화면을 만들지 않습니다.
    *
    * 재생(fixture) 모드에서는 아무 일도 하지 않습니다 — 골든 9장면을 지킵니다.
    */
@@ -1233,21 +1245,10 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     // 워치독에 걸려 있다 = 밖에 물었고 아직 답 사건이 하나도 안 왔다.
     if (previous === null || !this.#watching.has(previous)) return;
     if (this.#isThreadQuestion(previous)) return;
-    const moment = this.#state.moments.find((item) => item.questionId === previous);
-    if (moment === undefined) return;
-    const parentId = this.#bundle.periodId;
-    const row: FollowUpAsk = {
-      id: previous,
-      parentId,
-      question: this.#asked.get(previous)?.question ?? questionTextOf(moment.term),
-      time: moment.time,
-      state: "waiting",
-      answerId: null,
-      message: null,
-    };
-    this.#set({
-      threads: { ...this.#state.threads, [parentId]: [...(this.#state.threads[parentId] ?? []), row] },
-    });
+    if (this.#state.carried.includes(previous)) return;
+    // 그 질문의 순간이 있어야 어느 줄 옆에 그릴지 압니다. 없으면 그릴 자리가 없습니다.
+    if (!this.#state.moments.some((item) => item.questionId === previous)) return;
+    this.#set({ carried: [...this.#state.carried, previous] });
   }
 
   #stuck({ lineId, term, segKey, time, question, word }: StuckOptions): void {

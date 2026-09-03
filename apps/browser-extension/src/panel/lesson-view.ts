@@ -154,6 +154,31 @@ export interface ListeningView {
   readonly canAsk: boolean;
   /** 듣다가 바로 물은 것들입니다. 물은 순서이고 마지막이 가장 나중입니다. */
   readonly asks: readonly ThreadView[];
+  /** 답을 기다리는 중에 밀려난 붙잡기 질문들입니다. 물어본 그 줄 옆에 그립니다(U-34). */
+  readonly carried: readonly CarriedNoteView[];
+}
+
+/**
+ * 밀려난 붙잡기 질문 하나를 그 줄 옆에 그리는 데 필요한 것들입니다(U-34).
+ *
+ * 답을 기다리는 중에 다른 문단을 누르면 앞 질문이 상태기계에서 밀려납니다. 그래도 그 질문은
+ * **물어본 그 문장 옆에 그대로 남습니다** — 아래 대화 칸으로 내려가지 않습니다. 답이 늦게
+ * 와도 버리지 않고 이 자리에서 채웁니다(REQ-11).
+ */
+export interface CarriedNoteView {
+  readonly questionId: Id;
+  readonly lineId: string;
+  readonly term: string;
+  readonly time: string;
+  /** 답이 왔으면 한 줄 결론, 아직이면 null 입니다. */
+  readonly conclusion: string | null;
+  /** 결론 아래에 그릴 답 본문 첫 문단입니다(U-33 과 같은 규칙). */
+  readonly body: string | null;
+  readonly evidence: readonly EvidenceItem[];
+  /** 기다리는 동안 흐르는 조각입니다. 답이 왔거나 한 조각도 안 왔으면 null 입니다. */
+  readonly stream: AnswerStreamView | null;
+  /** 튜터가 멈췄을 때의 안내 문구입니다. 그 밖에는 null 입니다. */
+  readonly failure: string | null;
 }
 
 /** 자세히 화면에서 이어 물은 한 줄입니다(질문 → 대기 · 답 · 실패). */
@@ -592,6 +617,7 @@ export function listeningView(
     tiroPaused: paused,
     canAsk: state.live,
     asks: threadsOf(bundle, state, listeningAskParent(bundle)),
+    carried: carriedOf(bundle, state),
   };
 }
 
@@ -656,6 +682,45 @@ function followUpsOf(state: ReplayState, answer: Answer | null, current: boolean
     label,
   }));
   return [...FOLLOW_UPS, ...fromModel];
+}
+
+/**
+ * 밀려난 붙잡기 질문들을 그 줄 옆 메모로 만듭니다(U-34). 밀려난 순서입니다.
+ *
+ * 답은 `answerOfQuestion` 이 **도착한 사건에서만** 찾습니다. 기계는 이 질문을 이미 놓았으므로
+ * `machine.answerId` 로는 못 찾습니다 — 그것이 이 자리가 따로 필요한 까닭입니다.
+ */
+function carriedOf(bundle: GoldenBundle, state: ReplayState): CarriedNoteView[] {
+  return state.carried.flatMap<CarriedNoteView>((questionId) => {
+    const moment = state.moments.find((item) => item.questionId === questionId);
+    if (moment === undefined) return [];
+    const answer = answerOfQuestion(bundle, state, questionId);
+    return [
+      {
+        questionId,
+        lineId: moment.lineId,
+        term: moment.term,
+        time: moment.time,
+        conclusion: answer?.conclusion ?? null,
+        body: answer === null ? null : noteBody(answer, null),
+        evidence: answer === null ? [] : evidenceOf(answer, moment),
+        stream: answer === null ? streamOf(state, questionId) : null,
+        failure: answer === null ? failureOf(state, questionId) : null,
+      },
+    ];
+  });
+}
+
+/** 그 질문에 온 `answer.failed` 의 안내 문구입니다. 없으면 null 입니다. */
+function failureOf(state: ReplayState, questionId: Id): string | null {
+  for (let i = state.received.length - 1; i >= 0; i -= 1) {
+    const event = state.received[i];
+    if (event === undefined || event.type !== "answer.failed") continue;
+    if (event.payload["questionId"] !== questionId) continue;
+    const message = event.payload["message"];
+    return typeof message === "string" ? message : null;
+  }
+  return null;
 }
 
 /** 이어 물은 후속들을 화면 줄로 만듭니다. 답이 온 줄만 결론과 근거를 답니다. */

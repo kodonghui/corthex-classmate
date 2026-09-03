@@ -1203,13 +1203,33 @@ describe("답을 기다리는 중에 다음 문단 붙잡기", () => {
     expect(view.note.kind).toBe("preparing");
   });
 
-  it("앞 질문의 답이 나중에 도착해도 버려지지 않고 대화 칸에 남는다", () => {
+  it("밀려난 질문은 대화 칸이 아니라 물어본 그 줄 옆에 남는다 (U-34)", () => {
     const bench = rigWithTwoLines();
     bench.store.catchTerm("ts-live-001", 1, "new");
     const first = bench.store.getState().machine.questionId ?? "";
     bench.store.catchSentence("ts-live-002");
     bench.store.chooseGuess("g1");
     expect(bench.store.getState().machine.questionId).not.toBe(first);
+
+    const view = home(bench.store);
+    // 대화 칸은 학습자가 직접 친 질문만 담습니다. 줄 수가 늘지 않습니다.
+    expect(view.asks).toHaveLength(0);
+    // 밀려난 질문은 물어본 그 줄 옆에서 답을 기다립니다.
+    expect(view.carried).toHaveLength(1);
+    expect(view.carried[0]).toMatchObject({
+      questionId: first,
+      lineId: "ts-live-001",
+      term: "new",
+      conclusion: null,
+    });
+  });
+
+  it("앞 질문의 답이 나중에 도착해도 버려지지 않고 그 줄 옆에서 채워진다 (U-34)", () => {
+    const bench = rigWithTwoLines();
+    bench.store.catchTerm("ts-live-001", 1, "new");
+    const first = bench.store.getState().machine.questionId ?? "";
+    bench.store.catchSentence("ts-live-002");
+    bench.store.chooseGuess("g1");
 
     bench.store.pushEvent(
       event("ev-x-920", 12, "answer.completed", {
@@ -1219,15 +1239,19 @@ describe("답을 기다리는 중에 다음 문단 붙잡기", () => {
       }),
     );
 
-    const asks = home(bench.store).asks;
-    expect(asks.map((item) => item.id)).toContain(first);
-    expect(asks.find((item) => item.id === first)).toMatchObject({
-      loading: false,
+    const view = home(bench.store);
+    expect(view.asks).toHaveLength(0);
+    expect(view.carried[0]).toMatchObject({
+      questionId: first,
+      lineId: "ts-live-001",
       conclusion: "직접 new 하면 갈아 끼우기 어려워요",
+      failure: null,
     });
+    // 지금 메모 자리는 뒤에 붙잡은 질문의 것입니다 — 앞 답이 그 자리를 뺏지 않습니다.
+    expect(view.note.kind).toBe("preparing");
   });
 
-  it("옮겨 둔 앞 질문의 조각도 대화 칸에서 자란다", () => {
+  it("밀려난 앞 질문의 조각도 그 줄 옆에서 자란다 (U-34)", () => {
     const bench = rigWithTwoLines();
     bench.store.catchTerm("ts-live-001", 1, "new");
     const first = bench.store.getState().machine.questionId ?? "";
@@ -1236,11 +1260,25 @@ describe("답을 기다리는 중에 다음 문단 붙잡기", () => {
 
     bench.store.pushDelta({ questionId: first, seq: 0, chars: 9, text: "갈아 끼우기 어려워요" });
 
-    const row = home(bench.store).asks.find((item) => item.id === first);
+    const row = home(bench.store).carried.find((item) => item.questionId === first);
     expect(row?.stream).toEqual({ text: "갈아 끼우기 어려워요", chars: 9 });
   });
 
-  it("앞 질문이 답을 이미 받았으면 대화 칸으로 옮기지 않는다", () => {
+  it("밀려난 앞 질문이 실패하면 그 줄 옆에 멈춤 안내가 남는다 (U-34)", () => {
+    const bench = rigWithTwoLines();
+    bench.store.catchTerm("ts-live-001", 1, "new");
+    const first = bench.store.getState().machine.questionId ?? "";
+    bench.store.catchSentence("ts-live-002");
+    bench.store.chooseGuess("g1");
+
+    bench.store.pushEvent(
+      event("ev-x-921", 13, "answer.failed", { questionId: first, provider: "mock", message: ASK_TIMEOUT_MESSAGE }),
+    );
+
+    expect(home(bench.store).carried[0]).toMatchObject({ conclusion: null, failure: ASK_TIMEOUT_MESSAGE });
+  });
+
+  it("앞 질문이 답을 이미 받았으면 어느 자리로도 옮기지 않는다", () => {
     const bench = rigWithTwoLines();
     bench.store.catchTerm("ts-live-001", 1, "new");
     const first = bench.store.getState().machine.questionId ?? "";
@@ -1254,8 +1292,10 @@ describe("답을 기다리는 중에 다음 문단 붙잡기", () => {
 
     bench.store.catchTerm("ts-live-002", 0, "context.getBean");
 
-    // 답이 이미 화면에 떴던 질문입니다. 대화 칸에 한 번 더 적을 까닭이 없습니다.
-    expect(home(bench.store).asks).toHaveLength(0);
+    // 답이 이미 화면에 떴던 질문입니다. 어느 자리에도 한 번 더 적을 까닭이 없습니다.
+    const view = home(bench.store);
+    expect(view.asks).toHaveLength(0);
+    expect(view.carried).toHaveLength(0);
   });
 });
 

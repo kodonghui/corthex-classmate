@@ -338,6 +338,17 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("자세히 보기");
   });
 
+  it("밀려난 질문이 대화 칸이 아니라 전사 옆 「기다리는 중」으로 그려진다 (U-34)", () => {
+    const html = liveScreen((store) => {
+      store.catchTerm("ts-live-001", 1, "new");
+      store.catchTerm("ts-live-002", 0, "context.getBean");
+    });
+    // 밀려난 앞 질문은 그 줄 옆에서 답을 기다립니다.
+    expect(html).toContain("기다리는 중 · 답이 오면 여기에 채워요");
+    // 대화 칸에는 그 질문 줄이 생기지 않습니다(옛 자리에서는 이 글이 떴습니다).
+    expect(html).not.toContain("new 이 무슨 뜻이에요?");
+  });
+
   it("답이 떠 있는 채로 문장을 다시 붙잡아도 짐작 목록이 그려진다 (U-10)", () => {
     const store = new ReplayStore(GOLDEN_BUNDLE);
     store.goto("answer");
