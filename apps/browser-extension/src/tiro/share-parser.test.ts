@@ -1,7 +1,15 @@
 // @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 
-import { findParagraphElements, parseSharePage } from './share-parser';
+import {
+  ARBITRARY_CLASS_LABEL,
+  DOM_SHAPE_MAX_CHARS,
+  describeDomShape,
+  domShapeLine,
+  findParagraphElements,
+  formatDomShape,
+  parseSharePage,
+} from './share-parser';
 import { isSharePageUrl, makePeriodId } from './index';
 
 // 저장소가 들고 있는 합성 스냅샷입니다. 실제 공유 페이지가 아닙니다.
@@ -243,5 +251,88 @@ describe('makePeriodId', () => {
   it('0 교시나 소수는 막습니다', () => {
     expect(() => makePeriodId(new Date(), 0)).toThrow(RangeError);
     expect(() => makePeriodId(new Date(), 1.5)).toThrow(RangeError);
+  });
+});
+
+// ── 깨졌을 때 무엇을 보나 ─────────────────────────────────────────────────
+//
+// 실측(2026-09-03 2교시)에서 selector-broken 이 두 번 떴는데, 그때 페이지가 어떤 모양이었는지
+// 기록이 없어 파서를 고칠 수가 없었습니다. 그래서 개수와 클래스 이름만 담은 요약을 함께 냅니다.
+
+describe('describeDomShape', () => {
+  it('선택자가 깨진 스냅샷에서 그릇·문단 후보 수·클래스를 셉니다', () => {
+    const shape = describeDomShape(mount(brokenHtml));
+    expect(shape.containerTag).toBe('main');
+    // 글자를 품은 **가장 안쪽** 요소만 셉니다. 감싸는 div 와 main 은 세지 않습니다.
+    expect(shape.paragraphNodes).toBe(3);
+    expect(shape.topClasses).toEqual([
+      { name: 'leading-7', count: 3 },
+      { name: 'tds-transcript-line', count: 3 },
+      { name: 'tds-tone-subtle', count: 2 },
+      { name: 'tds-tone-strong', count: 1 },
+    ]);
+  });
+
+  it('main 이 사라지면 그것부터 보입니다', () => {
+    const shape = describeDomShape(mount('<section><p class="x">한 줄</p></section>'));
+    expect(shape.containerTag).toBe('body');
+    expect(shape.paragraphNodes).toBe(1);
+  });
+
+  it('클래스는 상위 다섯 개만 남깁니다', () => {
+    const cells = Array.from({ length: 8 }, (_, index) => `<p class="c${index}">글자</p>`).join('');
+    const shape = describeDomShape(mount(`<main>${cells}</main>`));
+    expect(shape.paragraphNodes).toBe(8);
+    expect(shape.topClasses).toHaveLength(5);
+  });
+
+  it('본문·주소·id 값은 담지 않습니다', () => {
+    const html =
+      '<main><p id="secret-note-42" class="whitespace-pre-wrap" data-href="https://example.test/s/abc">' +
+      '비밀번호는 열려라참깨</p></main>';
+    const line = domShapeLine(mount(html));
+    expect(line).toContain('whitespace-pre-wrap');
+    expect(line).not.toContain('비밀번호');
+    expect(line).not.toContain('secret-note-42');
+    expect(line).not.toContain('example.test');
+  });
+
+  it('대괄호 임의값 클래스는 이름 대신 한 자리에 모아 셉니다', () => {
+    // Tailwind 임의값 안에는 주소나 본문이 들어갈 수 있어 그대로 남기지 않습니다.
+    const html = `<main><p class="bg-[url('https://example.test/a.png')] leading-7">글자</p></main>`;
+    const shape = describeDomShape(mount(html));
+    const names = shape.topClasses.map((entry) => entry.name);
+    expect(names).toContain(ARBITRARY_CLASS_LABEL);
+    expect(formatDomShape(shape)).not.toContain('example.test');
+  });
+});
+
+describe('formatDomShape', () => {
+  it('한 줄로 적습니다', () => {
+    expect(
+      formatDomShape({
+        paragraphNodes: 12,
+        topClasses: [{ name: 'text-body', count: 12 }],
+        containerTag: 'main',
+      }),
+    ).toBe('그릇 main · 문단 후보 12개 · 클래스 text-body×12');
+  });
+
+  it('아무것도 못 찾았으면 없음이라고 적습니다', () => {
+    expect(formatDomShape({ paragraphNodes: 0, topClasses: [], containerTag: null })).toBe(
+      '그릇 없음 · 문단 후보 0개 · 클래스 없음',
+    );
+  });
+
+  it('길면 상한에서 자릅니다', () => {
+    const long = formatDomShape({
+      paragraphNodes: 9,
+      topClasses: Array.from({ length: 5 }, (_, index) => ({
+        name: `${'a'.repeat(40)}${index}`.slice(0, 40),
+        count: 9,
+      })),
+      containerTag: 'main',
+    });
+    expect(long.length).toBeLessThanOrEqual(DOM_SHAPE_MAX_CHARS);
   });
 });
