@@ -54,6 +54,14 @@ function moreAdvanced(a: TranscriptSegment, b: TranscriptSegment): TranscriptSeg
   return b.text.length > a.text.length ? b : a;
 }
 
+/** 접은 결과입니다. 남긴 줄과, 접힌 줄이 어디로 갔는지 적은 쪽지입니다. */
+export interface FoldedSegments {
+  /** 화면에 남길 조각입니다(시간순). */
+  readonly kept: readonly TranscriptSegment[];
+  /** 접힌 조각 id → 그 자리를 이어받은 조각 id 입니다. 붙잡은 자리를 옮길 때 씁니다. */
+  readonly alias: ReadonlyMap<string, string>;
+}
+
 /**
  * 같은 문단이 두 줄로 보이는 것을 막습니다.
  *
@@ -66,25 +74,71 @@ function moreAdvanced(a: TranscriptSegment, b: TranscriptSegment): TranscriptSeg
  * 2026-09-03 실측에서 같은 문단이 패널에 두 번 그려졌습니다. 두 가지로 거릅니다.
  *
  *   ① `seq` 가 같으면 더 나아간 것 하나만 남깁니다(final > partial, 같으면 긴 글).
- *   ② 남은 `partial` 중, 다른 줄의 글이 그 글로 시작하면(자라는 중인 같은 문단) 버립니다.
+ *   ② 남은 `partial` 중, **뒤에 온** 줄의 글이 그 글로 시작하면(자라는 중인 같은 문단) 버립니다.
+ *
+ * ②가 뒤에 온 줄만 보는 까닭이 있습니다. 진행 중 줄은 한 글자에서 시작해 자라므로 `그` ·
+ * `이제` · `그러니까` 같은 앞머리가 한 교시 안 **남남 문단**과 쉽게 겹칩니다. 앞뒤를 안 가리면
+ * 지금 들리는 말 줄이 옛 문단 때문에 통째로 사라집니다(2026-09-03 검토에서 실제로 났습니다).
+ * 같은 문단의 확정본은 언제나 진행 중 줄보다 **뒤에** 오므로 이 좁힘으로 놓치는 것은 없습니다.
  *
  * 확정된 줄끼리는 서로 지우지 않습니다 — 짧은 문장이 우연히 다른 문장의 앞머리와 같아도
  * `final` 은 ②의 대상이 아닙니다.
+ *
+ * 접힌 줄은 그냥 사라지지 않습니다. `alias` 에 "버린 id → 이어받은 id" 를 적어 두어, 그 줄을
+ * 붙잡아 둔 순간(Moment)이 이긴 줄로 따라갈 수 있게 합니다(`ReplayStore#realignMoments`).
  */
-export function dedupeSegments(segments: readonly TranscriptSegment[]): TranscriptSegment[] {
+export function foldSegments(segments: readonly TranscriptSegment[]): FoldedSegments {
   const bySeq = new Map<number, TranscriptSegment>();
+  const alias = new Map<string, string>();
   for (const segment of segments) {
     const before = bySeq.get(segment.seq);
-    bySeq.set(segment.seq, before === undefined ? segment : moreAdvanced(before, segment));
+    if (before === undefined) {
+      bySeq.set(segment.seq, segment);
+      continue;
+    }
+    const winner = moreAdvanced(before, segment);
+    const loser = winner === before ? segment : before;
+    bySeq.set(segment.seq, winner);
+    if (loser.id !== winner.id) alias.set(loser.id, winner.id);
   }
-  // 긴 글부터 훑으며 담습니다. 글이 같은 두 조각도 뒤엣것 하나만 빠지도록 id 로 순서를 못 박습니다.
-  const ordered = [...bySeq.values()].sort((a, b) => b.text.length - a.text.length || (a.id < b.id ? -1 : 1));
+  // 시간순으로 세웁니다. ② 는 "그 뒤에 온 줄" 만 보므로 이 순서가 곧 규칙입니다.
+  const ordered = [...bySeq.values()].sort(byArrival);
   const kept: TranscriptSegment[] = [];
-  for (const segment of ordered) {
-    if (segment.state !== "final" && kept.some((other) => other.text.startsWith(segment.text))) continue;
+  for (const [index, segment] of ordered.entries()) {
+    if (segment.state !== "final") {
+      const winner = ordered.slice(index + 1).find((other) => other.text.startsWith(segment.text));
+      if (winner !== undefined) {
+        alias.set(segment.id, winner.id);
+        continue;
+      }
+    }
     kept.push(segment);
   }
-  return kept;
+  return { kept, alias };
+}
+
+/** `foldSegments` 에서 남긴 줄만 꺼냅니다. */
+export function dedupeSegments(segments: readonly TranscriptSegment[]): TranscriptSegment[] {
+  return [...foldSegments(segments).kept];
+}
+
+/**
+ * 접힘 쪽지를 끝까지 따라가 지금 살아 있는 줄 id 를 돌려줍니다.
+ *
+ *     partial-0 ─▶ ts-058(partial) ─▶ ts-058(final)   사슬이 있어도 한 번에 끝까지 갑니다.
+ *
+ * 접힌 적이 없으면 받은 id 를 그대로 돌려줍니다. 고리(자기 자신으로 도는 쪽지)가 생겨도
+ * 이미 지나온 id 를 기억해 멈춥니다.
+ */
+export function resolveAlias(alias: ReadonlyMap<string, string>, id: string): string {
+  const seen = new Set<string>([id]);
+  let out = id;
+  for (;;) {
+    const next = alias.get(out);
+    if (next === undefined || seen.has(next)) return out;
+    seen.add(next);
+    out = next;
+  }
 }
 
 /**
@@ -96,7 +150,8 @@ export function toTranscriptLines(
   terms: readonly string[],
   untilMs: number,
 ): TranscriptLine[] {
-  return dedupeSegments(segments.filter((segment) => parseIso(segment.arrivedAt) <= untilMs))
+  const { kept } = foldSegments(segments.filter((segment) => parseIso(segment.arrivedAt) <= untilMs));
+  return [...kept]
     .sort(byArrival)
     .map((segment) => ({
       id: segment.id,

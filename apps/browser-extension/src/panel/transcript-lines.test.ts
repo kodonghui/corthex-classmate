@@ -1,10 +1,17 @@
 import type { TranscriptSegment } from "@classmate/contracts";
-import { parseIso } from "@classmate/tutor-core";
+import { formatIso, parseIso } from "@classmate/tutor-core";
 import { describe, expect, it } from "vitest";
 
 import { atClock, clockOfIso, clockOfMs } from "./clock";
 import { GOLDEN_BUNDLE, GOLDEN_TERMS } from "./golden-bundle";
-import { dedupeSegments, segmentKeyOfWord, splitTerms, toTranscriptLines } from "./transcript-lines";
+import {
+  dedupeSegments,
+  foldSegments,
+  resolveAlias,
+  segmentKeyOfWord,
+  splitTerms,
+  toTranscriptLines,
+} from "./transcript-lines";
 
 describe("splitTerms", () => {
   it("낱말이 없으면 글 전체가 한 조각이다", () => {
@@ -73,12 +80,18 @@ describe("시계 문구", () => {
 });
 
 describe("dedupeSegments", () => {
-  /** 시험용 조각 하나. 도착 시각은 seq 순서를 따라 1초씩 벌립니다. */
+  const FOLD_BASE = parseIso("2026-09-03T11:20:00+09:00");
+
+  /**
+   * 시험용 조각 하나. 도착 시각은 기본으로 seq 순서를 따라 1초씩 벌립니다.
+   * 접기 ②가 **뒤에 온 줄**만 보므로 시각이 곧 규칙입니다. 순서를 뒤집어 볼 때는 `seconds` 를 줍니다.
+   */
   function seg(
     id: string,
     seq: number,
     text: string,
     state: "partial" | "final" = "final",
+    seconds: number = seq,
   ): TranscriptSegment {
     return {
       id,
@@ -86,7 +99,7 @@ describe("dedupeSegments", () => {
       seq,
       text,
       state,
-      arrivedAt: `2026-09-03T11:2${seq}:00+09:00`,
+      arrivedAt: formatIso(FOLD_BASE + seconds * 1_000),
       source: "tiro-share",
     };
   }
@@ -130,7 +143,62 @@ describe("dedupeSegments", () => {
     expect(kept).toHaveLength(2);
   });
 
+  it("앞머리가 겹치는 남남 partial 은 살아남는다", () => {
+    // 지금 자라는 중인 줄('그러니까')이 한참 앞 문단의 앞머리와 겹칩니다. 남남이므로 지우면 안 됩니다.
+    const kept = dedupeSegments([
+      seg("ts-010", 10, "그러니까 이렇게 쓰면 됩니다", "final", 10),
+      seg("ts-2026-09-03-p2-partial-40", 41, "그러니까", "partial", 90),
+    ]);
+    expect(kept.map((item) => item.id).sort()).toEqual(["ts-010", "ts-2026-09-03-p2-partial-40"]);
+  });
+
   it("골든 fixture 는 그대로 지나간다", () => {
     expect(dedupeSegments(GOLDEN_BUNDLE.transcript)).toHaveLength(GOLDEN_BUNDLE.transcript.length);
+  });
+});
+
+describe("foldSegments 의 접힘 쪽지", () => {
+  const BASE = parseIso("2026-09-03T11:20:00+09:00");
+
+  function seg(
+    id: string,
+    seq: number,
+    text: string,
+    state: "partial" | "final",
+    seconds: number,
+  ): TranscriptSegment {
+    return {
+      id,
+      periodId: "2026-09-03-p2",
+      seq,
+      text,
+      state,
+      arrivedAt: formatIso(BASE + seconds * 1_000),
+      source: "tiro-share",
+    };
+  }
+
+  it("접힌 줄의 id 는 이어받은 줄을 가리킨다", () => {
+    const { kept, alias } = foldSegments([
+      seg("ts-2026-09-03-p2-partial-0", 41, "여기서 enableWebSecurity 를 켜 주면", "partial", 10),
+      seg("ts-001", 1, "여기서 enableWebSecurity 를 켜 주면 필터가 붙습니다", "final", 12),
+    ]);
+    expect(kept.map((item) => item.id)).toEqual(["ts-001"]);
+    expect(alias.get("ts-2026-09-03-p2-partial-0")).toBe("ts-001");
+  });
+
+  it("같은 seq 로 접힌 줄도 쪽지를 남기고, 사슬은 끝까지 따라간다", () => {
+    const { alias } = foldSegments([
+      seg("ts-2026-09-03-p2-partial-0", 7, "컨테이너가", "partial", 10),
+      seg("ts-007", 7, "컨테이너가 대신", "partial", 11),
+      seg("ts-008", 8, "컨테이너가 대신 만들어 줍니다", "final", 12),
+    ]);
+    // partial-0 → ts-007 → ts-008 사슬입니다.
+    expect(resolveAlias(alias, "ts-2026-09-03-p2-partial-0")).toBe("ts-008");
+    expect(resolveAlias(alias, "ts-008")).toBe("ts-008");
+  });
+
+  it("접힌 적 없는 id 는 그대로 돌려준다", () => {
+    expect(resolveAlias(new Map(), "ts-001")).toBe("ts-001");
   });
 });
