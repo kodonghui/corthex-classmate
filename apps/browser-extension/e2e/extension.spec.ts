@@ -295,6 +295,9 @@ test('14 폭 520 — 여백 20px, 가로 스크롤 없음', async () => {
 });
 
 test('15 폭 380 — 기본 폭의 여백은 16px', async () => {
+  // 앞의 폭 시험(14)이 520 으로 바꾼 뷰포트는 test.afterEach 가 이미 되돌려 놓았습니다.
+  // 이 줄이 깨지면 정리가 사라진 것이고, 뒤 시험들이 엉뚱한 폭에서 찍히고 있다는 뜻입니다.
+  expect(page.viewportSize()).toEqual(VIEWPORT);
   await page.setViewportSize(VIEWPORT);
   await reopen();
   await goto('listening');
