@@ -54,9 +54,32 @@ crate 는 `classmate-host`, 모듈 경로는 `classmate_host::tutor` 입니다.
                                                  ▲
     out: Sender<Value> ─────────────────────────┘
     {"type":"tutor.event","periodId":"…","event":{SessionEvent 다섯 칸}}
+    {"type":"tutor.delta","periodId":"…","questionId":"…","seq":0,"chars":15,"text":"결론 조각"}
 ```
 
-`out` 으로 나가는 것은 **이 파이프라인이 만든 사건뿐입니다.** 확장이 보낸 사건은 되밀지 않습니다.
+`out` 으로 나가는 것은 **이 파이프라인이 만든 것뿐입니다.** 확장이 보낸 사건은 되밀지 않습니다.
+
+### 답이 만들어지는 동안 흐르는 조각 (`tutor.delta`)
+
+2026-09-03 실측에서 학생은 질문 뒤 7~24초(중앙값 13초) 동안 화면에서 글자를 하나도 못
+봤습니다. 제공자는 `--include-partial-messages` 로 조각을 이미 흘리고 있었는데,
+파이프라인이 받는 자리를 빈 클로저로 두어 전부 버렸기 때문입니다.
+
+| 칸 | 무엇 |
+|---|---|
+| `seq` | 이 회차에서 몇 번째 조각인지. `0` 은 "이 답을 처음부터 다시 그리세요" 입니다 |
+| `chars` | 지금까지 받은 날 본문 글자 수. "생각하는 중" 자리의 진행도입니다 |
+| `text` | 지금까지 해독한 **결론 전체**(증분이 아닙니다). 아직 없으면 칸 자체가 없습니다 |
+
+- **`SessionEvent` 가 아닙니다.** 저장소에 붙지 않고 `packages/contracts` 와도 무관합니다.
+  놓쳐도 뒤따르는 `answer.completed` 가 정본으로 덮습니다.
+- **날 JSON 을 흘리지 않습니다.** 답은 JSON 한 덩어리라 조각은 `{"conclusion":"생성 …` 처럼
+  생겼습니다. `src/tutor/delta.rs` 가 그 안에서 `conclusion` 값만 뽑아 해독합니다.
+- 모아 보내기는 **40자 또는 120밀리초 가운데 먼저 닿는 쪽**입니다
+  (`delta::FLUSH_CHARS` · `delta::FLUSH_INTERVAL`). 결론이 닫히는 순간은 기다리지 않고 바로 보냅니다.
+- 결론이 닫힌 뒤에는 더 보내지 않습니다. `details` 본문이 화면으로 새는 자리가 없습니다.
+- 이름표는 `classmate_transport::PUSH_TUTOR_DELTA` 하나입니다. 파이프라인이 이름을 직접
+  적지 않는지는 transport 의 `the_tutor_pipeline_names_its_pushes_from_this_table` 이 봅니다.
 
 ---
 
@@ -103,7 +126,14 @@ crate 는 `classmate-host`, 모듈 경로는 `classmate_host::tutor` 입니다.
 | `DEFAULT_TIMEOUT` | 45초 | Gate C2 실측 TTFT p50 6.6~6.8초 · 총 소요 p95 10.8초(`docs/spikes/gate-c2-provider.md`). 자료를 붙이면 더 늘어나므로 판정선 10초의 네 배를 상한으로 둡니다 |
 | `DEFAULT_RETRY_DELAYS` | 5초 · 15초 · 45초 | 뒤로 갈수록 벌립니다. 목록이 모자라면 마지막 값을 되풀이합니다 |
 | `DEFAULT_MAX_AUTO_RETRIES` | 3 | 여기까지 쓰면 `retry()` 로만 다시 묻습니다 |
+| `DEFAULT_MAX_MATERIAL_CHARS` | 2,000자 | 2026-09-03 실측에서 오늘 실제로 나간 자료 문단은 289~601자였습니다. 봉인 문단이 20개까지 늘어난 최악의 경우는 약 6,993자입니다. **오늘 쓰는 자료를 한 글자도 건드리지 않으면서** 최악의 경우를 3분의 1 아래로 묶는 자리입니다 |
+| `delta::FLUSH_CHARS` | 40자 | 계약이 `conclusion` 을 40자 이내로 묶으므로, 결론 한 줄이 다 차기 전에 화면이 최소 한 번은 움직입니다 |
+| `delta::FLUSH_INTERVAL` | 120밀리초 | 사람이 "끊겼다" 고 느끼기 전의 자리입니다. 더 촘촘하면 한 회차에 수백 건이 오갑니다 |
 | 시각 표기 | `YYYY-MM-DDTHH:MM:SS+09:00` | 수업이 열린 자리의 시각. `src/tutor/clock.rs` 가 `SystemTime` 으로 직접 계산합니다(날짜 crate 를 들이지 않습니다) |
+
+자료가 상한을 넘으면 **앞을 버리고 뒤를 남깁니다.** 학생이 묻는 것은 방금 들은 말이기
+때문입니다. 버리는 순서는 ① 오래된 전사 줄 → ② 편집기 발췌의 앞부분이고, 요약 머리와
+"뺐습니다" 표시는 언제나 남습니다(`materials::render_with_limit`).
 
 멈춤 문구(고정):
 
@@ -116,7 +146,59 @@ crate 는 `classmate-host`, 모듈 경로는 `classmate_host::tutor` 입니다.
 
 ---
 
-## 4. 라우터가 부르는 자리 (통합 지점)
+## 4. 오케스트레이터가 읽는 환경 변수
+
+파이프라인은 환경 변수를 **읽지 않습니다.** 읽는 것은 `src/router.rs` 의 `TutorSources::from_env`
+하나이고, 파이프라인은 거기서 받은 값만 씁니다(`tests/no_real_cli_root.rs` 가 그 사실을 봅니다).
+
+| 이름 | 무엇 | 없으면 |
+|---|---|---|
+| `CLASSMATE_CLAUDE_CLI` | 띄울 CLI 실행 파일의 **절대 경로** | `tutor.ask` 가 `provider-unavailable` 로 답하고 파이프라인을 띄우지 않습니다 |
+| `CLASSMATE_TUTOR_MODEL` | CLI 에 `--model <값>` 으로 그대로 넘길 모델 이름 | CLI 기본값을 그대로 씁니다 |
+| `CLASSMATE_TUTOR_SESSION` | `1` 이면 한 교시 동안 자식 프로세스 하나를 다시 씁니다 | 물음마다 새로 띄웁니다(지금까지와 같음) |
+
+### 어디에 넣는가 — **매니페스트가 아닙니다**
+
+Native Messaging 호스트 매니페스트(레지스트리 `HKCU\Software\Google\Chrome\NativeMessagingHosts\…`
+가 가리키는 JSON)에는 환경 변수를 적는 칸이 없습니다. 그 JSON 이 가진 것은 `name`·`description`·
+`path`·`type`·`allowed_origins` 뿐입니다. 넣는 자리는 **사용자 환경 변수**(`HKCU\Environment`)입니다.
+
+```bash
+# 지금 값 보기 (Git Bash)
+reg query "HKCU\Environment" //v CLASSMATE_TUTOR_MODEL
+
+# 값 넣기 · 지우기 (PowerShell)
+setx CLASSMATE_TUTOR_MODEL "<CLI 가 받는 모델 이름>"
+reg delete "HKCU\Environment" /v CLASSMATE_TUTOR_MODEL /f
+```
+
+```text
+사용자 환경 변수(HKCU\Environment)
+        │  프로세스는 뜰 때 부모의 환경을 물려받습니다
+        ▼
+   Chrome (뜰 때의 환경이 굳습니다)
+        │
+        ▼
+   classmate-host  ──▶ TutorSources::from_env()
+```
+
+그래서 **값을 바꾼 뒤에는 Chrome 을 완전히 끄고 다시 켜야 합니다.** 이미 떠 있던 Chrome 과
+그것이 띄운 호스트는 바꾸기 **전**의 환경을 그대로 들고 있습니다. 값이 잡혔는지 헷갈릴 때는
+바꾼 뒤 새로 연 터미널에서 `reg query` 로 먼저 확인하세요.
+
+값을 코드에 박지 않습니다. 이 저장소는 받은 문자열을 검사하지 않고 `--model` 인자 하나로만
+넘기므로, **어떤 값을 받는지는 CLI 쪽 문서**가 정본입니다.
+
+> 참고: `installer/windows/ask-once.mjs` 는 모델을 손으로 주지 않으면 이 변수를 **지우고** 부릅니다.
+> 그 스크립트로는 지금 잡힌 값을 관측할 수 없습니다(이 저장소 밖의 자리라 여기서 고치지 않았습니다).
+
+`CLASSMATE_TUTOR_SESSION` 을 켜는 값은 **`1` 하나뿐입니다.** `true`·`yes` 는 켜지지 않습니다.
+확인되지 않은 길이라(`crates/providers/src/session.rs` 머리말) 켜려는 뜻이 분명할 때만 켜기
+위해서입니다.
+
+---
+
+## 5. 라우터가 부르는 자리 (통합 지점)
 
 ```rust
 use std::path::PathBuf;
@@ -152,7 +234,9 @@ handle.retry(&question_id)?;
 handle.shutdown();
 ```
 
-`outbox` 에서 꺼낸 값은 그대로 `{"type":"tutor.event", …}` 메시지라 프레이밍만 씌워 내보내면 됩니다.
+`outbox` 에서 꺼낸 값은 그대로 내보낼 수 있는 메시지라 프레이밍만 씌우면 됩니다. 종류는 둘이고
+이름표는 `classmate_transport::PUSH_KINDS` 에 있습니다 — 저장까지 끝난 사건 `tutor.event` 와
+답이 만들어지는 동안 흐르는 조각 `tutor.delta` 입니다(1절).
 
 ### 되돌아오는 오류
 
@@ -168,7 +252,7 @@ handle.shutdown();
 
 ---
 
-## 5. 지키는 경계 (`AGENTS.md` §2)
+## 6. 지키는 경계 (`AGENTS.md` §2)
 
 - **§4-7 · 명령 실행 금지** — 학생 질문과 전사 본문은 `AskRequest` 의 본문으로만 흐르고, 그것은
   제공자가 자식 프로세스의 **stdin** 으로만 씁니다. 이 모듈에 명령 인자를 만드는 자리가 없습니다.
@@ -183,18 +267,19 @@ handle.shutdown();
 
 ---
 
-## 6. 파일
+## 7. 파일
 
 | 경로 | 내용 |
 |---|---|
 | `mod.rs` | 공개 API(`TutorConfig`·`AskEnvelope`·`TutorError`·`TutorPipeline`·`TutorHandle`)와 스레드 본체 |
 | `clock.rs` | 한국 시간(`+09:00`) 표기 · 시험용 고정 시계(`FixedClock`) |
-| `materials.rs` | 봉인한 식별자로 저장소에서 본문을 되찾아 자료 문단 만들기 |
+| `delta.rs` | 제공자 조각에서 `conclusion` 만 뽑아 모아 보내기(`tutor.delta` 의 속) |
+| `materials.rs` | 봉인한 식별자로 저장소에서 본문을 되찾아 자료 문단 만들기 · 길이 상한 |
 | `prompt.rs` | 역할·규칙·출력 형식 + 자료 + 질문을 한 본문으로 |
 | `answer.rs` | 코드펜스 제거 → JSON → 호스트 칸 채우기 → 계약 검사 · 멈춘 자리 답 |
 | `events.rs` | 사건 id · 답 id · 고정 문구 |
 
-## 7. 시험
+## 8. 시험
 
 ```bash
 export PATH="$HOME/.cargo/bin:$PATH"

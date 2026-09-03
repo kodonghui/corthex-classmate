@@ -9,11 +9,12 @@
 | `src/provider.rs` | `TutorProvider` trait · `AskRequest`(자료 절 포함) · `ContextSnapshot` · `ProviderEvent` · `AskOutcome` · `ProviderError` |
 | `src/stream_json.rs` | stream-json 줄 → 이벤트 (`spikes/lib/stream-json.mjs` 이식) · 부분 스트리밍 청크 해석 |
 | `src/claude.rs` | 자식 프로세스 구동 · `.cmd` 래퍼 해석 · 타임아웃 · 트리 종료 · stderr 꼬리 · 최종 본문 고르기 |
+| `src/session.rs` | 교시 동안 자식 프로세스 하나를 살려 두고 여러 물음을 보내기 (`SessionClaudeProvider`) |
 | `src/queue.rs` | FIFO 큐 (동시 1건 · 상한 4 · `shutdown`) |
 | `src/retry.rs` | `RetryPolicy` — 다시 물어보기 간격표(값 타입 · 기다리지 않습니다) |
 | `src/codex.rs` | Codex 스텁 + app-server 프로토콜 메모 |
 | `tests/fake-claude.mjs` | 시험이 띄우는 **가짜** CLI (진입점 가드 있음) |
-| `tests/claude_fake_cli.rs` · `tests/queue_e2e.rs` · `tests/no_real_cli.rs` | 통합 시험 · e2e · 비용 안전 시험 |
+| `tests/claude_fake_cli.rs` · `tests/session_fake_cli.rs` · `tests/queue_e2e.rs` · `tests/no_real_cli.rs` | 통합 시험 · 세션 통합 시험 · e2e · 비용 안전 시험 |
 
 ## 2. 흐름
 
@@ -110,6 +111,32 @@ Gate C2 실측에서 첫 글자까지 p50 6.6초, CLI 를 띄우는 데만 4~6�
 `result` 줄 자체가 오지 않으면 어느 쪽이든 회차는 `Protocol("result 이벤트 없이 …")` 실패입니다(아래 §5). 부분 스트리밍이 그 판정을 바꾸지 않습니다.
 
 > **spike 와 다른 점 하나.** `spikes/provider-claude.mjs` 의 기본 모드는 25자 고정 질문을 argv 로 넘깁니다(상수라서 외부 입력이 아닙니다). 이 크레이트는 그 경로를 옮기지 않고 `--fixture` 쪽(stdin)만 옮겼습니다. Gate C2 의 "남은 위험 · argv 주입 경계"가 **Phase 2 에서는 질문 문자열을 argv 로 넘기지 말 것**을 명시하기 때문입니다.
+
+### 3-3. 프로세스 다시 쓰기 — `SessionClaudeProvider` (기본값 아님)
+
+`ClaudeCliProvider` 는 물음 하나에 프로세스 하나를 새로 띄웁니다. 이 PC 에서 그 실행 파일은 217 MB 라 질문마다 그 바이너리가 콜드 스타트합니다. `SessionClaudeProvider` 는 같은 프로세스를 살려 두고 물음만 더 보냅니다.
+
+```text
+ClaudeCliProvider                      SessionClaudeProvider
+─────────────────                      ─────────────────────
+물음1 ─▶ spawn ─▶ 답 ─▶ 끝              물음1 ─▶ spawn ─▶ 답 ┐
+물음2 ─▶ spawn ─▶ 답 ─▶ 끝              물음2 ─────────▶ 답 ├ 같은 프로세스
+물음3 ─▶ spawn ─▶ 답 ─▶ 끝              물음3 ─────────▶ 답 ┘
+         spawn 3회                              spawn 1회
+```
+
+| 자리 | `ClaudeCliProvider` | `SessionClaudeProvider` |
+|---|---|---|
+| 고정 인자 | `CLI_ARGS` | `CLI_ARGS` + `SESSION_ARGS`(`--input-format` `stream-json`) |
+| 프롬프트가 가는 길 | stdin 전체(그리고 EOF) | stdin **한 줄**(`{"type":"user","message":{…}}`) |
+| 회차 끝 | 프로세스 종료 | `result` 줄 |
+| 모델 | 회차마다 인자로 | 세션마다 인자로 — 요청의 모델이 바뀌면 다시 띄웁니다 |
+
+읽기와 쓰기에 각각 전용 스레드를 둡니다. 본 스레드가 `write` 나 `read` 에서 잠기면 타임아웃 자체가 돌지 못하기 때문입니다. 자식이 사라진 것은 다음 회차의 EOF 로 드러나고, 그때는 조용히 새로 띄워 **한 번만** 다시 묻습니다. 단 **이미 조각을 내보낸 회차는 다시 하지 않습니다** — 화면에 흐르던 글이 되감기면 학생이 더 헷갈립니다.
+
+**확인하지 못한 것을 그대로 적습니다.** 실제 CLI 를 한 번도 부르지 않고 만들었으므로, `--input-format stream-json` 으로 띄운 실제 CLI 가 정말 여러 물음을 받아 주는지는 확인된 사실이 아닙니다. 시험이 못 박는 것은 하나뿐입니다 — **가짜 CLI 로 질문 3개를 보내면 spawn 이 1회다**(기본 제공자는 3회). "몇 초 빨라진다" 는 주장은 코드에도 시험에도 없습니다.
+
+그래서 이 제공자는 기본값이 아닙니다. 호스트는 `CLASSMATE_TUTOR_SESSION=1` 일 때만 만듭니다(`apps/native-host/src/router.rs` 의 `provider_for` · 켜는 값은 `1` 하나뿐입니다). 켜지 않으면 지금과 똑같이 동작합니다.
 
 ## 4. `.cmd` 래퍼 해석
 
@@ -225,7 +252,10 @@ Gate C2 시점에 사용 한도가 소진되어 **지연·비용은 미측정**�
 | `--exit <코드>` · `--stderr-banner` | 그 코드로 끝나기 · stderr 배너 한 줄 |
 | `--broken-json` · `--banner` · `--no-result` · `--error-result` | 깨진 줄 · 비JSON 줄 · `result` 없음 · 실패 `result` |
 | `--close-stdin-early` · `--echo-stdin` | stdin 을 먼저 닫기 · 받은 stdin 본문과 자기 argv 를 되돌려 보내기 |
-| `--partial` **(새로 더함)** | `stream_event` 청크 몇 개 → `assistant` 전체 본문 → `result` 순서로 냅니다 |
+| `--partial` | `stream_event` 청크 몇 개 → `assistant` 전체 본문 → `result` 순서로 냅니다 |
+| `--session` **(새로 더함)** | stdin 을 줄 단위로 읽어 **한 줄마다** 답 한 벌을 냅니다. `system/init` 은 세션에 한 번만 냅니다 |
+| `--spawn-file <경로>` **(새로 더함)** | 프로세스가 뜰 때마다 그 파일의 숫자를 하나 올립니다. spawn 수를 세는 유일한 통로입니다 |
+| `--die-after <n>` **(새로 더함)** | `--session` 에서 n 번째 답 뒤에 스스로 끝납니다(세션이 죽는 상황) |
 
 알 수 없는 인자는 조용히 무시합니다. 제공자가 언제나 붙이는 고정 인자가 그대로 들어오는데 그중 하나에 걸려 죽으면 모든 시험이 함께 죽기 때문입니다. `--include-partial-messages` 도 그렇게 받되, **`--partial` 은 그 옵션이 실제로 도착했을 때만 청크를 냅니다.** 실제 CLI 와 같은 규칙이고, 덕분에 고정 인자에서 옵션이 빠지면 `--partial` 시험이 곧바로 깨집니다.
 
@@ -235,7 +265,7 @@ Gate C2 시점에 사용 한도가 소진되어 **지연·비용은 미측정**�
 
 ```bash
 cd apps/native-host
-cargo test -p classmate-providers                       # 67개 통과 (lib 48 · 통합 13 · 비용 안전 5 · 큐 e2e 1)
+cargo test -p classmate-providers                       # 시험 수는 적지 않습니다 (늘 때마다 어긋납니다)
 cargo clippy -p classmate-providers --all-targets -- -D warnings
 cargo fmt -p classmate-providers -- --check
 ```
