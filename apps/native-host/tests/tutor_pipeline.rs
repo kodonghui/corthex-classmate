@@ -783,12 +783,98 @@ fn an_answer_that_breaks_the_contract_is_asked_once_more_and_then_fails() {
     assert_eq!(calls.trim(), "2");
 }
 
+// 예전 이름은 `an_answer_that_is_not_json_fails_the_same_way` 였고, 지키려던 것은 "모델이 낸
+// 글을 검사 없이 화면에 흘리지 않는다" 였습니다. 그 뜻은 그대로입니다 — 되살린 답도 계약 검사를
+// **똑같이** 지나야 기록이 되고, 지나지 못하면 아래 `an_empty_answer_still_fails_and_does_not_loop`
+// 처럼 예전과 같은 이유표로 떨어집니다. 달라진 것은 "버린다" 가 "형식만 우리가 맞춘다" 로 바뀐
+// 것뿐입니다(2026-09-03 실측 · 15건 중 3건이 이 자리에서 통째로 버려졌습니다).
 #[test]
-fn an_answer_that_is_not_json_fails_the_same_way() {
-    let dir = temp_dir("badjson");
+fn prose_instead_of_json_is_salvaged_into_a_real_answer() {
+    let dir = temp_dir("prose");
+    let state = dir.join("calls.txt");
+    let state_arg = state.to_string_lossy().to_string();
     let (handle, inbox) = start(
         &dir,
-        fake_provider(&["--bad-json"]),
+        fake_provider(&["--state-file", &state_arg, "--prose"]),
+        fast_config(Duration::from_secs(30), 0),
+    );
+
+    handle.ask(envelope("q-p3-004")).expect("물음을 받습니다");
+    let pushed = collect_pushes(&inbox, 2);
+    handle.shutdown();
+
+    // 실패 사건이 아예 나지 않습니다. 학생은 "잠시 멈췄어요" 대신 설명을 봅니다.
+    assert_eq!(
+        kinds_of(&pushed),
+        vec!["question.asked", "answer.completed"]
+    );
+
+    let completed = event_of(&pushed[1]);
+    let answer = &completed["payload"]["answer"];
+    schema::validate(SchemaKind::Answer, answer).expect("되살린 답도 계약을 지킵니다");
+
+    // 결론은 첫 문장에서 뽑아 40자로 자릅니다. 자른 티가 남습니다.
+    let conclusion = answer["conclusion"].as_str().expect("결론");
+    assert!(conclusion.chars().count() <= 40, "{conclusion}");
+    assert!(conclusion.ends_with('…'), "{conclusion}");
+
+    // 모델이 쓴 글은 한 문단도 버려지지 않고 "왜 그런가요" 자리에 통째로 들어갑니다.
+    let why = answer["details"]["why"].as_str().expect("자세히 · 왜");
+    assert!(why.starts_with("new 로 직접 만들면"), "{why}");
+    assert!(
+        why.contains("가짜 구현으로 바꿔 끼우기가 쉬워집니다"),
+        "{why}"
+    );
+
+    // 형식이 어긋났다는 사실은 남습니다 — 화면에는 근거 태그로, 기록에는 salvaged 로.
+    assert_eq!(answer["evidence"], "inferred");
+    assert_eq!(completed["payload"]["evidence"], "inferred");
+    assert_eq!(completed["payload"]["salvaged"], "prose");
+
+    // 되살렸으니 같은 질문을 한 번 더 묻지 않습니다. 예전에는 여기서 45초가 더 갔습니다.
+    let calls = std::fs::read_to_string(&state).expect("호출 수");
+    assert_eq!(calls.trim(), "1");
+}
+
+#[test]
+fn a_greeting_around_the_json_no_longer_throws_the_answer_away() {
+    let dir = temp_dir("leadin");
+    let (handle, inbox) = start(
+        &dir,
+        fake_provider(&["--lead-in"]),
+        fast_config(Duration::from_secs(30), 0),
+    );
+
+    handle.ask(envelope("q-p3-004")).expect("물음을 받습니다");
+    let pushed = collect_pushes(&inbox, 2);
+    handle.shutdown();
+
+    assert_eq!(
+        kinds_of(&pushed),
+        vec!["question.asked", "answer.completed"]
+    );
+    let completed = event_of(&pushed[1]);
+    let answer = &completed["payload"]["answer"];
+    schema::validate(SchemaKind::Answer, answer).expect("Answer 계약");
+    // 모델이 낸 JSON 을 그대로 씁니다. 되살린 것이 아니므로 표시도 붙지 않습니다.
+    assert_eq!(
+        answer["conclusion"],
+        "생성 책임을 나눠서 바꿔 끼울 수 있어요"
+    );
+    assert_eq!(answer["evidence"], "confirmed");
+    assert!(completed["payload"].get("salvaged").is_none());
+}
+
+#[test]
+fn an_empty_answer_still_fails_and_does_not_loop() {
+    // 되살리기의 실패 경로입니다. 살릴 글조차 없으면 예전과 똑같이 실패로 다룹니다 —
+    // 겹 2 가 진짜 고장(빈 출력)을 조용히 묻지 않는다는 것을 여기서 못 박습니다.
+    let dir = temp_dir("empty");
+    let state = dir.join("calls.txt");
+    let state_arg = state.to_string_lossy().to_string();
+    let (handle, inbox) = start(
+        &dir,
+        fake_provider(&["--state-file", &state_arg, "--empty"]),
         fast_config(Duration::from_secs(30), 0),
     );
 
@@ -796,8 +882,20 @@ fn an_answer_that_is_not_json_fails_the_same_way() {
     let pushed = collect_pushes(&inbox, 4);
     handle.shutdown();
 
-    assert_eq!(kinds_of(&pushed)[1], "answer.failed");
+    assert_eq!(
+        kinds_of(&pushed),
+        vec![
+            "question.asked",
+            "answer.failed",
+            "answer.queued",
+            "connector.status",
+        ]
+    );
     assert_eq!(event_of(&pushed[3])["payload"]["reason"], "answer-not-json");
+
+    // 계약에 걸렸을 때와 같이 두 번입니다. 되살리기가 회차를 늘리지 않습니다.
+    let calls = std::fs::read_to_string(&state).expect("호출 수");
+    assert_eq!(calls.trim(), "2");
 }
 
 #[test]

@@ -21,8 +21,13 @@
 //   --fail                 stderr 배너를 남기고 종료 코드 1 로 끝납니다.
 //   --hang                 stdin 을 다 읽고 아무것도 내보내지 않은 채 버팁니다(타임아웃 유도).
 //   --delay-ms <n>         호출 수를 센 뒤 n 밀리초 자고 나서 답을 내보냅니다(회차를 늦춥니다).
-//   --bad-json             JSON 이 아닌 글을 답으로 내보냅니다(파싱 실패 유도).
+//   --bad-json             JSON 이 아닌 한 줄을 답으로 내보냅니다. 예전에는 여기서 파싱이 실패했고
+//                          지금은 평문 살리기(answer::salvage_prose)로 넘어갑니다.
 //   --too-long             conclusion 이 41자인 답을 내보냅니다(계약 검사 실패 유도).
+//   --prose                JSON 을 하나도 쓰지 않고 평문 설명만 내보냅니다. 2026-09-03 실측에서
+//                          실제로 세 번 일어난 모양(머리말 + 설명 문단)입니다.
+//   --lead-in              평문 머리말 뒤에 답 JSON 을 붙여 내보냅니다(앞에 말이 붙은 경우).
+//   --empty                본문을 한 글자도 내보내지 않습니다(되살릴 글조차 없는 경우).
 //   --partial              답 JSON 을 stream_event 청크 여러 개로 쪼개 먼저 흘립니다.
 //                          실제 CLI 처럼 `--include-partial-messages` 를 실제로 받았을 때만 흘립니다.
 //   --session              stdin 을 줄 단위로 읽어 **한 줄마다** 답 한 벌을 냅니다. 프로세스는
@@ -54,6 +59,19 @@ const TOO_LONG_ANSWER = JSON.stringify({
   evidence: 'confirmed',
   chips: ['더 쉽게', '지금 화면 코드'],
 })
+
+// JSON 이 한 글자도 없는 평문 답입니다. 2026-09-03 실측에서 질문 15건 가운데 3건이 이 모양으로
+// 돌아왔고, 예전에는 answer-not-json 으로 통째로 버려졌습니다.
+// 첫 문장을 일부러 40자보다 길게 두어, 되살리기가 자르는 자리까지 함께 시험합니다.
+const PROSE_ANSWER = [
+  'new 로 직접 만들면 그 클래스가 어떤 구현을 쓸지 코드 안에 못이 박혀서 바꿔 끼우기가 어려워요.',
+  '',
+  '스프링은 객체를 만드는 책임을 컨테이너가 가져갑니다.',
+  '그래서 시험할 때 가짜 구현으로 바꿔 끼우기가 쉬워집니다.',
+].join('\n')
+
+// 답 JSON 앞에 사람 말이 한 줄 붙은 모양입니다. 예전에는 이것도 answer-not-json 이었습니다.
+const LEAD_IN_ANSWER = '네, 여기 있습니다:\n\n' + DEFAULT_ANSWER + '\n\n더 궁금한 것이 있으면 물어보세요!'
 
 function emit(object) {
   process.stdout.write(JSON.stringify(object) + '\n')
@@ -91,6 +109,9 @@ function readArgs(argv) {
     delayMs: Number(valueAfter(argv, '--delay-ms') ?? 0),
     badJson: argv.includes('--bad-json'),
     tooLong: argv.includes('--too-long'),
+    prose: argv.includes('--prose'),
+    leadIn: argv.includes('--lead-in'),
+    empty: argv.includes('--empty'),
     partial: argv.includes('--partial'),
     session: argv.includes('--session'),
     spawnFile: valueAfter(argv, '--spawn-file'),
@@ -169,6 +190,9 @@ function bumpCallCount(path) {
 function chooseAnswer(args) {
   if (args.badJson) return '답은 이렇습니다. JSON 이 아닙니다.'
   if (args.tooLong) return TOO_LONG_ANSWER
+  if (args.empty) return ''
+  if (args.prose) return PROSE_ANSWER
+  if (args.leadIn) return LEAD_IN_ANSWER
   if (args.answerFile !== null) return readFileSync(args.answerFile, 'utf8').trim()
   return DEFAULT_ANSWER
 }
