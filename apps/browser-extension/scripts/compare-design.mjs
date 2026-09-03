@@ -779,6 +779,49 @@ export function summaryRow(state, canonical, implementation, size) {
   };
 }
 
+/**
+ * 요약 줄들을 보고 종료 코드를 정합니다. 순수 함수라 시험이 브라우저 없이 그대로 봅니다.
+ *
+ * 실패로 세는 것은 셋입니다.
+ *   ① **정본 전멸** — 정본이 한 장도 서지 않음. unpkg 가 막혀 `.dc.html` 이 자리표시만 그리면
+ *      구현 쪽은 멀쩡히 서므로 ③ 에 걸리지 않습니다. 그런데 그 결과물은 비교가 아니라 구현
+ *      스크린샷 모음일 뿐이라, 0 으로 끝내면 "비교했다" 는 거짓 신호가 됩니다.
+ *   ② **구현 전멸** — 찍을 수 있는 상태(`kind !== 'none'`)가 있는데 한 장도 서지 않음.
+ *   ③ **양쪽 다 빈 상태가 하나라도 있음** — 그 줄은 비교할 것이 아무것도 없습니다.
+ *
+ * 한 장씩의 실패는 여기서 종료 코드로 세지 않습니다. 그 줄은 표와 `summary.json` 에
+ * 이유가 남고, 사람이 어느 쪽이 비었는지 보고 판단합니다.
+ */
+export function captureVerdict(rows) {
+  const reasons = [];
+
+  if (rows.length === 0) {
+    return { code: 1, reasons: ['비교할 상태가 하나도 없어요.'] };
+  }
+
+  const canonicalOk = rows.filter((row) => row.canonical.ok);
+  if (canonicalOk.length === 0) {
+    reasons.push(
+      `정본이 ${rows.length}장 모두 서지 않았어요. 비교가 아니라 구현 스크린샷 모음이 됩니다` +
+        ' (네트워크가 막혀 .dc.html 이 자리표시만 그렸을 수 있어요).',
+    );
+  }
+
+  const implCandidates = rows.filter((row) => row.implementation.kind !== 'none');
+  if (implCandidates.length > 0 && implCandidates.every((row) => !row.implementation.ok)) {
+    reasons.push(`구현이 ${implCandidates.length}장 모두 서지 않았어요.`);
+  }
+
+  const bothFailed = rows.filter((row) => !row.canonical.ok && !row.implementation.ok);
+  if (bothFailed.length > 0) {
+    reasons.push(
+      `양쪽이 모두 비어 있는 상태가 ${bothFailed.length}개예요: ${bothFailed.map((row) => row.id).join(', ')}`,
+    );
+  }
+
+  return { code: reasons.length > 0 ? 1 : 0, reasons };
+}
+
 export async function main() {
   if (!existsSync(EXTENSION_PATH)) {
     console.error('빌드 산출물이 없어요:', EXTENSION_PATH);
@@ -822,19 +865,18 @@ export async function main() {
   console.log(summaryTable(rows));
   console.log('');
 
-  const bothFailed = rows.filter((row) => !row.canonical.ok && !row.implementation.ok);
   for (const row of rows) {
     if (!row.canonical.ok) console.error(`정본 실패 ${row.id}: ${row.canonical.message}`);
     if (!row.implementation.ok && row.implementation.kind !== 'none') {
       console.error(`구현 실패 ${row.id}: ${row.implementation.message}`);
     }
   }
-  if (bothFailed.length > 0) {
+
+  const verdict = captureVerdict(rows);
+  if (verdict.code !== 0) {
     console.error('');
-    console.error(
-      `양쪽이 모두 비어 있는 상태가 ${bothFailed.length}개예요: ${bothFailed.map((row) => row.id).join(', ')}`,
-    );
-    return 1;
+    for (const reason of verdict.reasons) console.error(reason);
+    return verdict.code;
   }
   console.log(`비교 이미지 ${rows.length}장과 summary.json 을 ${path.relative(repoRoot, OUTPUT_DIR).replaceAll('\\', '/')} 에 두었어요.`);
   return 0;

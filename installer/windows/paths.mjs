@@ -1,4 +1,5 @@
-// installer/windows 의 스크립트 넷이 함께 쓰는 자리 이름들입니다.
+// installer/windows 의 스크립트 다섯(build-host · extension-key · package-extension ·
+// install · smoke-host)이 함께 쓰는 자리 이름들입니다.
 //
 // 자리를 한곳에 모아 둔 이유는 하나입니다. `dist/` 안의 이름(실행 파일 · 매니페스트 · zip 두 벌)이
 // `docs/first-class.md` 의 설치 절차와 글자 그대로 같아야 하는데, 스크립트마다 따로 적어 두면

@@ -43,7 +43,12 @@ export function resolveTargetDir(env = process.env) {
  * 릴리스 실행 파일이 놓일 수 있는 자리들입니다. 앞에서부터 봅니다.
  *
  * `--target` 을 준 빌드는 타깃 이름 폴더가 한 단계 더 생깁니다. 이 저장소의 기본 툴체인이
- * `stable-x86_64-pc-windows-gnu` 라 그 이름도 함께 봅니다(register-host.mjs 와 같은 순서입니다).
+ * `stable-x86_64-pc-windows-gnu` 라 그 이름도 함께 봅니다.
+ *
+ * **순서는 register-host.mjs 와 반대입니다.** 이쪽은 방금 `cargo build --release`(--target 없이)
+ * 를 돌린 직후라 `release/` 가 맞고, 그쪽은 남의 PC 에서 이미 만들어진 것을 찾는 자리라
+ * `x86_64-pc-windows-gnu/release/` 를 먼저 봅니다. 같다고 적어 두면 한쪽을 고칠 때 다른 쪽도
+ * 고친 줄 착각합니다.
  */
 export function releaseCandidates(targetDir) {
   return [

@@ -10,8 +10,11 @@ import { describe, it } from 'node:test';
 
 import { decodeFrames } from '../../apps/native-host/scripts/host-roundtrip.mjs';
 import {
+  ASK_TIMEOUT_MS,
+  SCRUBBED_ENV_NAMES,
   SMOKE_PERIOD_ID,
   SMOKE_QUESTION_ID,
+  buildSmokeEnv,
   buildTutorAsk,
   describeAskReply,
   encodeAskFrame,
@@ -78,10 +81,47 @@ describe('tutor.ask 봉투', () => {
   });
 });
 
+describe('돈이 나가지 않게 하는 장치', () => {
+  // 되돌리면(= askOnce 가 부모 환경을 그대로 물려주면) 이 절이 무너집니다.
+
+  it('제공자 CLI 변수를 자식 환경에서 지운다', () => {
+    const parent = {
+      PATH: '/usr/bin',
+      CLASSMATE_CLAUDE_CLI: 'C:/tools/claude.exe',
+      CLASSMATE_CODEX_CLI: 'C:/tools/codex.exe',
+    };
+    const child = buildSmokeEnv(parent, 'C:/Temp/classmate-smoke-abc');
+
+    for (const name of ['CLASSMATE_CLAUDE_CLI', 'CLASSMATE_CODEX_CLI']) {
+      assert.ok(!(name in child), `${name} 이 자식 환경에 남아 있어요`);
+      assert.ok(SCRUBBED_ENV_NAMES.includes(name), `${name} 이 지울 목록에 없어요`);
+    }
+    // 부모는 그대로 둡니다(호출한 쪽의 process.env 를 망가뜨리면 안 됩니다).
+    assert.equal(parent.CLASSMATE_CLAUDE_CLI, 'C:/tools/claude.exe');
+    assert.equal(child.PATH, '/usr/bin');
+  });
+
+  it('저장 폴더를 넘겨준 임시 폴더로 돌린다', () => {
+    const child = buildSmokeEnv({ CLASSMATE_DATA_DIR: 'C:/Users/x/AppData/Local/CorthexClassmate/sessions' }, 'C:/Temp/smoke');
+    assert.equal(child.CLASSMATE_DATA_DIR, 'C:/Temp/smoke');
+  });
+
+  it('교시 id 가 실제 수업과 겹칠 수 없다', () => {
+    const year = Number(SMOKE_PERIOD_ID.slice(0, 4));
+    assert.ok(Number.isInteger(year), `${SMOKE_PERIOD_ID} 앞 네 글자가 연도가 아니에요`);
+    assert.ok(year < 2000, `${SMOKE_PERIOD_ID} 는 실제 교시와 겹칠 수 있는 연도예요`);
+  });
+
+  it('② 의 상한이 호스트의 45초 종료 예산보다 길다', () => {
+    assert.ok(ASK_TIMEOUT_MS > 45_000, `${ASK_TIMEOUT_MS} ms 는 호스트 45초 정리보다 짧아요`);
+  });
+});
+
 describe('응답에 이름 붙이기', () => {
-  it('지금 브랜치의 기대값을 알아본다', () => {
+  it('unknown-message-type 은 기대값이 아니라 퇴행 의심이다', () => {
     const said = describeAskReply({ type: 'error', reason: 'unknown-message-type' });
-    assert.match(said, /단위 5 병합 전/);
+    assert.match(said, /퇴행 의심/);
+    assert.ok(!/기대값/.test(said), '아직도 "기대값" 이라고 적혀 있어요');
   });
 
   it('단위 5·6 병합 뒤의 답도 알아본다', () => {

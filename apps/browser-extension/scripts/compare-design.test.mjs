@@ -17,6 +17,7 @@ import {
   STATES,
   VIEWPORT,
   buildCompareHtml,
+  captureVerdict,
   contentTypeOf,
   displayWidth,
   escapeHtml,
@@ -308,5 +309,57 @@ describe('콘솔 표', () => {
     assert.equal(row.implementation.checkpoint, null);
     assert.equal(row.size, null);
     assert.ok(row.canonical.move.length > 0);
+  });
+});
+
+describe('종료 코드 판정', () => {
+  // 되돌리면(= "양쪽 다 실패" 만 세면) "정본 전멸" 절이 무너집니다.
+
+  /** 판정만 보는 최소 요약 줄입니다. summaryRow 의 모양 중 쓰는 칸만 담습니다. */
+  const row = (id, canonicalOk, implementationOk, kind = 'checkpoint') => ({
+    id,
+    canonical: { ok: canonicalOk },
+    implementation: { ok: implementationOk, kind },
+  });
+
+  it('양쪽 다 서면 0 이다', () => {
+    const verdict = captureVerdict([row('A', true, true), row('B', true, true)]);
+    assert.equal(verdict.code, 0);
+    assert.deepEqual(verdict.reasons, []);
+  });
+
+  it('정본이 전멸하면 구현이 다 서도 실패다', () => {
+    // unpkg 가 막혀 .dc.html 이 자리표시만 그린 경우입니다. 예전에는 0 으로 끝났습니다.
+    const rows = [row('A', false, true), row('B', false, true), row('C', false, true)];
+    const verdict = captureVerdict(rows);
+
+    assert.equal(verdict.code, 1);
+    assert.ok(verdict.reasons.some((reason) => reason.includes('정본이 3장 모두 서지 않았어요')));
+  });
+
+  it('구현이 전멸해도 실패다', () => {
+    const verdict = captureVerdict([row('A', true, false), row('B', true, false)]);
+    assert.equal(verdict.code, 1);
+    assert.ok(verdict.reasons.some((reason) => reason.includes('구현이 2장 모두 서지 않았어요')));
+  });
+
+  it('한 장씩의 실패는 종료 코드로 세지 않는다', () => {
+    const verdict = captureVerdict([row('A', true, true), row('B', false, true), row('C', true, false)]);
+    assert.equal(verdict.code, 0);
+  });
+
+  it('양쪽이 모두 빈 줄이 하나라도 있으면 실패다', () => {
+    const verdict = captureVerdict([row('A', true, true), row('B', false, false)]);
+    assert.equal(verdict.code, 1);
+    assert.ok(verdict.reasons.some((reason) => reason.includes('B')));
+  });
+
+  it('구현이 아예 없는 상태(kind=none)는 구현 전멸로 세지 않는다', () => {
+    const verdict = captureVerdict([row('A', true, true), row('Z', true, false, 'none')]);
+    assert.equal(verdict.code, 0);
+  });
+
+  it('줄이 하나도 없으면 실패다', () => {
+    assert.equal(captureVerdict([]).code, 1);
   });
 });
