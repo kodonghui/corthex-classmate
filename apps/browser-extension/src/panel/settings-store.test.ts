@@ -22,7 +22,7 @@ describe("키와 기본값", () => {
     expect(SETTINGS_KEYS.periodNumber).toBe("classmate.periodNumber");
   });
 
-  it("아홉 칸의 키가 고정 계약 그대로다", () => {
+  it("아홉 칸의 키가 고정 계약 그대로이고 글씨 크기 한 칸이 더 있다", () => {
     expect(SETTINGS_KEYS).toEqual({
       periodNumber: "classmate.periodNumber",
       provider: "classmate.provider",
@@ -33,10 +33,12 @@ describe("키와 기본값", () => {
       captureTranscript: "classmate.capture.transcript",
       captureScreen: "classmate.capture.screen",
       captureEditor: "classmate.capture.editor",
+      // 이번에 더한 열째 칸입니다. 고정 계약의 아홉 이름은 하나도 바뀌지 않았습니다.
+      textScale: "classmate.textScale",
     });
   });
 
-  it("기본값은 claude · 수업 · 1교시 · 전부 켜짐 · short 다", () => {
+  it("기본값은 claude · 수업 · 1교시 · 전부 켜짐 · short · 보통 글씨다", () => {
     expect(DEFAULT_SETTINGS).toEqual({
       periodNumber: 1,
       provider: "claude",
@@ -47,6 +49,7 @@ describe("키와 기본값", () => {
       captureTranscript: true,
       captureScreen: true,
       captureEditor: true,
+      textScale: "md",
     });
   });
 
