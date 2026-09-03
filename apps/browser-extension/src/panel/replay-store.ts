@@ -48,6 +48,7 @@ import { atClock, clockOfIso, clockOfMs } from "./clock";
 import { makeIdToken, panelEventId, panelQuestionId } from "./event-ids";
 import type { GoldenBundle } from "./golden-bundle";
 import { emptyBundle, GOLDEN_TERMS, guessesForLine } from "./golden-bundle";
+import { makeLiveTerms } from "./live-terms";
 import type { AskPort, AskRequest, PanelInbox, PanelOutbox } from "./ports";
 import { segmentKeyOfWord, toTranscriptLines } from "./transcript-lines";
 
@@ -208,6 +209,8 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   #env: Env;
   readonly #mockDelayMs: number;
   readonly #live: LiveConfig | null;
+  /** 라이브에서 점선 낱말을 고르는 함수입니다. 재생은 `GOLDEN_TERMS` 를 그대로 씁니다. */
+  readonly #liveTerms = makeLiveTerms();
   readonly #idToken: string;
   readonly #askTimeoutMs: number;
   readonly #startMs: number;
@@ -574,7 +577,10 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
 
   /** 지금까지 도착한 전사를 화면 줄로 만듭니다. */
   lines(untilMs: number = this.#state.now) {
-    return toTranscriptLines(this.#bundle.transcript, GOLDEN_TERMS, untilMs);
+    // 재생은 골든 낱말 두 개로 장면이 고정돼야 하고, 라이브는 그 두 낱말이 거의 안 나옵니다.
+    const terms =
+      this.#live === null ? GOLDEN_TERMS : this.#liveTerms(this.#bundle.transcript);
+    return toTranscriptLines(this.#bundle.transcript, terms, untilMs);
   }
 
   /** 스토어와 같은 날짜의 시각(ms)을 만듭니다. `clockMs("10:32:16")`. */

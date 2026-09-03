@@ -87,3 +87,10 @@
 - 위험: 11:32:35 `paused hint-class-partial` → 11:32:37 `connected` 로 전사가 짧게 끊김(3라운드 A4 진단 로그 대상) · 사용자 화면의 인용 시각 "Tiro 02:32:40" 이 UTC 로 보이는 것을 두 번째로 확인(결함 4).
 - 미결·블로커: 워커 A·B 보고 대기.
 - 다음 행동: 보고 → 반박 검토 → 수정 → 병합 → 전체 검증 → 대시보드 재배포.
+
+## 2026-09-03 11:47 — 라이브 점선 낱말을 전사에서 뽑는다(수업 중 급한 수정)
+- 변경: `apps/browser-extension/src/panel/live-terms.ts` 신설(우리말 기술 용어 사전 60여 개 + 대문자 약자 + 가운데 대문자 낱말 + `@어노테이션` + 소문자 Java 예약어 · 조각 수/마지막 길이로 memo) · `replay-store.ts` `lines()` 가 라이브에서만 이 목록을 쓰고 재생은 `GOLDEN_TERMS` 유지 · 시험 7건
+- 검증: `pnpm --filter @classmate/browser-extension test` 468 pass(34 파일) · `typecheck` exit 0 · `build` 3.61 MB 성공 · 실제 3교시 문장으로 확인 — "의존성 주입 | 컴포넌트 | 레포지토리" · "@Autowired | AOP | 빈 | 프록시" · "new | 의존성 주입" · "ApplicationContext | 오토 와이어드" · "DTO | 생성자 | 게터 | 세터"
+- 근거: 3교시 sqlite 를 15초마다 읽어 확인 — 11:34~11:41 전사가 partial→final 로 정상 도착(실시간은 문제 없음). 못 붙잡은 이유는 `GOLDEN_TERMS` 가 ["new","생성자"] 두 개뿐이어서였음. 2교시 종료는 11:33:55 `period.ended` 로 기록되어 그 뒤 사건은 3교시 파일로 감.
+- 위험: 3라운드 워커 B 가 같은 `replay-store.ts` `lines()` 근처를 만지면 한 줄 충돌 — 병합 때 라이브 분기를 살리는 쪽으로 해결 · 적용하려면 사용자가 확장을 새로고침해야 함(수업 중이면 쉬는 시간에)
+- 다음 행동: 워커 A·B 보고 → 검토 → 병합.
