@@ -231,3 +231,30 @@ OS 파일을 실행 파일 옆에 함께 배포하면 Windows 업데이트로 �
 
 응답 이름 중 `unknown-message-type` 은 이제 **기대값이 아니라 퇴행 의심**입니다. 2라운드 병합
 뒤 라우터에는 `tutor.ask` 갈래가 있으므로, 그 답이 나오면 갈래가 사라진 것입니다.
+
+## 9. `ask-once.mjs` — 실제 제공자 첫 호출 (사람만 · 돈이 듭니다)
+
+`smoke-host.mjs` 가 **절대 돈을 쓰지 않는** 자리라면, `ask-once.mjs` 는 **일부러 한 번 쓰는** 자리입니다.
+`CLASSMATE_CLAUDE_CLI` 를 자식에게 넘겨 도우미가 진짜 제공자 CLI 를 부르게 하고, 돌아오는
+`tutor.event` 를 시각과 함께 보여 줍니다.
+
+```powershell
+# PowerShell · 저장소 루트 · 이 창에서만 유효한 환경 변수
+$env:CLASSMATE_CLAUDE_CLI = "C:\Users\<이름>\AppData\Roaming\npm\claude.cmd"
+node installer/windows/ask-once.mjs --i-accept-cost --word 생성자
+```
+
+| 장치 | 뜻 |
+|---|---|
+| `--i-accept-cost` 없음 | 아무것도 띄우지 않고 종료 코드 1 |
+| 교시 id `1999-01-02-p1` · 임시 저장 폴더 | 오늘 교시 파일에 시험 질문이 섞이지 않음(`--data-dir` 로 바꿀 수 있음) |
+| `CLASSMATE_CODEX_CLI` 삭제 | claude 한 번만 봄 |
+| 상한 180초 | 제공자 45초 + 자동 재시도 5·15·45초 + 여유. 넘기면 끊고 종료 코드 2 |
+
+정상 출력은 `tutor.accepted` → `tutor.event question.asked` → `tutor.event answer.completed · "<한 줄 답>"`
+이고, 마지막에 답 JSON 을 그대로 찍습니다. `.cmd` 래퍼는 도우미가 스스로 풀어 node 로 직접 띄웁니다
+(`crates/providers/README.md` §4).
+
+`ask-once.test.mjs` 는 인자·환경·봉투·판정 같은 순수 함수만 보고 실행 파일을 띄우지 않습니다.
+자동화(시험·체크포인트·loop·에이전트)는 이 스크립트를 돌리지 않습니다 — `docs/master-prompt.md` §4 의
+"실제 CLI 첫 호출은 사람 승인 뒤" 그 자리입니다.
