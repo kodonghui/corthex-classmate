@@ -1,0 +1,117 @@
+# 시험 갈래를 한 번에 도는 워크플로 하나입니다 (docs/plan/round-8-units.md `#### U-22`).
+#
+# 정본 §0 은 "`.github/workflows` 는 뺀다 — 로컬 main 이 origin/main 보다 37커밋 앞선 채
+# 멈춰 있다" 고 적었지만 그 전제는 2026-09-04 에 풀렸습니다. origin 은
+# https://github.com/kodonghui/corthex-classmate.git 이고
+# `git rev-list --left-right --count origin/main...main` 이 `0 0` 입니다. 그래서 켭니다.
+#
+# 시크릿을 하나도 쓰지 않습니다. 실제 튜터 CLI(claude · codex · gemini)를 부르지 않는 것은
+# cargo 갈래의 no_real_cli 가드 두 개가 지키고, scripts/run-all-tests.mjs 가 그 가드가
+# **실제로 돌았는지**까지 확인합니다(가드가 사라지면 나머지가 다 초록이어도 실패로 냅니다).
+
+name: test
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # ─────────────────────────────────────────────────────────────────────────
+    # 왜 ubuntu-latest 가 아니라 windows-latest 인가
+    # ─────────────────────────────────────────────────────────────────────────
+    # 리눅스 러너가 더 싸고 빠릅니다. 그런데도 Windows 를 쓰는 까닭은 **cargo 갈래가
+    # 리눅스에서 아예 빌드되지 않기 때문**입니다. 짐작이 아니라 저장소에 적힌 것입니다.
+    #
+    #   1. `rust-toolchain.toml` 이 채널을 `stable-x86_64-pc-windows-gnu` 로 못 박습니다.
+    #   2. `apps/native-host/Cargo.toml` 의 rusqlite 가 `winsqlite3` 기능만 켜고 있습니다.
+    #      번들 SQLite 를 컴파일하지 않고 Windows 에 들어 있는 DLL 을 링크한다는 뜻입니다.
+    #   3. `apps/native-host/build.rs` 가 `%SystemRoot%\System32\winsqlite3.dll` 을 찾아
+    #      링커가 볼 수 있는 자리에 복사합니다. 리눅스에는 그 파일이 없습니다.
+    #
+    # 갈래를 둘로 갈라 vitest·node --test 만 ubuntu 에 두는 안도 봤습니다. 접었습니다.
+    #   - cargo 는 어차피 Windows 러너가 필요해 러너를 하나도 줄이지 못합니다.
+    #   - installer/windows 와 apps/native-host/scripts 의 node --test 는 레지스트리 명령과
+    #     Windows 경로 모양을 글자 그대로 검사합니다(예: `plan.registryKey` 가 `HKCU\` 로
+    #     시작하는지, `reg add "HKCU\..." /d "C:\a b\m.json" /f` 로 찍히는지).
+    #     실제 레지스트리를 건드리지는 않아 리눅스에서도 돌 **것 같지만** 확인한 적이 없습니다.
+    #     확인하지 않은 것을 CI 에 전제로 넣지 않습니다.
+    #   - 잡을 나누면 pnpm 설치와 캐시가 두 벌이 됩니다. 지금 규모(1600여 건, 로컬 35초)에서
+    #     그 값이 리눅스 요금 차이보다 큽니다.
+    # 리눅스로 옮기고 싶어지면 먼저 리눅스에서 `pnpm run test:node` 를 한 번 돌려 보고,
+    # 그 결과를 근거로 이 주석을 고치십시오.
+    runs-on: windows-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      # pnpm 버전은 루트 package.json 의 packageManager 필드가 정합니다.
+      # corepack 을 쓰면 그 값을 그대로 따라가 CI 와 로컬이 어긋나지 않습니다.
+      - name: pnpm 준비 (packageManager 필드를 따릅니다)
+        run: corepack enable
+
+      # 저장소 자리는 OS 마다 다릅니다(Windows 는 %LOCALAPPDATA%\pnpm\store\v11 이지
+      # ~/.pnpm-store 가 아닙니다). 그래서 짐작하지 않고 pnpm 에게 물어봅니다.
+      - name: pnpm 저장소 자리 찾기
+        id: pnpm-store
+        shell: bash
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: pnpm 저장소 캐시
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-${{ runner.os }}-
+
+      # --frozen-lockfile: 누가 의존성을 늘리고 lock 을 안 올리면 여기서 멈춥니다.
+      - name: 의존성 설치
+        run: pnpm install --frozen-lockfile
+
+      # packages/report-ui/test/browser.test.ts 가 만든 HTML 을 Chromium 으로 열어 봅니다.
+      # 그 시험은 브라우저를 스스로 내려받지 않으므로 여기서 한 번 깔아 둡니다.
+      # (확장 e2e 용이 아닙니다. e2e 는 아래 이유로 이 워크플로에서 돌리지 않습니다.)
+      - name: Chromium 설치 (report-ui 시험용)
+        run: pnpm --filter @classmate/report-ui exec playwright install chromium
+
+      # 툴체인은 rust-toolchain.toml 이 정합니다. rustup 이 그 파일을 읽고 없으면 받습니다.
+      - name: Rust 툴체인 확인
+        run: |
+          rustup show
+          cargo --version
+
+      - name: cargo 캐시
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            apps/native-host/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('apps/native-host/Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: cargo-${{ runner.os }}-
+
+      # 갈래 셋(vitest · cargo · node --test)을 돌고 갈래별 건수를 찍습니다.
+      # 하나라도 빨가면 exit 1 입니다. 러너가 실패를 삼키지 않습니다.
+      #
+      # playwright e2e 는 여기서 돌리지 않습니다. (가) `wxt build` 산출물
+      # `.output/chrome-mv3` 가 있어야 하고 (나) 확장을 영속 컨텍스트로 띄우려면 헤드리스가
+      # 아닌 Chrome 이 필요하며 (다) **저장소에 담겨 있는** docs/screenshots/golden-*.png 를
+      # 덮어씁니다. CI 가 추적 중인 파일을 고치게 두지 않습니다. 사람이 `pnpm run test:e2e`
+      # 로 돌리고 바뀐 그림을 눈으로 보고 커밋합니다.
+      - name: 시험 세 갈래
+        run: pnpm test
