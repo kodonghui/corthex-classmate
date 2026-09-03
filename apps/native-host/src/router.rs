@@ -1586,7 +1586,23 @@ mod tests {
             "질문 원문이 되돌아가면 안 된다: {reply}"
         );
 
-        // ③ 모르는 제공자 → envelope-invalid
+        // ③ 붙잡은 낱말이 상한을 넘었다 → question-too-long
+        //    question 이 없으면 이 값이 그대로 질문 자리로 가므로 같은 자로 잰다.
+        let mut long_word = tutor_ask_request();
+        long_word
+            .as_object_mut()
+            .expect("객체다")
+            .remove("question");
+        long_word["word"] = json!("나".repeat(2000));
+        let reply = router.handle(long_word);
+        assert_eq!(reply["reason"], "question-too-long", "{reply}");
+        assert_eq!(reply["received"], "tutor.ask");
+        assert!(
+            !reply.to_string().contains("나나"),
+            "낱말 원문이 되돌아가면 안 된다: {reply}"
+        );
+
+        // ④ 모르는 제공자 → envelope-invalid
         let mut bad_provider = tutor_ask_request();
         bad_provider["provider"] = json!("gpt-9");
         let reply = router.handle(bad_provider);
