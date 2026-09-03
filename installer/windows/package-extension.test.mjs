@@ -11,7 +11,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { deflateRawSync } from 'node:zlib';
 
-import { KEY_ENV_NAME, ZIP_ARGS, pickBuildZip, pnpmSpawn, readZipEntry } from './package-extension.mjs';
+import {
+  KEY_ENV_NAME,
+  ZIP_ARGS,
+  pickBuildZip,
+  pnpmSpawn,
+  readZipEntry,
+  zipKeyVerdict,
+} from './package-extension.mjs';
 
 /**
  * 시험용 zip 한 개를 손으로 만듭니다.
@@ -157,5 +164,35 @@ describe('묶는 자리의 약속', () => {
     // 여기에 바깥에서 온 값이 끼어들면 프롬프트 주입 경계(§4-7)가 무너집니다.
     assert.deepEqual(ZIP_ARGS, ['--filter', '@classmate/browser-extension', 'zip']);
     assert.ok(ZIP_ARGS.every((arg) => typeof arg === 'string'));
+  });
+});
+
+describe('두 zip 의 key 판정', () => {
+  // 되돌리면(= dev 에 key 가 없어도 "참고" 만 찍고 0 으로 끝내면) 이 절이 무너집니다.
+
+  it('dev 있음 · store 없음 이면 통과다', () => {
+    const verdict = zipKeyVerdict({ devHasKey: true, storeHasKey: false });
+    assert.equal(verdict.code, 0);
+    assert.ok(verdict.lines.length > 0);
+  });
+
+  it('dev 에 key 가 없으면 실패로 센다', () => {
+    const verdict = zipKeyVerdict({ devHasKey: false, storeHasKey: false });
+    assert.equal(verdict.code, 1);
+    assert.ok(verdict.lines.some((line) => line.includes('dev zip 에 key 가 없어요')));
+    assert.ok(verdict.lines.some((line) => line.includes(KEY_ENV_NAME)));
+  });
+
+  it('store 에 key 가 새면 실패로 센다', () => {
+    const verdict = zipKeyVerdict({ devHasKey: true, storeHasKey: true });
+    assert.equal(verdict.code, 1);
+    assert.ok(verdict.lines.some((line) => line.includes('store zip 에 key 가 들어갔어요')));
+  });
+
+  it('둘 다 어긋나면 두 이유를 모두 말한다', () => {
+    const verdict = zipKeyVerdict({ devHasKey: false, storeHasKey: true });
+    assert.equal(verdict.code, 1);
+    assert.ok(verdict.lines.some((line) => line.includes('dev zip')));
+    assert.ok(verdict.lines.some((line) => line.includes('store zip')));
   });
 });

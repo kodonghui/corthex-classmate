@@ -7,6 +7,7 @@
 
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 import { EXTENSION_ID_PATTERN } from '../../apps/native-host/scripts/register-host.mjs';
@@ -18,6 +19,7 @@ import {
   generatePublicKeyBase64,
   parseArgs,
 } from './extension-key.mjs';
+import { keyFilePath } from './paths.mjs';
 
 // 이 시험 안에서만 쓰는 키 두 개입니다. 비밀키는 만들어지지 않습니다(공개키만 꺼냅니다).
 const keyA = generatePublicKeyBase64();
@@ -49,9 +51,21 @@ describe('id 파생', () => {
     assert.equal(deriveExtensionId(keyA), byHand);
   });
 
-  it('알려진 벡터: 바이트를 정해 두면 id 도 정해진다', () => {
-    // 키 대신 "이 바이트열" 을 넣었을 때 나오는 값을 규칙으로 다시 계산해 맞춥니다.
-    // 벡터를 글자로 박아 두면 규칙이 바뀔 때 시험이 함께 바뀌어 버려 뜻이 없어집니다.
+  it('알려진 벡터: 이 저장소의 키는 meldoohgnggckjahcchmfjnngpafcjon 이 된다', () => {
+    // 벡터를 **글자 그대로** 박아 둡니다. 예전에는 기대값을 모듈의 ID_ALPHABET 으로 다시
+    // 계산했는데, 그러면 알파벳을 바꿔도 시험이 함께 바뀌어 통과해 버려 아무것도 못 잡습니다.
+    // 이 값은 `installer/windows/extension-key.json` 의 실측이고, dev zip 의 확장 id ·
+    // 매니페스트 `allowed_origins` · 레지스트리 등록이 모두 이 32글자에 걸려 있습니다.
+    const record = JSON.parse(readFileSync(keyFilePath, 'utf8'));
+    const KNOWN_ID = 'meldoohgnggckjahcchmfjnngpafcjon';
+
+    assert.equal(deriveExtensionId(record.key), KNOWN_ID);
+    assert.equal(record.id, KNOWN_ID);
+    assert.ok(EXTENSION_ID_PATTERN.test(KNOWN_ID));
+  });
+
+  it('규칙을 손으로 다시 밟아도 같은 값이 나온다', () => {
+    // 위 벡터가 "왜" 그 값인지를 규칙으로 한 번 더 보입니다(위 시험을 대신하지는 않습니다).
     const fixed = Buffer.from('corthex-classmate-fixed-vector', 'utf8').toString('base64');
     const digest = createHash('sha256').update(Buffer.from(fixed, 'base64')).digest();
     const expected = [...digest.subarray(0, ID_SOURCE_BYTES).toString('hex')]

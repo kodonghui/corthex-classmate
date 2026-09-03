@@ -6,12 +6,14 @@
 //   (b) store … 환경 변수 없이 묶습니다                  → dist/classmate-extension-store.zip
 //               Web Store 는 자기가 id 를 정하므로 key 가 들어가면 안 됩니다.
 //
-// 지금은 두 zip 이 같아도 정상입니다
-// ---------------------------------
-// 이 브랜치의 `apps/browser-extension/wxt.config.ts` 는 아직 CLASSMATE_EXTENSION_KEY 를 읽지
-// 않습니다(단위 2 가 같은 시간에 넣는 중입니다). 그래서 이 스크립트는 zip 안 manifest.json 을
-// 열어 `key` 가 있는지 **보고만 하고 실패로 치지 않습니다.** 단위 2 가 병합되면 dev zip 에만
-// key 가 생기고, 그때 이 스크립트의 출력이 저절로 바뀝니다.
+// 두 zip 이 서로 달라야 정상입니다
+// -------------------------------
+// `apps/browser-extension/wxt.config.ts` 가 CLASSMATE_EXTENSION_KEY 를 읽어 `manifest.key` 로
+// 넣습니다. 그래서 이 스크립트는 zip 안 manifest.json 을 열어 dev 에 `key` 가 **있는지**,
+// store 에 `key` 가 **없는지** 를 보고 어긋나면 실패로 셉니다([`zipKeyVerdict`]).
+// dev 에 key 가 없다는 것은 환경 변수 전달이 어디선가 끊겼다는 뜻이고, 그대로 두면 확장 id 가
+// 폴더 경로마다 달라져 등록해 둔 `allowed_origins` 와 어긋납니다.
+// (2026-09-03 이전에는 "지금은 두 zip 이 같아도 정상" 이라는 낡은 전제로 종료 코드 0 이었습니다.)
 //
 // zip 을 여는 코드를 직접 쓴 이유
 // ------------------------------
@@ -233,6 +235,29 @@ function packageOnce(label, key, env) {
   return { ...moved, manifest: seen };
 }
 
+/**
+ * 두 zip 의 `key` 유무를 보고 종료 코드와 할 말을 정합니다. 순수 함수라 시험이 그대로 봅니다.
+ *
+ * 규칙은 둘입니다.
+ *   - dev  에 `key` 가 **있어야** 합니다. 없으면 `${KEY_ENV_NAME}` 전달이 끊긴 것입니다.
+ *   - store 에 `key` 가 **없어야** 합니다. 있으면 셸에 환경 변수가 남아 샌 것입니다.
+ * 어느 쪽이든 어긋나면 종료 코드 1 입니다 — 여기서 0 을 돌려주면 "정상" 이라는 안내가
+ * 진짜 실패를 가립니다.
+ */
+export function zipKeyVerdict({ devHasKey, storeHasKey }) {
+  const lines = [];
+  if (!devHasKey) {
+    lines.push('실패       dev zip 에 key 가 없어요. 확장 id 가 폴더 경로마다 달라집니다.');
+    lines.push(`           ${KEY_ENV_NAME} 가 wxt 까지 닿았는지 보세요(apps/browser-extension/wxt.config.ts).`);
+  }
+  if (storeHasKey) {
+    lines.push('실패       store zip 에 key 가 들어갔어요. 셸에 환경 변수가 남아 있는지 보세요.');
+    lines.push(`           Web Store 는 스스로 id 를 정하므로 ${KEY_ENV_NAME} 없이 묶여야 합니다.`);
+  }
+  if (lines.length > 0) return { code: 1, lines };
+  return { code: 0, lines: ['확인       dev key=있음 · store key=없음 · 계획대로예요.'] };
+}
+
 function printUsage() {
   console.log(`사용법
   node installer/windows/package-extension.mjs [--help]
@@ -272,15 +297,12 @@ export function main(argv, env = process.env) {
   if (!store) return 1;
 
   console.log('');
-  if (!dev.manifest.hasKey) {
-    console.log('참고       dev zip 에 아직 key 가 없어요. 이 브랜치의 wxt.config.ts 가');
-    console.log(`           ${KEY_ENV_NAME} 를 읽지 않기 때문입니다(단위 2 가 넣는 중).`);
-    console.log('           단위 2 가 병합되면 이 자리가 "key=있음" 으로 바뀝니다.');
+  const verdict = zipKeyVerdict({ devHasKey: dev.manifest.hasKey, storeHasKey: store.manifest.hasKey });
+  for (const line of verdict.lines) {
+    if (verdict.code === 0) console.log(line);
+    else console.error(line);
   }
-  if (store.manifest.hasKey) {
-    console.error('경고       store zip 에 key 가 들어갔어요. Web Store 제출 전에 확인해 주세요.');
-  }
-  return 0;
+  return verdict.code;
 }
 
 // 진입점 가드입니다. `node package-extension.mjs` 로 직접 돌릴 때만 움직입니다.
