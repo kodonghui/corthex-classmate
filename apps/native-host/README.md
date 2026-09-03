@@ -37,9 +37,9 @@ Chrome 확장                     classmate-host.exe
 | `{"type":"session.export","periodId":"…","path":"…/x.jsonl"}` | `{"type":"session.exported","path":"…/x.jsonl","count":27}` |
 | `{"type":"frame.store","periodId":"…","frame":{…},"bytesBase64":"…"}` | `{"type":"frame.stored","periodId":"…","id":"sf-p3-001","path":"frames/sf-p3-001.webp","bytes":34,"seq":10}` (아래 §2-5) |
 | `{"type":"tutor.ask","periodId":"…","questionId":"…","kind":"…","question":"…","provider":"claude","snapshot":{…}}` | `{"type":"tutor.accepted","periodId":"…","questionId":"…"}` — 답은 나중에 `tutor.event` 로 옵니다. CLI 경로가 없거나 `codex` 면 `error {reason:"provider-unavailable"}` (아래 §8) |
-| `{"type":"tutor.retry","periodId":"…","questionId":"…"}` | `tutor.accepted` · 그 교시가 받은 적 없는 질문이면 `error {reason:"unknown-question"}` |
+| `{"type":"tutor.retry","periodId":"…","questionId":"…"}` | `tutor.accepted` · 그 교시가 받은 적 없는 질문이거나 **이미 답이 끝난 질문**이면 `error {reason:"unknown-question"}` |
 | 봉투가 계약과 어긋남(위 일곱 이름 안에서) | `{"type":"error","message":"<어긋난 자리 여러 줄>","reason":"envelope-invalid"\|"question-too-long"\|"malformed-snapshot","received":"<보낸 type>"}` · **프로세스는 계속 산다** |
-| 봉투는 맞았는데 저장에 실패 | `{"type":"error","message":"session store failed"\|"frame store failed","reason":"<짧은 이유>","received":"<보낸 type>"}` · **프로세스는 계속 산다** |
+| 봉투는 맞았는데 저장에 실패 | `{"type":"error","message":"session store failed"\|"frame store failed","reason":"<고정 낱말>","received":"<보낸 type>"}` · `reason` 은 `unusable-export-path` 처럼 소문자와 붙임표뿐인 낱말이다 · **프로세스는 계속 산다** |
 | 그 밖의 모든 `type` | `{"type":"error","message":"unknown message type","reason":"unknown-message-type","received":"<보낸 type>"}` |
 | `type` 이 없거나 문자열이 아님 | `{"type":"error","message":"unknown message type","reason":"unknown-message-type","received":"unknown"}` |
 | 본문이 UTF-8·JSON 이 아님(길이는 맞음) | `{"type":"error","message":"unreadable message","reason":"unreadable-message","bytes":<길이>,"received":"unknown"}` · **프로세스는 계속 산다** |
@@ -57,8 +57,8 @@ Chrome 확장                     classmate-host.exe
 - **봉투 검사가 갈래보다 먼저입니다.** `Router::handle` 은 무엇을 하기 전에
   `classmate_transport::validate_envelope` 로 계약(`packages/contracts`)에 맞는지 봅니다. 여기서
   걸린 부탁은 저장소를 열지도 파일을 만들지도 않습니다. 이유 낱말은 셋뿐입니다 —
-  `question-too-long`(`/question` 이 어긋남) · `malformed-snapshot`(`/snapshot` 아래가 어긋남) ·
-  `envelope-invalid`(그 밖). 어느 낱말인지는 어긋난 자리로 정해집니다.
+  `question-too-long`(`/question` 이나 `/word` 가 어긋남) · `malformed-snapshot`(`/snapshot` 아래가
+  어긋남) · `envelope-invalid`(그 밖). 어느 낱말인지는 어긋난 자리로 정해집니다.
 - 봉투 표에 없는 `type` 만 예외로 `unknown-message-type` 입니다. 아는 이름 일곱은
   `crates/transport/src/lib.rs` 의 `ENVELOPE_RULES` 가 정본이고, 그 표와 `src/router.rs` 의 갈래가
   어긋나면 `the_table_matches_the_router_in_router_rs` 시험이 먼저 빨갛게 됩니다.
@@ -404,11 +404,13 @@ rustup 이 GNU 툴체인에 자체 링커(`rust-mingw`)를 함께 내려 주므�
 | `provider` | 예 (`tutor.ask` 만) | `claude` 또는 `codex` |
 | `snapshot` | 예 (`tutor.ask` 만) | `question.schema.json` 의 `/properties/snapshot` — `transcriptSegmentIds[]` · `screenFrameId?` · `editorContextId?` · `ages{transcriptSec, screenSec, editorSec}` |
 | `question` | 아니오 | 문자열이고 **UTF-8 4096 바이트 이하** (글자 수가 아닙니다. 한글만 쓰면 약 1,365자) |
-| `kind` · `word` | 아니오 | 봉투 검사는 보지 않습니다. 무엇을 어떻게 물었는지는 파이프라인이 봉인할 때 다시 봅니다 |
+| `word` | 아니오 | 문자열이고 **UTF-8 4096 바이트 이하** — `question` 이 없으면 이 값이 그대로 질문 자리로 가므로 같은 자로 잽니다 |
+| `kind` | 아니오 | 봉투 검사는 보지 않습니다. 무엇을 어떻게 물었는지는 파이프라인이 봉인할 때 다시 봅니다 |
 
-오류 낱말은 `question-too-long` · `malformed-snapshot` · `envelope-invalid`(봉투 검사) ·
-`provider-unavailable`(CLI 경로 없음 · `codex` · 손잡이의 제공자와 다름) · `unknown-question`(`tutor.retry`
-가 그 교시에서 받은 적 없는 질문을 가리킴) 입니다.
+오류 낱말은 `question-too-long`(`question` 이나 `word` 가 상한을 넘음) · `malformed-snapshot` ·
+`envelope-invalid`(봉투 검사) · `provider-unavailable`(CLI 경로 없음 · `codex` · 손잡이의 제공자와 다름) ·
+`unknown-question`(`tutor.retry` 가 그 교시에서 받은 적 없는 질문을 가리키거나, **이미 답이 끝난 질문**을
+가리킴 — 다시 물을 것이 없어 받지 않습니다) 입니다.
 
 **제공자 CLI 는 환경 변수로만 정합니다.** 기본값도 PATH 탐색도 없습니다(뜻하지 않은 실제 호출로 비용이
 나가는 일을 막는 규칙 · `crates/providers/README.md`).

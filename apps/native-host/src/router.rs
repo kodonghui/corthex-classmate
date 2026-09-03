@@ -1525,13 +1525,17 @@ mod tests {
             "{completed}"
         );
 
-        // 같은 교시의 retry 는 같은 손잡이로 가고, 받은 적 있는 질문이면 받아 준다.
+        // 답이 끝난 질문의 retry 는 거절한다. 예전에는 tutor.accepted 로 받아 놓고 파이프라인이
+        // 아무것도 하지 않아, 확장이 오지 않을 tutor.event 를 영원히 기다렸다(2라운드 검토 #4).
         let retry = router.handle(json!({
             "type": "tutor.retry",
             "periodId": ask["periodId"],
             "questionId": ask["questionId"],
         }));
-        assert_eq!(retry["type"], "tutor.accepted", "{retry}");
+        assert_eq!(retry["type"], "error", "{retry}");
+        assert_eq!(retry["reason"], "unknown-question", "{retry}");
+        assert_eq!(retry["received"], "tutor.retry");
+        assert!(is_extension_shaped_error(&retry), "{retry}");
     }
 
     #[test]

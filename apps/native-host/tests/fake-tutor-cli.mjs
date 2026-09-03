@@ -20,6 +20,7 @@
 //   --fail-times <n>       상태 파일 기준 앞의 n 번은 실패하고 그다음부터 성공합니다.
 //   --fail                 stderr 배너를 남기고 종료 코드 1 로 끝납니다.
 //   --hang                 stdin 을 다 읽고 아무것도 내보내지 않은 채 버팁니다(타임아웃 유도).
+//   --delay-ms <n>         호출 수를 센 뒤 n 밀리초 자고 나서 답을 내보냅니다(회차를 늦춥니다).
 //   --bad-json             JSON 이 아닌 글을 답으로 내보냅니다(파싱 실패 유도).
 //   --too-long             conclusion 이 41자인 답을 내보냅니다(계약 검사 실패 유도).
 //
@@ -64,6 +65,7 @@ function readArgs(argv) {
     failTimes: Number(valueAfter(argv, '--fail-times') ?? 0),
     fail: argv.includes('--fail'),
     hang: argv.includes('--hang'),
+    delayMs: Number(valueAfter(argv, '--delay-ms') ?? 0),
     badJson: argv.includes('--bad-json'),
     tooLong: argv.includes('--too-long'),
   }
@@ -111,6 +113,11 @@ async function main() {
 
   const callIndex = bumpCallCount(args.stateFile)
   const shouldFail = args.fail || callIndex < args.failTimes
+
+  // 호출 수를 먼저 적고 나서 잡니다. 시험이 "지금 몇 번째 회차인가" 를 자는 동안에도 봅니다.
+  if (Number.isFinite(args.delayMs) && args.delayMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, args.delayMs))
+  }
 
   emit({ type: 'system', subtype: 'init', model: MODEL })
 
