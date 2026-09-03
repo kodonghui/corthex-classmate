@@ -1,5 +1,6 @@
 //! Claude CLI 제공자 — 호출자가 준 CLI 를
-//! `-p --output-format stream-json --verbose --include-partial-messages` 로 띄웁니다.
+//! `-p --output-format stream-json --verbose --include-partial-messages --strict-mcp-config`
+//! 로 띄웁니다.
 //!
 //! # 비용 안전 규칙 (이 파일에서 가장 중요한 것)
 //!
@@ -41,12 +42,42 @@ use crate::stream_json::{ResultMetrics, StreamItem, StreamJsonParser};
 /// Gate C2 실측에서 첫 글자까지 p50 6.6초였으므로(`docs/spikes/gate-c2-provider.md`)
 /// 이 옵션 없이는 화면이 그 시간 내내 비어 있습니다. 옵션을 모르는 CLI 를 만나도 회차는
 /// 성립합니다 — 청크가 하나도 오지 않으면 파서가 예전처럼 `assistant` 본문을 씁니다.
-pub const CLI_ARGS: [&str; 5] = [
+///
+/// # `--strict-mcp-config` 는 왜 있는가 (지우기 전에 읽어 주세요)
+///
+/// 물음 하나에 자식 프로세스를 하나 새로 띄우므로, CLI 는 **물음마다** 설정을 다시 읽고
+/// 거기 적힌 MCP 서버에 전부 붙습니다. 이 제공자는 프롬프트를 stdin 으로만 주고 도구를
+/// 하나도 쓰지 않으므로 그 연결은 전부 헛일입니다. 이 옵션은 "인자로 준 MCP 설정만 쓴다"
+/// 는 뜻이고 인자로 주는 설정이 없으니 결과는 **MCP 0개**입니다.
+///
+/// 2026-09-03 실측(Windows · claude-code 2.1.252 · 프롬프트 한 줄 · 갈래를 번갈아 6쌍씩,
+/// `system/init` 줄이 나올 때까지의 중앙값 · 모델이 답하는 시간은 빠진 값입니다):
+///
+/// | 잰 자리 | 이 옵션 없이 | 이 옵션과 함께 | 줄어든 값 |
+/// |---|---|---|---|
+/// | 저장소 안에서 띄울 때 | 1.71초 (MCP 3개 붙음) | 1.36초 (0개) | 약 0.35초 |
+/// | 저장소 밖에서 띄울 때 | 1.61초 (MCP 2개 붙음) | 1.13초 (0개) | 약 0.48초 |
+///
+/// 같은 실측에서 **원격 MCP 서버 하나(HTTP)는 0.1초쯤만 먹었습니다.** 붙지 않고
+/// `needs-auth` 로 표시만 되기 때문입니다. 오래 걸리던 쪽은 사용자 설정에 적힌 stdio 서버
+/// 두 개였고, 이 옵션이 그 둘을 함께 끕니다.
+///
+/// **이 옵션은 학습자가 겪는 20~25초를 설명하지 않습니다.** 위 표가 전부이고 나머지는
+/// 모델이 답을 만드는 시간입니다. 더 큰 이득은 `CLASSMATE_TUTOR_SESSION=1`(교시 하나에
+/// 프로세스 하나)로 이 시작 비용 자체를 물음마다 내지 않는 쪽에 있습니다.
+///
+/// 모르는 옵션을 만난 CLI 는 `error: unknown option` 으로 **그 자리에서 죽습니다**(실측).
+/// 그러니 이 자리에 옵션을 더하는 것은 "CLI 가 이만큼은 새것이어야 한다" 는 요구입니다.
+/// 위 실측을 한 2.1.252 는 이 옵션과 `--include-partial-messages` 를 둘 다 압니다.
+/// 더 낡은 CLI 를 만나면 조용히 느려지는 것이 아니라 회차가 곧바로 실패하므로,
+/// 그 실패를 보면 CLI 를 올리면 됩니다.
+pub const CLI_ARGS: [&str; 6] = [
     "-p",
     "--output-format",
     "stream-json",
     "--verbose",
     "--include-partial-messages",
+    "--strict-mcp-config",
 ];
 
 /// 트리를 끊은 뒤 자식이 사라지기를 기다려 주는 최대 시간입니다. spike 의 `TIMEOUT_GRACE_MS` 와 같습니다.
@@ -897,7 +928,9 @@ mod tests {
 
     #[test]
     fn the_fixed_arguments_ask_for_partial_messages() {
-        // 고정 인자는 리터럴뿐이고, 부분 스트리밍 옵션이 그 안에 있습니다.
+        // 고정 인자는 리터럴뿐이고, 부분 스트리밍 옵션과 MCP 차단 옵션이 그 안에 있습니다.
+        // MCP 차단을 지우면 물음마다 사용자 설정의 MCP 서버가 다시 붙어 시작이 느려집니다
+        // (까닭과 실측은 `CLI_ARGS` 주석에).
         assert_eq!(
             CLI_ARGS,
             [
@@ -906,6 +939,7 @@ mod tests {
                 "stream-json",
                 "--verbose",
                 "--include-partial-messages",
+                "--strict-mcp-config",
             ]
         );
     }
