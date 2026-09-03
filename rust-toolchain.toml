@@ -1,6 +1,12 @@
 # 이 PC 에는 Visual Studio Build Tools(link.exe) 가 없어 기본 MSVC 타깃은 링크 단계에서 실패한다.
 # GNU 툴체인은 rustup 이 자체 링커(rust-mingw)를 함께 내려 주므로 Build Tools 없이 빌드된다.
 # Build Tools 를 설치하면 channel 을 "stable" 로 되돌린다. 근거: docs/DECISIONS.md 2026-09-02.
+#
+# 주의: rustup 1.28+ 는 채널 이름에 호스트 튜플이 있으면 **자동으로 내려받지 않는다**
+# (`error: target tuple in channel name`). 이미 설치된 기계에서는 그대로 풀리지만,
+# 새 기계·CI 에서는 먼저 이름을 명시해 깔아야 한다:
+#   rustup toolchain install stable-x86_64-pc-windows-gnu --profile minimal --component rustfmt --component clippy
+# `targets = [...]` 로는 대신할 수 없다 — 그것은 크로스 타깃만 더하고 호스트는 msvc 로 남는다.
 [toolchain]
 channel = "stable-x86_64-pc-windows-gnu"
 profile = "minimal"
