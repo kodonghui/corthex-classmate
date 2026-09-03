@@ -38,3 +38,6 @@ Thumbs.db
 
 # --- Design bundle scratch (원본 zip, 사용자 삭제 대기) ---
 design/_to_delete/
+
+# --- 라이브 관찰용 임시 스크립트 (저장소에 담지 않음) ---
+.kdh-live/
