@@ -1426,6 +1426,10 @@ mod tests {
     }
 
     /// 자발 알림 가운데 원하는 사건이 올 때까지 기다린다. 자식 프로세스 기동까지 넉넉히 잡는다.
+    ///
+    /// 같은 통로에는 답이 만들어지는 동안 흐르는 조각(`tutor.delta`)도 실린다. 그것은 사건이
+    /// 아니라 화면을 한 번 갱신하는 일회성 알림이라 여기서는 지나친다. 그 둘 말고 다른 모양이
+    /// 이 통로로 나가면 확장이 조용히 버리므로, 아는 이름인지는 그대로 확인한다.
     fn wait_for_event(sink: &Receiver<Value>, event_type: &str) -> Value {
         let deadline = Instant::now() + Duration::from_secs(60);
         loop {
@@ -1433,7 +1437,10 @@ mod tests {
             let pushed = sink
                 .recv_timeout(remaining)
                 .unwrap_or_else(|_| panic!("{event_type} 알림이 60초 안에 오지 않았다"));
-            assert_eq!(pushed["type"], "tutor.event", "{pushed}");
+            assert!(
+                classmate_transport::PUSH_KINDS.contains(&pushed["type"].as_str().unwrap_or("")),
+                "모르는 모양이 밀려 나갔다 · {pushed}"
+            );
             if pushed["event"]["type"] == event_type {
                 return pushed;
             }

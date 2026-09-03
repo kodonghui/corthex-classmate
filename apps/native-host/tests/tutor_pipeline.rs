@@ -139,26 +139,53 @@ fn start(
 }
 
 /// 밀어 보내진 `tutor.event` 를 정해진 수만큼 모읍니다. 못 채우면 시험을 떨어뜨립니다.
+///
+/// 같은 통로에는 `tutor.delta`(답이 만들어지는 동안 흐르는 조각)도 함께 실립니다. 그것은
+/// 사건이 아니라 화면을 한 번 갱신하는 일회성 알림이라 여기서는 **건너뜁니다.** 조각까지
+/// 보고 싶으면 [`collect_everything`] 을 씁니다.
 fn collect_pushes(inbox: &Receiver<Value>, count: usize) -> Vec<Value> {
+    collect_everything(inbox, count)
+        .into_iter()
+        .filter(|message| message["type"] == "tutor.event")
+        .collect()
+}
+
+/// 사건이 `events` 개 올 때까지 통로에 실린 것을 **종류를 가리지 않고 전부** 모읍니다.
+///
+/// 조각(`tutor.delta`)이 사건 사이 어디에 끼어 있는지를 보는 시험이 씁니다.
+fn collect_everything(inbox: &Receiver<Value>, events: usize) -> Vec<Value> {
     let deadline = Instant::now() + PUSH_TIMEOUT;
     let mut found = Vec::new();
-    while found.len() < count {
+    let mut seen_events = 0usize;
+    while seen_events < events {
         let left = deadline.saturating_duration_since(Instant::now());
         assert!(
             !left.is_zero(),
-            "{count}개를 기다렸는데 {}개만 왔습니다 · {:?}",
-            found.len(),
-            kinds_of(&found)
+            "사건 {events}개를 기다렸는데 {seen_events}개만 왔습니다 · {:?}",
+            types_of(&found)
         );
         match inbox.recv_timeout(left) {
-            Ok(message) => found.push(message),
+            Ok(message) => {
+                if message["type"] == "tutor.event" {
+                    seen_events += 1;
+                }
+                found.push(message);
+            }
             Err(error) => panic!(
-                "사건을 더 받지 못했습니다 · {error} · {:?}",
-                kinds_of(&found)
+                "메시지를 더 받지 못했습니다 · {error} · {:?}",
+                types_of(&found)
             ),
         }
     }
     found
+}
+
+/// 밀어 보내진 메시지들의 봉투 `type` 만 뽑습니다.
+fn types_of(messages: &[Value]) -> Vec<String> {
+    messages
+        .iter()
+        .map(|message| message["type"].as_str().unwrap_or("?").to_string())
+        .collect()
 }
 
 /// 밀어 보내진 메시지들의 사건 이름만 뽑습니다.
@@ -347,6 +374,128 @@ fn the_events_survive_a_reopen_and_come_back_out_of_export_jsonl() {
     assert!(lines[0].contains("\"question.asked\""));
     assert!(lines[1].contains("\"answer.completed\""));
     assert!(lines[1].contains("ans-2026-09-02-p3-001"));
+}
+
+// ---------------------------------------------------------------- 답이 흐르는 동안
+
+#[test]
+fn the_conclusion_flows_out_as_deltas_before_the_answer_event_lands() {
+    // 조사 실측(2026-09-03)에서 학생은 질문 뒤 7~24초 동안 빈 화면을 봤습니다. 제공자는 조각을
+    // 이미 흘리고 있었는데 파이프라인이 받는 자리를 빈 클로저로 두어 전부 버렸기 때문입니다.
+    let dir = temp_dir("delta");
+    let (handle, inbox) = start(
+        &dir,
+        fake_provider(&["--partial"]),
+        fast_config(Duration::from_secs(30), 0),
+    );
+
+    handle.ask(envelope("q-p3-001")).expect("물음을 받습니다");
+    let everything = collect_everything(&inbox, 2);
+    handle.shutdown();
+
+    let deltas: Vec<&Value> = everything
+        .iter()
+        .filter(|message| message["type"] == "tutor.delta")
+        .collect();
+    assert!(
+        !deltas.is_empty(),
+        "조각이 하나도 오지 않았습니다 · {:?}",
+        types_of(&everything)
+    );
+
+    // (1) 조각은 answer.completed **앞에** 있습니다. 그래야 빈 화면이 없어집니다.
+    let kinds = types_of(&everything);
+    let first_delta = kinds
+        .iter()
+        .position(|kind| kind == "tutor.delta")
+        .expect("조각 자리");
+    let last_event = kinds
+        .iter()
+        .rposition(|kind| kind == "tutor.event")
+        .expect("사건 자리");
+    assert!(
+        first_delta < last_event,
+        "조각이 답 뒤에 왔습니다 · {kinds:?}"
+    );
+
+    // (2) 봉투 모양 — 저장되는 사건과 달리 `event` 칸이 없습니다.
+    let first = deltas[0];
+    assert_eq!(first["periodId"], PERIOD);
+    assert_eq!(first["questionId"], "q-p3-001");
+    assert_eq!(first["seq"], 0, "회차의 첫 조각은 0 번입니다");
+    assert!(first["chars"].as_u64().expect("진행도") > 0);
+    assert!(
+        first.get("event").is_none(),
+        "조각은 SessionEvent 가 아닙니다"
+    );
+
+    // (3) `seq` 는 0 부터 하나씩 늘어납니다.
+    let seqs: Vec<u64> = deltas
+        .iter()
+        .map(|delta| delta["seq"].as_u64().expect("seq"))
+        .collect();
+    assert_eq!(seqs, (0..seqs.len() as u64).collect::<Vec<u64>>());
+
+    // (4) 날 JSON 이 화면으로 새지 않습니다. 나가는 것은 결론 문자열뿐입니다.
+    for delta in &deltas {
+        let Some(text) = delta["text"].as_str() else {
+            continue;
+        };
+        for leak in ['{', '}', '"', '[', ']'] {
+            assert!(
+                !text.contains(leak),
+                "조각에 날 JSON 이 섞였습니다 · {text:?}"
+            );
+        }
+        assert!(!text.contains("evidence"), "{text:?}");
+        assert!(!text.contains("chips"), "{text:?}");
+    }
+
+    // (5) 마지막 조각의 결론은 답의 결론과 같습니다. 화면이 정본으로 자연스럽게 이어집니다.
+    let events: Vec<&Value> = everything
+        .iter()
+        .filter(|message| message["type"] == "tutor.event")
+        .collect();
+    let answer = &event_of(events[1])["payload"]["answer"];
+    let final_text = deltas
+        .iter()
+        .rev()
+        .find_map(|delta| delta["text"].as_str())
+        .expect("결론이 실린 조각");
+    assert_eq!(final_text, answer["conclusion"].as_str().expect("결론"));
+
+    // (6) 조각은 **저장되지 않습니다.** 저장소에는 사건 두 줄뿐입니다.
+    let stored = reopen_and_list(&dir);
+    let kinds: Vec<&str> = stored.iter().map(|event| event.kind.as_str()).collect();
+    assert_eq!(kinds, vec!["question.asked", "answer.completed"]);
+}
+
+#[test]
+fn a_run_without_partial_chunks_sends_the_conclusion_in_one_delta() {
+    // 부분 스트리밍 옵션을 모르는 CLI 를 만나도 회차는 그대로 성립합니다. 이때 본문은
+    // `assistant` 한 줄로 통째로 오므로 조각도 한 건이고, 그 한 건에 결론이 다 들어 있습니다.
+    let dir = temp_dir("no-delta");
+    let (handle, inbox) = start(
+        &dir,
+        fake_provider(&[]),
+        fast_config(Duration::from_secs(30), 0),
+    );
+
+    handle.ask(envelope("q-p3-001")).expect("물음을 받습니다");
+    let everything = collect_everything(&inbox, 2);
+    handle.shutdown();
+
+    assert_eq!(
+        types_of(&everything),
+        vec!["tutor.event", "tutor.delta", "tutor.event"]
+    );
+    assert_eq!(everything[1]["seq"], 0);
+    assert_eq!(
+        everything[1]["text"].as_str().expect("결론"),
+        event_of(&everything[2])["payload"]["answer"]["conclusion"]
+            .as_str()
+            .expect("답의 결론")
+    );
 }
 
 // ---------------------------------------------------------------- 자료 조립
