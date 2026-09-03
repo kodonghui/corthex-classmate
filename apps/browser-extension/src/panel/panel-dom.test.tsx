@@ -8,6 +8,8 @@
 //
 // happy-dom 은 이미 devDependency 입니다(새 의존성 없음). React 19 의 `act` 로 감쌉니다.
 
+import type { Answer, SessionEvent, TranscriptSegment } from "@classmate/contracts";
+import { formatIso, parseIso } from "@classmate/tutor-core";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it } from "vitest";
@@ -15,6 +17,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { GOLDEN_BUNDLE } from "./golden-bundle";
 import { detailView } from "./lesson-view";
 import { PanelApp } from "./PanelApp";
+import type { AskRequest } from "./ports";
 import { ReplayStore } from "./replay-store";
 import { DetailScreen } from "./screens/DetailScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
@@ -308,5 +311,198 @@ describe("자세히 화면 맨 아래 입력창", () => {
     // 한글 한 글자는 3바이트라 1300자면 3900바이트입니다(남은 196바이트).
     typeInto(askField(), "가".repeat(1_300));
     expect(document.body.textContent).toContain("196바이트 남았어요");
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/*
+  듣는 중 화면 맨 아래 한 줄 묻는 자리(단위 C)입니다.
+
+    접힘  "궁금한 건 여기에 바로 물어보세요"   ← 안내 글 한 줄 자리를 그대로 씁니다
+    펼침  [ 지금 궁금한 걸 적어요        ↑ ]  ← 누르거나 포커스가 오면
+    보냄  askTyped → AskPort.ask({ kind: "free" })
+
+  재생(fixture)에는 물을 곳이 없어 칸을 아예 만들지 않습니다 — 골든 9장면이 걸려 있습니다.
+*/
+describe("듣는 중 화면에서 바로 묻기", () => {
+  const PERIOD = "2026-09-02-p3";
+  const START = parseIso("2026-09-02T10:00:00+09:00");
+
+  function segment(seq: number, text: string): TranscriptSegment {
+    return {
+      id: `ts-ask-${String(seq).padStart(3, "0")}`,
+      periodId: PERIOD,
+      seq,
+      text,
+      state: "final",
+      arrivedAt: formatIso(START + seq * 1_000),
+      source: "tiro-share",
+    };
+  }
+
+  interface Rig {
+    readonly store: ReplayStore;
+    /** 밖으로 나간 질문들입니다. */
+    readonly asks: AskRequest[];
+    /** 전사 한 줄이 더 옵니다. */
+    push(seq: number, text: string): void;
+    /** 방금 물은 질문에 답 하나를 돌려줍니다. */
+    answer(conclusion: string): void;
+  }
+
+  /** 전사 한 줄이 이미 와 있는 라이브 패널 하나를 세웁니다. */
+  async function liveRig(): Promise<Rig> {
+    const asks: AskRequest[] = [];
+    const store = ReplayStore.live({
+      periodId: PERIOD,
+      startMs: START,
+      idToken: "asktoken",
+      askPort: { ask: (request) => asks.push(request) },
+      now: () => START,
+    });
+    store.pushSegment(segment(1, "객체를 직접 만들면 바꾸기 어려워요"));
+    mount(<PanelApp store={store} autoClock={false} settings={createMemorySettingsStorage()} />);
+    await flush();
+    return {
+      store,
+      asks,
+      push: (seq, text) => {
+        act(() => store.pushSegment(segment(seq, text)));
+      },
+      answer: (conclusion) => {
+        const questionId = asks.at(-1)?.questionId;
+        if (questionId === undefined) throw new Error("아직 물은 것이 없어요");
+        const body: Answer = {
+          id: "ans-ask-001",
+          questionId,
+          createdAt: formatIso(START + 5_000),
+          conclusion,
+          evidence: "confirmed",
+          chips: [],
+          provider: "mock",
+          status: "answered",
+        };
+        const arrived: SessionEvent = {
+          id: "ev-ask-answer",
+          periodId: PERIOD,
+          at: formatIso(START + 5_000),
+          type: "answer.completed",
+          payload: { questionId, answerId: body.id, evidence: "confirmed", provider: "mock", answer: body },
+        };
+        act(() => store.pushEvent(arrived));
+      },
+    };
+  }
+
+  /** 묻는 칸입니다. 듣는 중 화면의 유일한 글 칸입니다. */
+  function askField(): HTMLInputElement {
+    const found = [...document.querySelectorAll("input")].find((item) => item.type === "text" || item.type === "");
+    if (!(found instanceof HTMLInputElement)) throw new Error("묻는 칸을 찾지 못했어요");
+    return found;
+  }
+
+  function press(input: HTMLInputElement, key: string): void {
+    act(() => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    });
+  }
+
+  /** 접힌 한 줄을 눌러 칸을 폅니다. */
+  function open(): HTMLInputElement {
+    click(buttonNamed("궁금한 건 여기에 바로 물어보세요"));
+    return askField();
+  }
+
+  it("재생 모드에는 칸이 없고 안내 글도 예전 그대로다", async () => {
+    const store = new ReplayStore(GOLDEN_BUNDLE);
+    store.goto("listening");
+    mount(<PanelApp store={store} autoClock={false} settings={createMemorySettingsStorage()} />);
+    await flush();
+    expect(document.body.textContent).toContain("문장을 누르면 문장 전체를 붙잡아요");
+    expect(document.body.textContent).not.toContain("궁금한 건 여기에 바로 물어보세요");
+    expect([...document.querySelectorAll("input")]).toHaveLength(0);
+  });
+
+  it("평소에는 안내 글 한 줄만큼만 쓰고, 누르면 칸이 펼쳐진다", async () => {
+    await liveRig();
+    // 접혀 있을 때는 글 칸이 아예 없습니다(세로 자리를 새로 먹지 않습니다).
+    expect([...document.querySelectorAll("input")]).toHaveLength(0);
+    expect(document.body.textContent).toContain("궁금한 건 여기에 바로 물어보세요");
+    expect(open().getAttribute("aria-label")).toBe("바로 묻기");
+  });
+
+  it("Esc 는 적던 글을 버리고 칸에서 빠져나온다(키보드만으로 도로 접기)", async () => {
+    const rig = await liveRig();
+    const input = open();
+    typeInto(input, "이게 무슨 말이에요?");
+    press(input, "Escape");
+    // 글이 비고 포커스도 떠나므로 그 자리는 다시 안내 글 한 줄이 됩니다.
+    expect([...document.querySelectorAll("input")]).toHaveLength(0);
+    expect(document.body.textContent).toContain("궁금한 건 여기에 바로 물어보세요");
+    expect(rig.asks).toHaveLength(0);
+  });
+
+  it("아무것도 안 적고 칸을 떠나면 도로 접힌다", async () => {
+    await liveRig();
+    blur(open());
+    expect([...document.querySelectorAll("input")]).toHaveLength(0);
+    expect(document.body.textContent).toContain("궁금한 건 여기에 바로 물어보세요");
+  });
+
+  it("빈 글과 공백뿐인 글은 나가지 않는다", async () => {
+    const rig = await liveRig();
+    const input = open();
+    press(input, "Enter");
+    typeInto(askField(), "   ");
+    expect(buttonNamed("보내기").disabled).toBe(true);
+    press(askField(), "Enter");
+    expect(rig.asks).toHaveLength(0);
+  });
+
+  it("Enter 를 치면 kind free 질문으로 나가고 답을 기다리는 한 줄이 남는다", async () => {
+    const rig = await liveRig();
+    typeInto(open(), "지금 그게 왜 필요해요?");
+    press(askField(), "Enter");
+
+    expect(rig.asks).toHaveLength(1);
+    expect(rig.asks[0]?.kind).toBe("free");
+    // 이어 묻기가 아니라 첫 질문이라 "앞선 답은 …" 이 붙지 않고 적은 글이 그대로 나갑니다.
+    expect(rig.asks[0]?.question).toBe("지금 그게 왜 필요해요?");
+
+    const asked = rig.store.getState().emitted.filter((event) => event.type === "question.asked");
+    expect(asked).toHaveLength(1);
+    expect(asked[0]?.payload["kind"]).toBe("free");
+
+    expect(askField().value).toBe("");
+    expect(document.body.textContent).toContain("지금 그게 왜 필요해요?");
+    expect(document.body.textContent).toContain("답을 만들고 있어요");
+  });
+
+  it("답이 오면 그 자리가 결론으로 바뀌고, 닫으면 도로 조용해진다", async () => {
+    const rig = await liveRig();
+    typeInto(open(), "지금 그게 왜 필요해요?");
+    press(askField(), "Enter");
+    rig.answer("바꿔 끼울 자리를 남겨 두려고요");
+
+    expect(document.body.textContent).toContain("바꿔 끼울 자리를 남겨 두려고요");
+    expect(document.body.textContent).not.toContain("답을 만들고 있어요");
+
+    click(buttonNamed("답 닫기"));
+    expect(document.body.textContent).not.toContain("바꿔 끼울 자리를 남겨 두려고요");
+  });
+
+  it("글을 쓰는 동안 온 문장은 조용한 표시로만 알리고, 글을 비우면 사라진다", async () => {
+    const rig = await liveRig();
+    const input = open();
+    typeInto(input, "이거");
+    rig.push(2, "그래서 스프링이 대신 만들어 줍니다");
+
+    // 전사는 계속 흐르지만(줄은 화면에 있습니다) 바닥으로 끌지 않고 한 줄로만 알립니다.
+    expect(document.body.textContent).toContain("그래서 스프링이 대신 만들어 줍니다");
+    expect(document.body.textContent).toContain("새 문장 1개");
+
+    typeInto(askField(), "");
+    expect(document.body.textContent).not.toContain("새 문장 1개");
   });
 });

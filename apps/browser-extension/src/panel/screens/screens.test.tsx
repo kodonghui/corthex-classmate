@@ -1,6 +1,8 @@
 // 네 화면이 체크포인트의 값으로 정본 클래스·문구를 실제로 그리는지 봅니다.
 // DOM 없이 renderToStaticMarkup 으로 HTML 문자열을 만들어 확인합니다(새 의존성 없음).
 
+import type { TranscriptSegment } from "@classmate/contracts";
+import { formatIso, parseIso } from "@classmate/tutor-core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
@@ -33,6 +35,44 @@ function homeHtml(checkpoint: Checkpoint): string {
       onSettings={noop}
       onHistory={noop}
       onReconnect={noop}
+      onAsk={noop}
+    />,
+  );
+}
+
+/**
+ * 라이브 듣는 중 화면의 HTML 입니다. 재생과 달리 맨 아래 한 줄이 **묻는 자리**로 바뀝니다.
+ * fixture 를 쓰지 않으므로 전사 한 줄을 직접 넣어 세웁니다.
+ */
+function liveHomeHtml(): string {
+  const periodId = "2026-09-02-p3";
+  const startMs = parseIso("2026-09-02T10:00:00+09:00");
+  const store = ReplayStore.live({ periodId, startMs, idToken: "asktoken", now: () => startMs });
+  const segment: TranscriptSegment = {
+    id: "ts-live-001",
+    periodId,
+    seq: 1,
+    text: "객체를 직접 만들면 바꾸기 어려워요",
+    state: "final",
+    arrivedAt: formatIso(startMs + 1_000),
+    source: "tiro-share",
+  };
+  store.pushSegment(segment);
+  const state = store.getState();
+  const view = listeningView(store.bundle, state, store.lines(state.now));
+  return renderToStaticMarkup(
+    <ListeningScreen
+      view={view}
+      onTerm={noop}
+      onSentence={noop}
+      onGuess={noop}
+      onChip={noop}
+      onDetail={noop}
+      onExpand={noop}
+      onSettings={noop}
+      onHistory={noop}
+      onReconnect={noop}
+      onAsk={noop}
     />,
   );
 }
@@ -78,6 +118,22 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("cm-sf__r");
   });
 
+  it("라이브: 맨 아래 안내 글 자리가 접힌 묻는 줄이 된다 — 새 바닥바를 만들지 않는다", () => {
+    const html = liveHomeHtml();
+    // 묻는 자리는 TranscriptFlow 의 안내 글 슬롯 안에 있습니다(자세히 화면 같은 고정 바닥바가 아닙니다).
+    const tip = html.slice(html.indexOf("cm-tf__tip"));
+    expect(tip).toContain("궁금한 건 여기에 바로 물어보세요");
+    expect(html).not.toContain("cm-screen__bar");
+    // 접혀 있는 동안에는 글 칸도 보내기 단추도 만들지 않습니다.
+    expect(html).not.toContain("cm-input");
+    expect(html).not.toContain("보내기");
+    // 안내 글은 한 줄로 줄지만 Alt+S 는 그대로 남습니다.
+    expect(html).toContain("걸리는 말을 누르세요");
+    expect(html).toContain("Alt");
+    // 듣는 중 화면의 "행동 버튼은 없다" 규칙은 라이브에서도 같습니다.
+    expect(html).not.toContain("cm-btn");
+  });
+
   it("H-1 전사 멈춤: 바닥줄이 호박색이고 다시 연결이 붙는다", () => {
     // 골든 fixture 의 connector.status 세 줄은 전부 connected 라, 멈춘 형편은 사건 하나를 더 넣어 만듭니다.
     // 넣는 값은 계약 connector.status 의 connector·state 두 칸뿐입니다.
@@ -107,6 +163,7 @@ describe("듣는 중 화면", () => {
         onSettings={noop}
         onHistory={noop}
         onReconnect={noop}
+        onAsk={noop}
       />,
     );
     expect(html).toContain("cm-sf--paused");
