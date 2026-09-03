@@ -29,6 +29,7 @@ pub mod codex;
 pub mod provider;
 pub mod queue;
 pub mod retry;
+pub mod session;
 pub mod stream_json;
 
 pub use claude::{plan_launch, resolve_cmd_wrapper, ClaudeCliProvider, LaunchPlan, Resolved};
@@ -39,6 +40,7 @@ pub use provider::{
 };
 pub use queue::{OutcomeReceiver, ProviderQueue, DEFAULT_CAPACITY};
 pub use retry::RetryPolicy;
+pub use session::{SessionClaudeProvider, SESSION_ARGS};
 pub use stream_json::{ResultMetrics, StreamItem, StreamJsonParser};
 
 /// 이 크레이트가 맡는 단위 이름입니다. 워크스페이스에 붙었는지 확인하는 용도입니다.

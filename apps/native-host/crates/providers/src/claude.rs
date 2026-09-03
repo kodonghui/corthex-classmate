@@ -350,7 +350,7 @@ impl ClaudeCliProvider {
     }
 }
 
-enum Line {
+pub(crate) enum Line {
     Text(String),
     Eof,
 }
@@ -556,7 +556,7 @@ impl TutorProvider for ClaudeCliProvider {
     }
 }
 
-fn emit_all(
+pub(crate) fn emit_all(
     items: Vec<StreamItem>,
     model: Option<String>,
     on_event: &mut dyn FnMut(ProviderEvent),
@@ -584,7 +584,7 @@ fn emit_all(
 /// 청크만 오고 `result` 줄이 없는 회차는 여기까지 오지 않습니다 — 그 앞에서
 /// `Protocol("result 이벤트 없이 …")` 로 끝납니다. 그래도 "없으면 청크 합침" 갈래를 남겨 둔 것은,
 /// `result` 줄이 본문 칸을 비운 채 올 수 있기 때문입니다.
-fn final_text(parser: &StreamJsonParser, metrics: &ResultMetrics) -> String {
+pub(crate) fn final_text(parser: &StreamJsonParser, metrics: &ResultMetrics) -> String {
     if parser.saw_partial_chunks() {
         return match metrics.result_text.as_deref() {
             Some(text) if !text.is_empty() => text.to_string(),
@@ -631,7 +631,7 @@ fn note_prompt_write_failure(
 /// 자식이 끝났거나 트리째 끊겼으면 파이프가 닫혀 스레드가 스스로 끝나므로 보통은 곧바로 돌아옵니다.
 /// 유예([`TIMEOUT_GRACE`])를 넘기면 회차를 더 붙잡지 않고 그대로 둡니다 — 스레드는 파이프가
 /// 닫히는 순간 끝나고, 붙잡아 둔 꼬리는 `Arc` 로 공유하므로 잃는 것은 그 마지막 몇 글자뿐입니다.
-fn join_stderr(handle: Option<thread::JoinHandle<()>>) {
+pub(crate) fn join_stderr(handle: Option<thread::JoinHandle<()>>) {
     let Some(handle) = handle else {
         return;
     };
@@ -645,7 +645,7 @@ fn join_stderr(handle: Option<thread::JoinHandle<()>>) {
     let _ = handle.join();
 }
 
-fn read_stderr<R: std::io::Read>(stderr: R, sink: &Arc<Mutex<String>>) {
+pub(crate) fn read_stderr<R: std::io::Read>(stderr: R, sink: &Arc<Mutex<String>>) {
     let mut reader = BufReader::new(stderr);
     let mut buf = Vec::new();
     loop {
@@ -668,7 +668,7 @@ fn read_stderr<R: std::io::Read>(stderr: R, sink: &Arc<Mutex<String>>) {
     }
 }
 
-fn tail_of(sink: &Arc<Mutex<String>>) -> String {
+pub(crate) fn tail_of(sink: &Arc<Mutex<String>>) -> String {
     let held = match sink.lock() {
         Ok(held) => held.clone(),
         Err(poisoned) => poisoned.into_inner().clone(),
@@ -685,7 +685,7 @@ fn tail_of(sink: &Arc<Mutex<String>>) -> String {
 ///
 /// `cmd.exe /c` 폴백을 탔다면 실제 CLI 는 손자입니다. 부모만 죽이면 손자가 살아남아
 /// 모델 호출이 계속되고(과금) stdout 파이프도 닫히지 않습니다 — Gate C2 에서 실측한 결함입니다.
-fn kill_tree(child: &mut Child) {
+pub(crate) fn kill_tree(child: &mut Child) {
     #[cfg(windows)]
     {
         let pid = child.id().to_string();
@@ -723,7 +723,7 @@ fn wait_until(child: &mut Child, deadline: Instant) -> Option<std::io::Result<Ex
     }
 }
 
-fn wait_with_grace(child: &mut Child) {
+pub(crate) fn wait_with_grace(child: &mut Child) {
     let deadline = Instant::now() + TIMEOUT_GRACE;
     loop {
         match child.try_wait() {

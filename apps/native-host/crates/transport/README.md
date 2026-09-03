@@ -101,6 +101,21 @@ if let Err(violations) = validate(SchemaKind::SessionEvent, &event) {
 
 `periodId` 는 계약의 `PeriodId` 모양, `questionId` 는 계약의 `Id` 모양으로 봅니다. `../../etc/passwd` 같은 값이 저장 폴더 이름으로 내려가지 못하게 여기서 먼저 막습니다.
 
+### 3-1. 나가는 알림 이름표 — `PUSH_KINDS`
+
+봉투 표는 **확장 → 호스트**로 들어오는 쪽입니다. 반대 방향(호스트가 먼저 말을 거는 자발 알림)은 그 표에 넣지 않습니다 — 넣으면 `the_table_matches_the_router_in_router_rs` 가 `src/router.rs` 의 나눠 주는 갈래와 하나씩 맞대므로, 호스트가 받지도 않을 봉투에 갈래를 만들어야 하기 때문입니다.
+
+그래서 나가는 쪽은 **이름표만** 여기서 정합니다.
+
+| 상수 | 값 | 무엇 |
+|---|---|---|
+| `PUSH_TUTOR_EVENT` | `tutor.event` | 저장까지 끝난 `SessionEvent` 한 줄을 그대로 실어 보냅니다 |
+| `PUSH_TUTOR_DELTA` | `tutor.delta` | 답이 만들어지는 **동안** 흐르는 조각. `{questionId, seq, chars, text?}` |
+
+`tutor.delta` 는 `SessionEvent` 가 **아닙니다.** 저장소에 붙지 않고 `packages/contracts` 도 건드리지 않습니다. 놓쳐도 뒤따르는 `answer.completed` 가 정본으로 덮는, 잃어도 되는 값입니다.
+
+이름표가 설명으로만 남지 않도록 시험 둘이 묶어 둡니다. `the_outgoing_names_are_not_in_the_incoming_table` 은 두 이름이 봉투 표에 섞이지 않았는지 보고, `the_tutor_pipeline_names_its_pushes_from_this_table` 은 `apps/native-host/src/tutor/mod.rs` 원문을 `include_str!` 로 읽어 **날 문자열이 아니라 이 상수를 쓰는지** 확인합니다.
+
 ### 어긋난 자리 → 확장이 분기할 낱말
 
 호스트는 어긋난 자리 목록을 그대로 확장에 주지 않고 `envelope_reason(&violations)` 으로 낱말 하나를 고릅니다. 보는 순서가 곧 우선순위입니다.

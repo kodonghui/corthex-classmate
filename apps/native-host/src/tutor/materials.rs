@@ -162,8 +162,97 @@ pub fn collect(events: &[StoredEvent], snapshot: &ContextSnapshot) -> Materials 
     materials
 }
 
+/// 길이 상한을 두지 않는다는 뜻입니다. [`render`] 가 쓰는 값입니다.
+pub const NO_LIMIT: usize = usize::MAX;
+
 /// 모델에게 보낼 자료 문단을 만듭니다. 자료가 없어도 빈 문자열을 내지 않습니다.
+///
+/// 길이 상한이 필요하면 [`render_with_limit`] 를 쓰세요.
 pub fn render(materials: &Materials) -> String {
+    render_with_limit(materials, NO_LIMIT)
+}
+
+/// 길이 상한을 두고 자료 문단을 만듭니다. 넘치면 **앞을 버리고 뒤를 남깁니다.**
+///
+/// # 왜 앞을 버리는가
+///
+/// 학생이 묻는 것은 **방금 들은 말**입니다. 상한에 걸렸을 때 뒤를 자르면 질문 바로 앞의
+/// 문장이 사라지고, 남는 것은 몇 분 전 이야기뿐입니다. 그래서 오래된 전사 줄부터 뺍니다.
+/// 편집기 발췌도 같은 이유로 뒤(= 지금 화면에 가까운 쪽)를 남깁니다.
+///
+/// # 버리는 순서
+///
+/// ```text
+/// ① 오래된 전사 줄부터 한 줄씩          ← 여기서 대부분 해결됩니다
+/// ② 그래도 넘치면 편집기 발췌의 앞부분
+/// ③ 요약 머리(전사 N개 · 편집기 · 화면 N장)와 뺐다는 표시는 언제나 남깁니다
+/// ```
+///
+/// 뺀 것이 있으면 문단에 그 사실을 적습니다. 모델이 "자료가 이게 전부" 라고 오해하지 않게
+/// 하려는 것입니다.
+pub fn render_with_limit(materials: &Materials, max_chars: usize) -> String {
+    let (kept, trimmed) = trim_to_fit(materials, max_chars);
+    render_bundle(&kept, &trimmed)
+}
+
+/// 무엇을 얼마나 뺐는지입니다. 문단에 적을 표시를 만드는 데 씁니다.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct Trimmed {
+    /// 앞에서 뺀 전사 줄 수입니다.
+    transcript_lines: usize,
+    /// 편집기 발췌의 앞부분을 잘랐는지입니다.
+    editor_head: bool,
+}
+
+impl Trimmed {
+    fn any(&self) -> bool {
+        self.transcript_lines > 0 || self.editor_head
+    }
+}
+
+/// 상한에 맞을 때까지 앞에서부터 덜어 냅니다.
+///
+/// 한 줄 뺄 때마다 다시 그려 재어 봅니다. 줄 수가 수백 규모라 이 되풀이는 눈에 띄지 않고,
+/// 표시 문구가 붙으면서 길이가 늘어나는 자리까지 정확히 셈에 넣을 수 있습니다.
+fn trim_to_fit(materials: &Materials, max_chars: usize) -> (Materials, Trimmed) {
+    let mut kept = materials.clone();
+    let mut trimmed = Trimmed::default();
+
+    while render_bundle(&kept, &trimmed).chars().count() > max_chars {
+        if !kept.transcript.is_empty() {
+            kept.transcript.remove(0);
+            trimmed.transcript_lines += 1;
+            continue;
+        }
+        // 전사를 다 뺐는데도 넘칩니다. 남은 것은 편집기 발췌뿐입니다.
+        let over = render_bundle(&kept, &trimmed).chars().count() - max_chars;
+        let Some(editor) = kept.editor.as_mut() else {
+            break;
+        };
+        if editor.excerpt.is_empty() {
+            break;
+        }
+        editor.excerpt = keep_tail_chars(&editor.excerpt, over);
+        trimmed.editor_head = true;
+        if editor.excerpt.is_empty() {
+            break;
+        }
+    }
+
+    (kept, trimmed)
+}
+
+/// 글의 뒤를 남기고 앞에서 `cut` 글자를 덜어 냅니다. 다 덜면 빈 글이 됩니다.
+fn keep_tail_chars(text: &str, cut: usize) -> String {
+    let total = text.chars().count();
+    if cut >= total {
+        return String::new();
+    }
+    text.chars().skip(cut).collect()
+}
+
+/// 자료 문단 한 벌을 그립니다. 뺀 것이 있으면 그 사실을 함께 적습니다.
+fn render_bundle(materials: &Materials, trimmed: &Trimmed) -> String {
     let mut out = String::new();
 
     out.push_str("[자료 요약]\n");
@@ -177,9 +266,23 @@ pub fn render(materials: &Materials) -> String {
         },
         materials.screen_frames,
     ));
+    // 요약의 "전사 조각 N개" 는 **실제로 실은 수**입니다. 뺀 것이 있으면 바로 아래에 적어,
+    // 모델이 "봉인된 자료가 이게 전부" 라고 오해하지 않게 합니다.
+    if trimmed.transcript_lines > 0 {
+        out.push_str(&format!(
+            "(앞의 전사 {}줄은 길이 상한 때문에 뺐습니다. 남긴 것은 질문에 가까운 뒷부분입니다.)\n",
+            trimmed.transcript_lines
+        ));
+    }
 
     if materials.is_empty() {
-        out.push_str("\n[자료 본문]\n(읽을 수 있는 본문이 없습니다. 자료 없이 답합니다.)\n");
+        if trimmed.any() {
+            out.push_str(
+                "\n[자료 본문]\n(길이 상한 때문에 본문을 모두 뺐습니다. 자료 없이 답합니다.)\n",
+            );
+        } else {
+            out.push_str("\n[자료 본문]\n(읽을 수 있는 본문이 없습니다. 자료 없이 답합니다.)\n");
+        }
         return out;
     }
 
@@ -192,6 +295,9 @@ pub fn render(materials: &Materials) -> String {
 
     if let Some(editor) = &materials.editor {
         out.push_str("\n[편집기 화면]\n");
+        if trimmed.editor_head {
+            out.push_str("(앞부분은 길이 상한 때문에 뺐습니다.)\n");
+        }
         let where_it_is = match (&editor.file_path, editor.visible_range) {
             (Some(path), Some((start, end))) => format!("{path} · {start}~{end}줄"),
             (Some(path), None) => path.clone(),
@@ -336,6 +442,78 @@ mod tests {
         let text = render(&materials);
         assert!(text.contains("전사 조각 0개"));
         assert!(text.contains("읽을 수 있는 본문이 없습니다"));
+    }
+
+    /// 전사 줄이 여럿인 묶음을 만듭니다. 뒤로 갈수록 최근입니다.
+    fn many_lines(count: usize) -> Materials {
+        Materials {
+            transcript: (0..count)
+                .map(|index| TranscriptLine {
+                    segment_id: format!("ts-p3-{index:03}"),
+                    text: format!("{index}번째 문장입니다. ").repeat(8),
+                })
+                .collect(),
+            editor: None,
+            screen_frames: 0,
+        }
+    }
+
+    #[test]
+    fn a_bundle_under_the_limit_is_rendered_exactly_as_before() {
+        // 오늘 실제로 나가는 자료(수백 자)는 상한에 닿지 않습니다. 한 글자도 달라지면 안 됩니다.
+        let materials = collect(&golden_events(), &snapshot());
+        assert_eq!(render_with_limit(&materials, 2_000), render(&materials));
+        assert!(!render(&materials).contains("길이 상한"));
+    }
+
+    #[test]
+    fn the_oldest_transcript_lines_go_first_and_the_newest_stay() {
+        let materials = many_lines(20);
+        let full = render(&materials);
+        assert!(full.chars().count() > 600, "{}", full.chars().count());
+
+        let capped = render_with_limit(&materials, 600);
+        assert!(capped.chars().count() <= 600, "{}", capped.chars().count());
+
+        // 질문에 가까운 마지막 줄은 남고, 가장 오래된 줄은 빠집니다.
+        assert!(capped.contains("ts-p3-019"), "{capped}");
+        assert!(!capped.contains("ts-p3-000"), "{capped}");
+        assert!(capped.contains("길이 상한 때문에 뺐습니다"), "{capped}");
+    }
+
+    #[test]
+    fn the_summary_head_survives_even_at_a_cruel_limit() {
+        // 상한이 아무리 작아도 요약 머리는 남습니다. 자료가 있었다는 사실 자체가 사라지면
+        // 모델이 "자료 없음" 과 "자료를 못 실음" 을 구분할 수 없습니다.
+        let capped = render_with_limit(&many_lines(20), 10);
+        assert!(capped.starts_with("[자료 요약]"), "{capped}");
+        assert!(capped.contains("길이 상한 때문에"), "{capped}");
+    }
+
+    #[test]
+    fn the_editor_excerpt_keeps_its_tail_when_it_alone_is_too_long() {
+        let materials = Materials {
+            transcript: Vec::new(),
+            editor: Some(EditorExcerpt {
+                context_id: "ec-p3-001".to_string(),
+                file_path: Some("OrderService.java".to_string()),
+                visible_range: Some((1, 400)),
+                excerpt: (0..200)
+                    .map(|index| format!("{index}번째 줄입니다\n"))
+                    .collect(),
+            }),
+            screen_frames: 0,
+        };
+
+        let capped = render_with_limit(&materials, 300);
+        assert!(capped.chars().count() <= 300, "{}", capped.chars().count());
+        // 화면 아래쪽(= 최근에 보던 자리)이 남습니다.
+        assert!(capped.contains("199번째 줄입니다"), "{capped}");
+        assert!(!capped.contains("0번째 줄입니다\n1번째"), "{capped}");
+        assert!(
+            capped.contains("앞부분은 길이 상한 때문에 뺐습니다"),
+            "{capped}"
+        );
     }
 
     #[test]

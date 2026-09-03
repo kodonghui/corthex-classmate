@@ -27,6 +27,11 @@
 //   --break-stdout-and-linger  답을 다 낸 뒤 UTF-8 이 아닌 바이트 한 줄을 흘리고 끝나지 않습니다.
 //                          부모의 stdout 읽기는 그 줄에서 스스로 끝나는데 자식은 살아 있는
 //                          상태를 만듭니다. 성공 경로의 기다림에 마감이 있는지 보려는 것입니다.
+//   --session              stdin 을 줄 단위로 읽어 **한 줄마다** 답 한 벌을 냅니다. 프로세스는
+//                          stdin 이 닫힐 때까지 살아 있습니다(SessionClaudeProvider 시험용).
+//   --spawn-file <경로>    프로세스가 뜰 때마다 그 파일의 숫자를 하나 올립니다. 시험이
+//                          "질문 세 번에 spawn 몇 회인가" 를 세는 자리입니다.
+//   --die-after <n>        --session 에서 n 번째 물음에 답한 뒤 스스로 끝납니다(세션이 죽는 상황).
 //
 // 위 옵션들의 **이름과 뜻은 고정입니다.** 다른 단위(파이프라인)가 이 파일 경로와 옵션을 그대로
 // 참고하므로, 옵션을 지우거나 뜻을 바꾸면 그쪽 시험이 함께 깨집니다. 더하는 것만 합니다.
@@ -41,7 +46,8 @@
 // **시험 전용 통로**이며 실제 CLI 의 동작이 아닙니다.
 
 import { spawn } from 'node:child_process'
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 
 const MODEL = 'fake-claude-model'
@@ -73,14 +79,72 @@ function readArgs(argv) {
     breakStdoutAndLinger: argv.includes('--break-stdout-and-linger'),
     // 제공자가 붙이는 고정 인자입니다. 흐름을 바꾸지는 않고 "받아도 죽지 않는다" 는 사실만 담습니다.
     includePartialMessages: argv.includes('--include-partial-messages'),
+    session: argv.includes('--session'),
     exitCode: 0,
     pidFile: null,
+    spawnFile: null,
+    dieAfter: 0,
   }
   const exitAt = argv.indexOf('--exit')
   if (exitAt !== -1) args.exitCode = Number(argv[exitAt + 1])
   const pidAt = argv.indexOf('--pid-file')
   if (pidAt !== -1) args.pidFile = argv[pidAt + 1]
+  const spawnAt = argv.indexOf('--spawn-file')
+  if (spawnAt !== -1) args.spawnFile = argv[spawnAt + 1]
+  const dieAt = argv.indexOf('--die-after')
+  if (dieAt !== -1) args.dieAfter = Number(argv[dieAt + 1])
   return args
+}
+
+/** 프로세스가 뜬 횟수를 파일에 하나 더합니다. 시험이 spawn 수를 세는 유일한 통로입니다. */
+function bumpSpawnCount(path) {
+  if (path === null) return
+  let before = 0
+  try {
+    before = Number.parseInt(readFileSync(path, 'utf8').trim(), 10)
+    if (Number.isNaN(before)) before = 0
+  } catch {
+    before = 0
+  }
+  writeFileSync(path, String(before + 1), 'utf8')
+}
+
+/**
+ * `--input-format stream-json` 을 흉내 냅니다. stdin 한 줄이 물음 하나이고, 줄마다 답 한 벌을
+ * 냅니다. `system/init` 은 실제 CLI 와 같이 **세션에 한 번만** 냅니다.
+ */
+async function runSession(args) {
+  emit({ type: 'system', subtype: 'init', model: MODEL })
+
+  let turn = 0
+  const lines = createInterface({ input: process.stdin })
+  for await (const line of lines) {
+    if (line.trim() === '') continue
+    turn += 1
+
+    // 몇 번째 물음인지 답에 적습니다. 시험이 "같은 프로세스가 이어서 답했다" 를 봅니다.
+    const body = `${turn}번째 답입니다.`
+    if (args.partial && args.includePartialMessages) {
+      for (const piece of [`${turn}번째 `, '답입니다.']) emitPartialChunk(piece)
+    }
+    emit({ type: 'assistant', message: { content: [{ type: 'text', text: body }] } })
+    emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      duration_ms: 5,
+      duration_api_ms: 4,
+      num_turns: turn,
+      total_cost_usd: 0,
+      result: body,
+    })
+
+    if (args.dieAfter > 0 && turn >= args.dieAfter) {
+      // 세션이 조용히 죽는 상황입니다. 부모는 다음 물음에서 EOF 로 알아채야 합니다.
+      lines.close()
+      return
+    }
+  }
 }
 
 function readStdin(keepBody) {
@@ -110,6 +174,13 @@ function startGrandchild() {
 
 async function main() {
   const args = readArgs(process.argv.slice(2))
+  bumpSpawnCount(args.spawnFile)
+
+  if (args.session) {
+    // 세션 모드는 stdin 을 통째로 읽지 않습니다. 한 줄이 물음 하나이기 때문입니다.
+    await runSession(args)
+    return
+  }
 
   let stdin = { bytes: 0, text: '' }
   if (args.closeStdinEarly) {

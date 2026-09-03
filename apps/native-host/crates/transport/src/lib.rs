@@ -149,6 +149,36 @@ pub const ENVELOPE_RULES: [EnvelopeRule; 7] = [
     },
 ];
 
+/// 호스트가 **먼저 말을 거는** 알림의 이름표입니다 — 답이 아니라 자발 알림입니다.
+///
+/// [`ENVELOPE_RULES`] 와 방향이 반대라 그 표에 넣지 않습니다. 그 표는 "확장 → 호스트" 이고
+/// `the_table_matches_the_router_in_router_rs` 가 `src/router.rs` 의 나눠 주는 갈래와 하나씩
+/// 맞대므로, 나가는 이름을 거기 넣으면 호스트가 받지도 않을 봉투에 갈래를 만들어야 합니다.
+///
+/// 그래서 나가는 쪽은 **이름표만** 여기서 정하고, `src/tutor/mod.rs` 가 이 상수를 그대로 써서
+/// 메시지를 만듭니다(`the_tutor_pipeline_names_its_pushes_from_this_table` 이 확인합니다).
+/// 이름을 고치는 자리는 이 파일 한 곳입니다.
+pub const PUSH_TUTOR_EVENT: &str = "tutor.event";
+
+/// 답이 만들어지는 **동안** 흘려보내는 조각입니다. 저장하지 않는 일회성 알림입니다.
+///
+/// ```text
+/// {"type":"tutor.delta","periodId":"…","questionId":"…","seq":0,"chars":15,"text":"결론 조각"}
+/// ```
+///
+/// | 칸 | 무엇 |
+/// |---|---|
+/// | `seq` | 이 회차에서 몇 번째 조각인지. `0` 은 "이 답을 처음부터 다시 그리세요" 입니다 |
+/// | `chars` | 지금까지 받은 날 본문 글자 수. "생각하는 중" 자리의 진행도입니다 |
+/// | `text` | 지금까지 해독한 결론 **전체**(증분이 아닙니다). 아직 없으면 칸 자체가 없습니다 |
+///
+/// **`SessionEvent` 가 아닙니다.** 저장소에 붙지 않고 `packages/contracts` 와도 무관합니다.
+/// 놓쳐도 뒤따르는 `answer.completed` 가 정본으로 덮으므로 잃어도 되는 값입니다.
+pub const PUSH_TUTOR_DELTA: &str = "tutor.delta";
+
+/// 튜터 파이프라인이 스스로 만들어 내보내는 알림 전부입니다.
+pub const PUSH_KINDS: [&str; 2] = [PUSH_TUTOR_EVENT, PUSH_TUTOR_DELTA];
+
 /// 봉투 이름으로 규칙을 찾습니다. 모르는 이름이면 `None` 입니다.
 pub fn rule_for(message_type: &str) -> Option<&'static EnvelopeRule> {
     ENVELOPE_RULES
@@ -941,6 +971,48 @@ mod tests {
             schema::validate_pointer(SchemaKind::Question, "/properties/nope", &snapshot)
                 .expect_err("그런 자리가 없습니다");
         assert_eq!(violations[0].kind, ViolationKind::UnsupportedSchema);
+    }
+
+    /// `apps/native-host/src/tutor/mod.rs` 원문입니다. 빌드할 때 **읽기만** 합니다.
+    const HOST_TUTOR_MOD_RS: &str = include_str!("../../../src/tutor/mod.rs");
+
+    #[test]
+    fn the_outgoing_names_are_not_in_the_incoming_table() {
+        // 방향이 반대인 이름이 받는 표에 섞이면, 호스트가 받지도 않을 봉투에 갈래가 생깁니다.
+        for name in PUSH_KINDS {
+            assert!(
+                rule_for(name).is_none(),
+                "{name} 은 나가는 알림인데 받는 봉투 표에 있습니다"
+            );
+        }
+        assert_eq!(PUSH_KINDS, ["tutor.event", "tutor.delta"]);
+
+        let mut names = PUSH_KINDS.to_vec();
+        names.sort_unstable();
+        let count = names.len();
+        names.dedup();
+        assert_eq!(names.len(), count, "나가는 알림 이름이 겹칩니다");
+    }
+
+    #[test]
+    fn the_tutor_pipeline_names_its_pushes_from_this_table() {
+        // 파이프라인이 이름을 스스로 적으면 이 표는 설명일 뿐 아무것도 묶지 못합니다.
+        // 상수를 쓰는지, 그리고 날 문자열이 남아 있지 않은지를 원문으로 확인합니다.
+        for name in PUSH_KINDS {
+            let literal = format!("{}{name}{}", '"', '"');
+            assert!(
+                !HOST_TUTOR_MOD_RS.contains(&literal),
+                "src/tutor/mod.rs 에 {literal} 가 그대로 적혀 있습니다 · 상수를 쓰세요"
+            );
+        }
+        assert!(
+            HOST_TUTOR_MOD_RS.contains("PUSH_TUTOR_EVENT"),
+            "src/tutor/mod.rs 가 tutor.event 이름표를 쓰지 않습니다"
+        );
+        assert!(
+            HOST_TUTOR_MOD_RS.contains("PUSH_TUTOR_DELTA"),
+            "src/tutor/mod.rs 가 tutor.delta 이름표를 쓰지 않습니다"
+        );
     }
 
     #[test]

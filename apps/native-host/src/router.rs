@@ -46,7 +46,7 @@ use std::thread;
 
 use serde_json::{json, Value};
 
-use classmate_providers::{ClaudeCliProvider, TutorProvider};
+use classmate_providers::{ClaudeCliProvider, SessionClaudeProvider, TutorProvider};
 use classmate_transport::framing::{self, Frame};
 use classmate_transport::schema::{describe, Violation};
 use classmate_transport::{envelope_reason, rule_for, validate_envelope};
@@ -152,6 +152,9 @@ pub struct TutorSources {
     pub claude_prefix_args: Vec<OsString>,
     /// 모델 이름입니다(`CLASSMATE_TUTOR_MODEL`). 없으면 CLI 기본값을 그대로 씁니다.
     pub model: Option<String>,
+    /// 한 교시 동안 자식 프로세스 하나를 살려 두고 여러 물음을 보낼지입니다
+    /// (`CLASSMATE_TUTOR_SESSION=1`). **기본값은 거짓**입니다.
+    pub reuse_session: bool,
 }
 
 impl TutorSources {
@@ -159,6 +162,13 @@ impl TutorSources {
     pub const CLAUDE_CLI_ENV: &'static str = "CLASSMATE_CLAUDE_CLI";
     /// 모델 이름을 담는 환경 변수 이름입니다.
     pub const MODEL_ENV: &'static str = "CLASSMATE_TUTOR_MODEL";
+    /// 프로세스를 다시 쓸지 정하는 환경 변수 이름입니다.
+    ///
+    /// **켜는 값은 `1` 하나뿐입니다.** `true`·`yes` 같은 말을 받지 않는 이유는, 오타 하나가
+    /// 수업 도중에 답이 끊기는 쪽으로 기울 수 있어 "켜려는 뜻이 분명할 때만" 켜기 위해서입니다.
+    pub const SESSION_ENV: &'static str = "CLASSMATE_TUTOR_SESSION";
+    /// [`Self::SESSION_ENV`] 를 켜는 유일한 값입니다.
+    pub const SESSION_ON: &'static str = "1";
 
     /// 환경 변수에서 읽습니다. 비어 있는 값은 없는 것으로 봅니다.
     pub fn from_env() -> Self {
@@ -167,6 +177,7 @@ impl TutorSources {
             claude_cli: read(Self::CLAUDE_CLI_ENV).map(PathBuf::from),
             claude_prefix_args: Vec::new(),
             model: read(Self::MODEL_ENV).map(|value| value.to_string_lossy().into_owned()),
+            reuse_session: read(Self::SESSION_ENV).is_some_and(|value| value == Self::SESSION_ON),
         }
     }
 }
@@ -561,6 +572,19 @@ fn provider_for(
         );
         return Err(TutorError::ProviderUnavailable);
     };
+    if sources.reuse_session {
+        // 한 교시 동안 프로세스 하나를 살려 둡니다. 실제 CLI 로 확인하지 못한 길이라
+        // env 를 켤 때만 탑니다(`crates/providers/src/session.rs` 머리말).
+        eprintln!(
+            "[classmate-host] {}={} 이라 튜터 프로세스를 교시 동안 다시 씁니다",
+            TutorSources::SESSION_ENV,
+            TutorSources::SESSION_ON
+        );
+        return Ok(Box::new(SessionClaudeProvider::with_prefix_args(
+            cli.clone(),
+            sources.claude_prefix_args.clone(),
+        )));
+    }
     Ok(Box::new(ClaudeCliProvider::with_prefix_args(
         cli.clone(),
         sources.claude_prefix_args.clone(),
@@ -1422,10 +1446,15 @@ mod tests {
             claude_cli: Some(node_runtime()),
             claude_prefix_args: prefix,
             model: None,
+            reuse_session: false,
         }
     }
 
     /// 자발 알림 가운데 원하는 사건이 올 때까지 기다린다. 자식 프로세스 기동까지 넉넉히 잡는다.
+    ///
+    /// 같은 통로에는 답이 만들어지는 동안 흐르는 조각(`tutor.delta`)도 실린다. 그것은 사건이
+    /// 아니라 화면을 한 번 갱신하는 일회성 알림이라 여기서는 지나친다. 그 둘 말고 다른 모양이
+    /// 이 통로로 나가면 확장이 조용히 버리므로, 아는 이름인지는 그대로 확인한다.
     fn wait_for_event(sink: &Receiver<Value>, event_type: &str) -> Value {
         let deadline = Instant::now() + Duration::from_secs(60);
         loop {
@@ -1433,7 +1462,10 @@ mod tests {
             let pushed = sink
                 .recv_timeout(remaining)
                 .unwrap_or_else(|_| panic!("{event_type} 알림이 60초 안에 오지 않았다"));
-            assert_eq!(pushed["type"], "tutor.event", "{pushed}");
+            assert!(
+                classmate_transport::PUSH_KINDS.contains(&pushed["type"].as_str().unwrap_or("")),
+                "모르는 모양이 밀려 나갔다 · {pushed}"
+            );
             if pushed["event"]["type"] == event_type {
                 return pushed;
             }
@@ -1476,6 +1508,53 @@ mod tests {
             drain(&sink).is_empty(),
             "파이프라인을 띄우면 안 된다 — 자발 알림이 하나도 없어야 한다"
         );
+    }
+
+    #[test]
+    fn the_session_switch_is_off_unless_the_environment_says_exactly_one() {
+        // 켜는 값은 `1` 하나뿐이다. 오타 하나로 확인되지 않은 길을 타면 수업 중에 답이 끊긴다.
+        // (여기서 만드는 것은 값 하나이고, 그 값으로 제공자를 띄우지는 않는다.)
+        assert!(!TutorSources::default().reuse_session, "기본값은 꺼짐이다");
+
+        for (value, expected) in [("1", true), ("0", false), ("true", false), ("yes", false)] {
+            let _guard = EnvGuard::set(TutorSources::SESSION_ENV, value);
+            assert_eq!(
+                TutorSources::from_env().reuse_session,
+                expected,
+                "{}={value}",
+                TutorSources::SESSION_ENV
+            );
+        }
+    }
+
+    #[test]
+    fn the_session_switch_makes_the_router_reuse_one_child_process() {
+        // 라우터가 실제로 어느 제공자를 고르는지를 **spawn 수**로 확인한다. 이것이 이 길에서
+        // 검증 가능하게 주장하는 전부다 — "몇 초 빨라진다" 는 주장이 아니다.
+        let dir = temp_dir("tutor-session");
+        let spawn_file = dir.join("spawns.txt");
+        let recorded = spawn_file.to_string_lossy().to_string();
+
+        let (router, sink) = router_with(&dir);
+        let mut sources = fake_tutor_sources(&["--session", "--spawn-file", &recorded]);
+        sources.reuse_session = true;
+        let mut router = router.with_tutor_sources(sources);
+
+        for index in 1..=3 {
+            let mut ask = tutor_ask_request();
+            ask["questionId"] = json!(format!("q-p3-{index:03}"));
+            assert_eq!(router.handle(ask)["type"], "tutor.accepted");
+            wait_for_event(&sink, "answer.completed");
+        }
+        // 자식을 거두고 나서 셈을 읽는다. 라우터를 떨어뜨리면 파이프라인이 멈춘다.
+        drop(router);
+
+        let spawned: usize = std::fs::read_to_string(&spawn_file)
+            .expect("가짜 CLI 가 적은 spawn 수")
+            .trim()
+            .parse()
+            .expect("숫자");
+        assert_eq!(spawned, 1, "질문 세 번에 자식 프로세스는 하나여야 한다");
     }
 
     #[test]

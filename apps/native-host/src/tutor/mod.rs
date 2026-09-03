@@ -31,6 +31,7 @@
 
 pub mod answer;
 pub mod clock;
+pub mod delta;
 pub mod events;
 pub mod materials;
 pub mod prompt;
@@ -50,10 +51,12 @@ use classmate_providers::{
     AskRequest, ContextSnapshot, ProviderError, ProviderEvent, TutorProvider,
 };
 use classmate_transport::schema::{self, SchemaKind};
+use classmate_transport::{PUSH_TUTOR_DELTA, PUSH_TUTOR_EVENT};
 
 use crate::store::{SessionEvent, SessionStore};
 use crate::tutor::answer::{AnswerIds, AnswerStatus};
 use crate::tutor::clock::{SystemClock, TutorClock};
+use crate::tutor::delta::ConclusionStream;
 
 /// 한 번의 물음에 허락하는 시간입니다.
 ///
@@ -75,6 +78,17 @@ pub const DEFAULT_MAX_AUTO_RETRIES: usize = 3;
 /// 기본 제공자 이름입니다. 계약 `answer.schema.json` 의 `provider` enum 에 있는 낱말입니다.
 pub const DEFAULT_PROVIDER: &str = "claude";
 
+/// 자료 문단에 실을 최대 글자 수입니다.
+///
+/// 2026-09-03 실측에서 오늘 실제로 나간 자료 문단은 289~601자였습니다. 반면 봉인 문단 수가
+/// 늘어난 최악의 경우(20문단 · 문단당 200~400자)를 다시 조립해 보면 약 6,993자가 됩니다.
+/// 2,000자는 **오늘 쓰는 자료를 한 글자도 건드리지 않으면서** 그 최악의 경우를 3분의 1 아래로
+/// 묶는 자리입니다. 상한은 "언젠가 자르는 자리" 이지 목표 길이가 아닙니다.
+///
+/// 잘라 낼 때는 앞을 버리고 뒤를 남깁니다 — 학생이 묻는 것은 방금 들은 말이기 때문입니다
+/// (`materials::render_with_limit`).
+pub const DEFAULT_MAX_MATERIAL_CHARS: usize = 2_000;
+
 /// 같은 기록 id 가 이미 있을 때 다음 번호로 넘어가 다시 넣어 보는 횟수입니다.
 const APPEND_ID_ATTEMPTS: usize = 8;
 
@@ -91,6 +105,8 @@ pub struct TutorConfig {
     pub provider_name: String,
     /// 쓸 모델 이름입니다. `None` 이면 CLI 기본값을 그대로 씁니다.
     pub model: Option<String>,
+    /// 자료 문단에 실을 최대 글자 수입니다. 넘치면 오래된 전사부터 뺍니다.
+    pub max_material_chars: usize,
 }
 
 impl Default for TutorConfig {
@@ -101,6 +117,7 @@ impl Default for TutorConfig {
             max_auto_retries: DEFAULT_MAX_AUTO_RETRIES,
             provider_name: DEFAULT_PROVIDER.to_string(),
             model: None,
+            max_material_chars: DEFAULT_MAX_MATERIAL_CHARS,
         }
     }
 }
@@ -264,6 +281,7 @@ impl TutorPipeline {
             provider,
             provider_name: config.provider_name.clone(),
             model: config.model.clone(),
+            max_material_chars: config.max_material_chars,
             timeout: config.timeout,
             retry_delays: config.retry_delays.clone(),
             max_auto_retries: config.max_auto_retries,
@@ -490,6 +508,8 @@ struct Worker {
     provider: Box<dyn TutorProvider + Send>,
     provider_name: String,
     model: Option<String>,
+    /// 자료 문단에 실을 최대 글자 수입니다. 넘치면 오래된 전사부터 뺍니다.
+    max_material_chars: usize,
     timeout: Duration,
     retry_delays: Vec<Duration>,
     max_auto_retries: usize,
@@ -704,14 +724,30 @@ impl Worker {
             request = request.with_model(model.clone());
         }
 
-        // 진행 조각(생각하는 중 표시)은 단위 5 가 라우터에 붙일 때 이 자리를 잇습니다.
-        let mut sink = |_event: ProviderEvent| {};
+        // 진행 조각을 흘려보내는 자리입니다. 예전에는 여기가 빈 클로저라 제공자가 보낸 조각을
+        // 전부 버렸고, 학생은 질문 뒤 7~24초 동안 화면에서 글자를 하나도 못 봤습니다
+        // (2026-09-03 실측). 이제는 `conclusion` 이 자라는 만큼만 뽑아 확장으로 밉니다.
+        let question_id = sealed.envelope.question_id.as_str();
+        let mut stream = ConclusionStream::new();
+        let mut sink = |event: ProviderEvent| {
+            let ProviderEvent::TextDelta(text) = event else {
+                // Status·Usage 는 화면에 그릴 것이 없어 여기서 끝냅니다.
+                return;
+            };
+            if let Some(delta) = stream.push(&text) {
+                self.push_delta(question_id, &delta);
+            }
+        };
         let outcome = self.provider.ask(&request, &mut sink).map_err(|error| {
             // 오류 문구에는 CLI 의 stderr 꼬리가 섞일 수 있어 고정된 이유표만 남깁니다(§4-3).
             let reason = provider_reason(&error);
             eprintln!("classmate-host tutor: 제공자 호출이 실패했습니다 · {reason}");
             AttemptError::Provider(reason)
         })?;
+        // 회차가 끝났습니다. 결론을 못 찾은 회차라도 마지막 진행도 한 번은 흘려 줍니다.
+        if let Some(last) = stream.finish() {
+            self.push_delta(question_id, &last);
+        }
 
         let created_at = self.clock.now_kst();
         let parsed = answer::parse_body(&outcome.text).map_err(|error| {
@@ -752,7 +788,7 @@ impl Worker {
 
         let bundle = materials::collect(&stored, &sealed.snapshot);
         Body {
-            materials: materials::render(&bundle),
+            materials: materials::render_with_limit(&bundle, self.max_material_chars),
             question: prompt::build(sealed.ask_text()),
         }
     }
@@ -974,11 +1010,31 @@ impl Worker {
         };
 
         let message = json!({
-            "type": "tutor.event",
+            "type": PUSH_TUTOR_EVENT,
             "periodId": self.period_id,
             "event": value,
         });
         // 받는 쪽이 이미 사라졌으면(라우터 종료) 더 할 일이 없습니다.
+        let _ = self.out.send(message);
+    }
+
+    /// 답이 만들어지는 **동안** 조각 하나를 흘려보냅니다.
+    ///
+    /// [`Worker::push`] 와 달리 **저장소에 붙이지 않습니다.** 계약(`session-event.schema.json`)의
+    /// `type` enum 은 닫혀 있어 이런 종류를 만들 수 없고, 만들 이유도 없습니다 — 이것은 화면을
+    /// 한 번 갱신하는 일회성 알림이고 정본은 뒤따르는 `answer.completed` 입니다. 그래서 잃어도
+    /// 되는 값이며, 받는 쪽이 사라졌으면 조용히 버립니다.
+    fn push_delta(&self, question_id: &str, delta: &delta::Delta) {
+        let mut message = json!({
+            "type": PUSH_TUTOR_DELTA,
+            "periodId": self.period_id,
+            "questionId": question_id,
+            "seq": delta.seq,
+            "chars": delta.chars,
+        });
+        if let Some(text) = &delta.text {
+            message["text"] = Value::String(text.clone());
+        }
         let _ = self.out.send(message);
     }
 }
@@ -1021,6 +1077,7 @@ mod tests {
         );
         assert_eq!(config.max_auto_retries, 3);
         assert_eq!(config.model, None);
+        assert_eq!(config.max_material_chars, 2_000);
     }
 
     #[test]

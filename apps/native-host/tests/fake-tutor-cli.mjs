@@ -23,12 +23,19 @@
 //   --delay-ms <n>         호출 수를 센 뒤 n 밀리초 자고 나서 답을 내보냅니다(회차를 늦춥니다).
 //   --bad-json             JSON 이 아닌 글을 답으로 내보냅니다(파싱 실패 유도).
 //   --too-long             conclusion 이 41자인 답을 내보냅니다(계약 검사 실패 유도).
+//   --partial              답 JSON 을 stream_event 청크 여러 개로 쪼개 먼저 흘립니다.
+//                          실제 CLI 처럼 `--include-partial-messages` 를 실제로 받았을 때만 흘립니다.
+//   --session              stdin 을 줄 단위로 읽어 **한 줄마다** 답 한 벌을 냅니다. 프로세스는
+//                          stdin 이 닫힐 때까지 살아 있습니다(SessionClaudeProvider 시험용).
+//   --spawn-file <경로>    프로세스가 뜰 때마다 그 파일의 숫자를 하나 올립니다. 시험이
+//                          "질문 세 번에 spawn 몇 회인가" 를 세는 자리입니다.
 //
 // stdin 으로 들어온 프롬프트는 **절대 실행하지 않습니다**(불변 원칙 §4-7).
 // 본문을 파일로 남기는 것은 "질문·전사는 argv 가 아니라 stdin 으로 왔는가" 를 시험이 대조하려고
 // 만든 **시험 전용 통로**이며 실제 CLI 의 동작이 아닙니다.
 
 import { readFileSync, writeFileSync } from 'node:fs'
+import { createInterface } from 'node:readline'
 import { pathToFileURL } from 'node:url'
 
 const MODEL = 'fake-tutor-model'
@@ -52,6 +59,22 @@ function emit(object) {
   process.stdout.write(JSON.stringify(object) + '\n')
 }
 
+// 부분 스트리밍 청크 한 줄입니다. 실제 CLI 가 `--include-partial-messages` 에서 내는 모양이며
+// `crates/providers/tests/fake-claude.mjs` 의 같은 함수와 같은 모양을 씁니다.
+function emitPartialChunk(text) {
+  emit({
+    type: 'stream_event',
+    event: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } },
+  })
+}
+
+/** 글을 size 글자씩 잘라 조각 목록으로 만듭니다. 결론이 조각 경계에 걸치게 하려는 것입니다. */
+function sliceInto(text, size) {
+  const pieces = []
+  for (let at = 0; at < text.length; at += size) pieces.push(text.slice(at, at + size))
+  return pieces
+}
+
 function valueAfter(argv, flag) {
   const at = argv.indexOf(flag)
   return at === -1 ? null : argv[at + 1]
@@ -68,6 +91,54 @@ function readArgs(argv) {
     delayMs: Number(valueAfter(argv, '--delay-ms') ?? 0),
     badJson: argv.includes('--bad-json'),
     tooLong: argv.includes('--too-long'),
+    partial: argv.includes('--partial'),
+    session: argv.includes('--session'),
+    spawnFile: valueAfter(argv, '--spawn-file'),
+    // 제공자가 언제나 붙이는 고정 인자입니다. 이 옵션이 실제로 와야 청크를 흘립니다.
+    includePartialMessages: argv.includes('--include-partial-messages'),
+  }
+}
+
+/** 프로세스가 뜬 횟수를 파일에 하나 더합니다. 시험이 spawn 수를 세는 유일한 통로입니다. */
+function bumpSpawnCount(path) {
+  if (path === null) return
+  let before = 0
+  try {
+    before = Number.parseInt(readFileSync(path, 'utf8').trim(), 10)
+    if (Number.isNaN(before)) before = 0
+  } catch {
+    before = 0
+  }
+  writeFileSync(path, String(before + 1), 'utf8')
+}
+
+/**
+ * `--input-format stream-json` 을 흉내 냅니다. stdin 한 줄이 물음 하나이고, 줄마다 답 한 벌을
+ * 냅니다. `system/init` 은 실제 CLI 와 같이 **세션에 한 번만** 냅니다.
+ *
+ * 받은 줄은 **절대 실행하지 않습니다**(불변 원칙 §4-7). 몇 번째 줄인지만 세고 버립니다.
+ */
+async function runSession(args) {
+  emit({ type: 'system', subtype: 'init', model: MODEL })
+
+  const answer = chooseAnswer(args)
+  const lines = createInterface({ input: process.stdin })
+  for await (const line of lines) {
+    if (line.trim() === '') continue
+    if (args.partial && args.includePartialMessages) {
+      for (const piece of sliceInto(answer, 7)) emitPartialChunk(piece)
+    }
+    emit({ type: 'assistant', message: { content: [{ type: 'text', text: answer }] } })
+    emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      duration_ms: 5,
+      duration_api_ms: 4,
+      num_turns: 1,
+      total_cost_usd: 0,
+      result: answer,
+    })
   }
 }
 
@@ -104,6 +175,14 @@ function chooseAnswer(args) {
 
 async function main() {
   const args = readArgs(process.argv.slice(2))
+  bumpSpawnCount(args.spawnFile)
+
+  if (args.session) {
+    // 세션 모드는 stdin 을 통째로 읽지 않습니다. 한 줄이 물음 하나이기 때문입니다.
+    await runSession(args)
+    return
+  }
+
   const stdin = await readStdin()
 
   if (args.dumpStdin !== null) {
@@ -135,6 +214,17 @@ async function main() {
   }
 
   const answer = chooseAnswer(args)
+
+  // 실제 CLI 와 같이, 청크는 `--include-partial-messages` 를 실제로 받았을 때만 흘립니다.
+  // 그래서 고정 인자에서 그 옵션이 빠지면 --partial 시험이 곧바로 깨집니다.
+  if (args.partial && !args.includePartialMessages) {
+    process.stderr.write('fake-tutor-cli: --partial 인데 청크 옵션이 없어 조각을 내지 않습니다\n')
+  }
+  if (args.partial && args.includePartialMessages) {
+    // 7글자씩 쪼갭니다. 답 JSON 의 conclusion 이 반드시 조각 경계에 걸치는 크기입니다.
+    for (const piece of sliceInto(answer, 7)) emitPartialChunk(piece)
+  }
+
   emit({ type: 'assistant', message: { content: [{ type: 'text', text: answer }] } })
   emit({
     type: 'result',
