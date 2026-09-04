@@ -209,9 +209,24 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
   같은 어긋남까지 함께 숨습니다. 지역시 → 지역시(`makePeriodId`)는 시간대가 상쇄돼 안전하고,
   지역시 → 절대시각(`toKstIso`)에서만 샙니다. UTC 러너가 그 경계를 지키는 장치입니다.
 - 위험:
-  - 저장소가 **공개**입니다. 비밀값·Tiro 공유 URL 검사는 `7d649bd..HEAD` 범위에서 0건이지만,
-    앞으로 커밋마다 계속 봐야 합니다(§4-2·§4-3).
-  - CI 는 e2e 18건을 돌리지 않습니다. Playwright 회귀는 로컬에서만 잡힙니다.
+  - **[정정 2026-09-04 06:20] 저장소는 「공개」가 아니라 비공개(private)입니다.**
+    이 항목을 처음 쓸 때 확인 없이 「공개」라고 적었습니다. `gh api repos/kodonghui/corthex-classmate`
+    가 `{"private": true, "visibility": "private"}` 를 내고, 미인증 `curl` 은 404 입니다.
+    `docs/master-prompt.md` 미결 표의 「라이선스·공개 여부 | 비공개 PoC → 친구 베타 때 재결정」
+    대로 된 것이라 계획 위반은 아닙니다. 다만 위험의 성격이 바뀝니다 — 「이미 샜다」가 아니라
+    **「공개로 돌리기 전에 반드시 치울 것이 있다」**입니다.
+  - **공개로 돌리기 전 치울 것: `.kdh-sessions/`.** `.gitignore` 에 없어 추적되고 있고, 개인 로컬
+    경로(`C:\Users\elddl\…`)가 든 추적 파일이 **18개**입니다
+    (`git grep -lIE 'Users[\\/]+elddl' -- . | wc -l`). 비밀값 자체는 이력 전체(`--all`)를 훑어도
+    실제 값 0건이고 검출된 5건은 전부 자리표시자(`tiro.ooo/s/abcdef` 따위)였습니다.
+  - **CI 초록은 「시험 통과」이지 「관문 통과」가 아닙니다.** 워크플로의 마지막 단계가 `pnpm test`
+    하나뿐이라 **네 관문이 CI 밖**입니다 — `pnpm typecheck` · `cargo clippy` · `cargo fmt --check` ·
+    playwright e2e 18건. rustup 단계가 `--component rustfmt --component clippy` 로 도구를 깔기만
+    하고 부르지 않아 오히려 오해를 키웁니다.
+  - `entrypoints/**` 는 여전히 단위 시험 0건입니다(`vitest.config.ts` 의 include 가 `src/**` 뿐).
   - `actions/checkout@v4` 등이 Node 20 폐기 경고를 냅니다. 아직 동작하지만 v5 로 올릴 시점이 옵니다.
+  - **U-06 의 「뒷 탭」이 무슨 뜻인지 계획·WORKLOG 어디에도 안 적혀 있습니다.** (가) 같은 창의
+    비활성 탭인지 (나) 다른 창의 활성 탭인지에 따라 결과 해석이 정반대입니다 — `pickMeetTab` 이
+    `active !== true` 를 버리므로 (가)라면 고침과 무관하게 0장이 나옵니다. 재기 전에 사람이 정해야 합니다.
 - 다음 행동: **U-06 Meet 캡처 실측 — 사람이 합니다.** 절차는 바로 앞 항목에 있고 숫자 칸은
   비어 있습니다. 이 숫자가 나와야 U-14 를 만들 값어치가 있는지 판단할 수 있습니다.
