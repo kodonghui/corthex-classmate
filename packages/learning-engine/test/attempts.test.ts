@@ -190,4 +190,30 @@ describe("활동 시도 기록", () => {
     expect(corrected.attempts[0]?.response).toBe("첫 답");
     expect(corrected.attempts[0]?.selfCorrection).toBe("고친 답");
   });
+
+  it("빈값 검사만 trim으로 하고 응답·자기 수정·피드백 원문은 그대로 보존한다", () => {
+    const response = '  C:\\Classmate\\clips\\frame.jpg\r\n%2Fraw <script>response-canary</script>\r\n';
+    const selfCorrection =
+      '\tD:\\Classmate\\notes\\correction.txt\r\n%2Fkeep <img data-canary="self-correction">\n';
+    const feedback =
+      '  E:\\Classmate\\reports\\feedback.html\n%2Fencoded <b>feedback-canary</b>\r\n';
+    const card = recallCard();
+    const draft = beginAttempt(card, "2026-09-04T10:00:00+09:00");
+    const submitted = submitAttempt(card, draft, {
+      response,
+      confidence: 4,
+      submittedAt: "2026-09-04T10:01:00+09:00",
+    });
+    const revealed = revealAttemptAnswer(
+      submitted,
+      draft.id,
+      "2026-09-04T10:02:00+09:00",
+    );
+    const corrected = recordSelfCorrection(revealed, draft.id, selfCorrection);
+    const withFeedback = recordAttemptFeedback(corrected, draft.id, feedback);
+
+    expect(withFeedback.attempts[0]?.response).toBe(response);
+    expect(withFeedback.attempts[0]?.selfCorrection).toBe(selfCorrection);
+    expect(withFeedback.attempts[0]?.feedback).toBe(feedback);
+  });
 });

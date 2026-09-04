@@ -126,8 +126,7 @@ export function submitAttempt(
     throw new AttemptTransitionError(`시도 ${draft.id}는 이미 제출되었습니다.`);
   }
 
-  const response = submission.response.trim();
-  if (response.length === 0) {
+  if (submission.response.trim().length === 0) {
     throw new AttemptTransitionError("답을 공개하기 전에 사용자 응답을 먼저 적어야 합니다.");
   }
   if (
@@ -143,7 +142,7 @@ export function submitAttempt(
     id: draft.id,
     startedAt: draft.startedAt,
     submittedAt: submission.submittedAt,
-    response,
+    response: submission.response,
     confidence: submission.confidence,
     hintLevel: draft.hintLevel,
   };
@@ -171,15 +170,14 @@ export function recordSelfCorrection(
   attemptId: string,
   selfCorrection: string,
 ): ActivityCard {
-  const correction = selfCorrection.trim();
-  if (correction.length === 0) {
+  if (selfCorrection.trim().length === 0) {
     throw new AttemptTransitionError("자기 수정 내용은 비워 둘 수 없습니다.");
   }
   return replaceAttempt(card, attemptId, (attempt) => {
     if (attempt.revealedAt === undefined) {
       throw new AttemptTransitionError("답을 공개한 뒤에 자기 수정을 기록할 수 있습니다.");
     }
-    return { ...attempt, selfCorrection: correction };
+    return { ...attempt, selfCorrection };
   });
 }
 
@@ -189,15 +187,14 @@ export function recordAttemptFeedback(
   attemptId: string,
   feedback: string,
 ): ActivityCard {
-  const compact = feedback.trim();
-  if (compact.length === 0) {
+  if (feedback.trim().length === 0) {
     throw new AttemptTransitionError("피드백은 비워 둘 수 없습니다.");
   }
   return replaceAttempt(card, attemptId, (attempt) => {
     if (attempt.revealedAt === undefined) {
       throw new AttemptTransitionError("답을 공개한 뒤에 피드백을 기록할 수 있습니다.");
     }
-    return { ...attempt, feedback: compact };
+    return { ...attempt, feedback };
   });
 }
 
