@@ -66,6 +66,8 @@ pub enum ExtraCheck {
     /// `question.schema.json` 의 `/properties/snapshot` 정의에 맞아야 하며,
     /// `question` 과 `word` 는 있으면 [`QUESTION_MAX_BYTES`] 이하의 문자열이어야 합니다.
     AskSnapshot,
+    /// V2 조회의 `sessionId`가 현재 V1 파일 키인 계약 `PeriodId` 모양이어야 합니다.
+    SessionId,
 }
 
 /// 봉투 하나를 어떻게 검사할지 적어 둔 줄입니다.
@@ -90,7 +92,7 @@ pub struct EnvelopeRule {
 /// `apps/native-host/src/router.rs` 의 `Router::handle` 이 실제로 나눠 주는 이름과 같습니다.
 /// 한쪽만 늘면 `the_table_matches_the_router_in_router_rs` 시험이 먼저 빨갛게 됩니다.
 /// 여기 없는 `type` 은 호스트가 `unknown-message-type` 으로 답하므로 이 표도 모르는 것으로 답합니다.
-pub const ENVELOPE_RULES: [EnvelopeRule; 7] = [
+pub const ENVELOPE_RULES: [EnvelopeRule; 10] = [
     EnvelopeRule {
         message_type: "ping",
         needs_period_id: false,
@@ -122,6 +124,30 @@ pub const ENVELOPE_RULES: [EnvelopeRule; 7] = [
         payload: None,
         extra: ExtraCheck::None,
         summary: "이 교시를 JSONL 로 내보냅니다",
+    },
+    EnvelopeRule {
+        message_type: "session.list",
+        needs_period_id: false,
+        needs_question_id: false,
+        payload: None,
+        extra: ExtraCheck::None,
+        summary: "저장된 과거 세션 목록을 읽습니다",
+    },
+    EnvelopeRule {
+        message_type: "session.getSummary",
+        needs_period_id: false,
+        needs_question_id: false,
+        payload: None,
+        extra: ExtraCheck::SessionId,
+        summary: "과거 세션 한 개의 요약을 읽습니다",
+    },
+    EnvelopeRule {
+        message_type: "session.bundle",
+        needs_period_id: false,
+        needs_question_id: false,
+        payload: None,
+        extra: ExtraCheck::SessionId,
+        summary: "V1 기록을 V2 세션 번들로 읽습니다",
     },
     EnvelopeRule {
         message_type: "frame.store",
@@ -278,12 +304,31 @@ pub fn validate_envelope(message: &Value) -> Result<&'static EnvelopeRule, Vec<V
         ExtraCheck::None => {}
         ExtraCheck::FrameBody => violations.extend(frame_body_violations(fields)),
         ExtraCheck::AskSnapshot => violations.extend(ask_violations(fields)),
+        ExtraCheck::SessionId => violations.extend(session_id_violations(fields)),
     }
 
     if violations.is_empty() {
         Ok(rule)
     } else {
         Err(violations)
+    }
+}
+
+/// V2 `sessionId`는 Slice 1에서 V1 `periodId`를 그대로 가리킵니다.
+///
+/// 파일 이름이 되는 값이라 넓은 `Id`가 아니라 계약 `PeriodId`로 검사합니다. 나중에 별도
+/// V2 식별자를 도입하면 호스트 어댑터가 안전한 별도 색인을 갖춘 뒤 이 경계를 넓힙니다.
+fn session_id_violations(fields: &serde_json::Map<String, Value>) -> Vec<Violation> {
+    match fields.get("sessionId") {
+        Some(session_id) => schema::validate_definition(SchemaKind::Common, "PeriodId", session_id)
+            .err()
+            .map(|found| prefixed("sessionId", found))
+            .unwrap_or_default(),
+        None => vec![Violation {
+            path: "/sessionId".to_string(),
+            message: "꼭 있어야 하는 값이 없습니다".to_string(),
+            kind: ViolationKind::Value,
+        }],
     }
 }
 
@@ -724,13 +769,16 @@ mod tests {
     }
 
     #[test]
-    fn the_table_holds_the_seven_request_types() {
-        // 고정 계약이 말하는 일곱 이름입니다. 순서까지 표와 같아야 합니다.
-        const EXPECTED: [&str; 7] = [
+    fn the_table_holds_the_ten_request_types() {
+        // V1 일곱 이름과 V2 읽기 세 이름입니다. 순서까지 표와 같아야 합니다.
+        const EXPECTED: [&str; 10] = [
             "ping",
             "event.append",
             "session.status",
             "session.export",
+            "session.list",
+            "session.getSummary",
+            "session.bundle",
             "frame.store",
             "tutor.ask",
             "tutor.retry",
@@ -738,6 +786,33 @@ mod tests {
 
         let ours: Vec<&str> = ENVELOPE_RULES.iter().map(|r| r.message_type).collect();
         assert_eq!(ours, EXPECTED.to_vec());
+    }
+
+    #[test]
+    fn v2_session_reads_take_a_safe_legacy_session_id() {
+        assert!(validate_envelope(&json!({
+            "type": "session.getSummary",
+            "sessionId": "2026-09-04-p3"
+        }))
+        .is_ok());
+        assert!(validate_envelope(&json!({
+            "type": "session.bundle",
+            "sessionId": "2026-09-04-p3"
+        }))
+        .is_ok());
+        assert!(validate_envelope(&json!({ "type": "session.list" })).is_ok());
+
+        let missing = validate_envelope(&json!({ "type": "session.bundle" }))
+            .expect_err("sessionId가 필요합니다");
+        assert_eq!(paths(&missing), vec!["/sessionId"]);
+
+        let escaping = validate_envelope(&json!({
+            "type": "session.getSummary",
+            "sessionId": "../../secret"
+        }))
+        .expect_err("파일 키가 될 수 없습니다");
+        assert_eq!(paths(&escaping), vec!["/sessionId"]);
+        assert!(!describe(&escaping).contains("secret"));
     }
 
     #[test]

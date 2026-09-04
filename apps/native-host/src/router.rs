@@ -52,6 +52,7 @@ use classmate_transport::schema::{describe, Violation};
 use classmate_transport::{envelope_reason, rule_for, validate_envelope};
 
 use crate::store::frames::ScreenFrameMeta;
+use crate::store::sessions::{SessionCatalog, SessionReadError};
 use crate::store::{self, base64, SessionEvent, SessionStore, StoreError};
 use crate::tutor::{self, AskEnvelope, TutorConfig, TutorError, TutorHandle, TutorPipeline};
 
@@ -263,6 +264,15 @@ impl Router {
             "session.export" => self
                 .try_export(&msg)
                 .unwrap_or_else(|error| store_failure(kind, &error)),
+            "session.list" => self
+                .try_list_sessions()
+                .unwrap_or_else(|error| session_read_failure(kind, &error)),
+            "session.getSummary" => self
+                .try_session_summary(&msg)
+                .unwrap_or_else(|error| session_read_failure(kind, &error)),
+            "session.bundle" => self
+                .try_session_bundle(&msg)
+                .unwrap_or_else(|error| session_read_failure(kind, &error)),
             "frame.store" => self
                 .try_store_frame(&msg)
                 .unwrap_or_else(|error| frame_failure(&error)),
@@ -459,6 +469,36 @@ impl Router {
         }))
     }
 
+    /// V1 SQLite 파일을 만들거나 마이그레이션하지 않고 저장된 세션 목록만 읽습니다.
+    fn try_list_sessions(&mut self) -> Result<Value, SessionReadError> {
+        let data_dir = self.data_dir().map_err(SessionReadError::from)?;
+        let sessions = SessionCatalog::new(data_dir).list()?;
+        Ok(json!({
+            "type": "session.listed",
+            "sessions": sessions,
+        }))
+    }
+
+    fn try_session_summary(&mut self, message: &Value) -> Result<Value, SessionReadError> {
+        let session_id = session_id_of(message)?;
+        let data_dir = self.data_dir().map_err(SessionReadError::from)?;
+        let summary = SessionCatalog::new(data_dir).get_summary(&session_id)?;
+        Ok(json!({
+            "type": "session.summary",
+            "summary": summary,
+        }))
+    }
+
+    fn try_session_bundle(&mut self, message: &Value) -> Result<Value, SessionReadError> {
+        let session_id = session_id_of(message)?;
+        let data_dir = self.data_dir().map_err(SessionReadError::from)?;
+        let bundle = SessionCatalog::new(data_dir).bundle(&session_id)?;
+        Ok(json!({
+            "type": "session.bundled",
+            "bundle": bundle,
+        }))
+    }
+
     /// `frame.store` — WebP 한 장을 파일로 놓고 메타와 `screen.frame` 기록을 함께 남깁니다.
     ///
     /// 봉투에 실린 `frame.path` 는 **대조용**일 뿐입니다. 실제로 쓰는 자리는 호스트가 `id` 로
@@ -510,6 +550,14 @@ fn period_id_of(message: &Value) -> store::Result<String> {
         .and_then(Value::as_str)
         .map(str::to_string)
         .ok_or(StoreError::InvalidPeriodId)
+}
+
+fn session_id_of(message: &Value) -> Result<String, SessionReadError> {
+    message
+        .get("sessionId")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .ok_or(SessionReadError::InvalidSessionId)
 }
 
 /// 봉투가 계약과 어긋났을 때의 응답입니다.
@@ -613,6 +661,21 @@ fn store_failure(kind: &str, error: &StoreError) -> Value {
     json!({
         "type": "error",
         "message": "session store failed",
+        "reason": error.reason_code(),
+        "received": kind,
+    })
+}
+
+/// 읽기 오류에는 SQLite의 원문이나 절대 경로를 싣지 않습니다.
+fn session_read_failure(kind: &str, error: &SessionReadError) -> Value {
+    eprintln!(
+        "[classmate-host] {kind} 과거 세션 조회가 실패했습니다 · {}",
+        error.reason_code()
+    );
+
+    json!({
+        "type": "error",
+        "message": "session read failed",
         "reason": error.reason_code(),
         "received": kind,
     })
@@ -1107,6 +1170,61 @@ mod tests {
 
         // 골든 시나리오 27줄이 다 지나가도 자발 push 는 하나도 없다.
         assert!(drain(&sink).is_empty());
+    }
+
+    #[test]
+    fn session_read_routes_return_the_v2_envelopes_without_changing_v1_storage() {
+        let dir = temp_dir("session-read");
+        let (mut router, _sink) = router_with(&dir);
+        let started = fixture_events().remove(0);
+
+        let ack = router.handle(json!({
+            "type": "event.append",
+            "periodId": started.period_id,
+            "event": started,
+        }));
+        assert_eq!(ack["type"], "event.ack", "{ack}");
+
+        let listed = router.handle(json!({ "type": "session.list" }));
+        assert_eq!(listed["type"], "session.listed", "{listed}");
+        assert_eq!(listed["sessions"][0]["sessionId"], "2026-09-02-p3");
+        assert_eq!(listed["sessions"][0]["profile"], "class");
+        assert_eq!(listed["sessions"][0]["eventCount"], 1);
+
+        let summary = router.handle(json!({
+            "type": "session.getSummary",
+            "sessionId": "2026-09-02-p3",
+        }));
+        assert_eq!(summary["type"], "session.summary", "{summary}");
+        assert_eq!(summary["summary"], listed["sessions"][0]);
+
+        let bundled = router.handle(json!({
+            "type": "session.bundle",
+            "sessionId": "2026-09-02-p3",
+        }));
+        assert_eq!(bundled["type"], "session.bundled", "{bundled}");
+        assert_eq!(bundled["bundle"]["schemaVersion"], "2");
+        assert_eq!(bundled["bundle"]["sessionId"], "2026-09-02-p3");
+        assert_eq!(bundled["bundle"]["summary"], summary["summary"]);
+        assert_eq!(bundled["bundle"]["activities"], json!([]));
+
+        let missing = router.handle(json!({
+            "type": "session.bundle",
+            "sessionId": "2026-09-02-p9",
+        }));
+        assert_eq!(missing["type"], "error", "{missing}");
+        assert_eq!(missing["message"], "session read failed", "{missing}");
+        assert_eq!(missing["reason"], "session-not-found", "{missing}");
+        assert_eq!(missing["received"], "session.bundle", "{missing}");
+
+        let invalid = router.handle(json!({
+            "type": "session.getSummary",
+            "sessionId": "../../secret",
+        }));
+        assert_eq!(invalid["type"], "error", "{invalid}");
+        assert_eq!(invalid["reason"], "envelope-invalid", "{invalid}");
+        assert_eq!(invalid["received"], "session.getSummary", "{invalid}");
+        assert!(!invalid.to_string().contains("secret"));
     }
 
     #[test]

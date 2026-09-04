@@ -28,6 +28,7 @@
 pub mod base64;
 pub mod clock;
 pub mod frames;
+pub mod sessions;
 
 use std::env;
 use std::ffi::OsString;

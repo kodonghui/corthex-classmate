@@ -14,9 +14,10 @@
 //! | `properties` · `required` · `additionalProperties` | `additionalProperties` 는 참/거짓만 |
 //! | `enum` · `const` | 값 그대로 비교 |
 //! | `minimum` · `maximum` · `minLength` · `maxLength` · `minItems` · `maxItems` | 길이는 글자(코드 포인트) 수 |
-//! | `items` | 스키마 낱개만(배열 형태는 다루지 않습니다) |
-//! | `pattern` | 계약에 실제로 있는 두 가지만 손으로 맞춰 봅니다 |
-//! | `format` | `date-time` 만. RFC 3339 을 손으로 읽습니다 |
+//! | `items` · `additionalItems` | 스키마 낱개와 고정 순서 튜플을 다룹니다 |
+//! | `uniqueItems` | JSON 값이 같은 배열 항목을 거절합니다 |
+//! | `pattern` | 계약에 실제로 있는 식별자·해시·미디어 타입·자산 경로 모양을 손으로 맞춰 봅니다 |
+//! | `format` | `date-time` · `date` · `uri`를 손으로 읽습니다 |
 //! | `$ref` | `#/definitions/…` · `다른파일.schema.json#/…` · 조각 없는 파일 통째 |
 //! | `allOf` · `if`/`then` | `else` 는 다루지 않습니다 |
 //!
@@ -36,11 +37,15 @@ use serde_json::Value;
 /// 스키마가 스스로를 가리키는 실수가 들어와도 멈추게 두는 안전선입니다.
 const MAX_REF_DEPTH: usize = 32;
 
-/// 계약에 실제로 들어 있는 정규식 두 가지입니다. 이 밖의 `pattern` 은 다루지 않습니다.
+/// 계약에 실제로 들어 있는 정규식입니다. 이 밖의 `pattern` 은 다루지 않습니다.
 const PERIOD_ID_PATTERN: &str = "^[0-9]{4}-[0-9]{2}-[0-9]{2}-p[1-9][0-9]*$";
 const LOWER_HEX_PATTERN: &str = "^[0-9a-f]+$";
+const LOWER_HEX_64_PATTERN: &str = "^[0-9a-f]{64}$";
+const MEDIA_TYPE_PATTERN: &str =
+    "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$";
+const SAFE_ASSET_PATH_PATTERN: &str = "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$";
 
-/// 계약 스키마 여덟 개입니다. 파일 이름이 곧 `$ref` 에서 쓰는 이름입니다.
+/// 계약 스키마 전부입니다. 파일 이름이 곧 `$ref` 에서 쓰는 이름입니다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SchemaKind {
     Common,
@@ -51,11 +56,19 @@ pub enum SchemaKind {
     Question,
     Answer,
     SessionEvent,
+    SessionProfileV2,
+    MaterialRef,
+    AssetRef,
+    TutorResponseV2,
+    SessionSummaryV2,
+    ActivityCard,
+    ActivitySetV2,
+    SessionBundleV2,
 }
 
 impl SchemaKind {
     /// 계약이 가진 스키마 전부입니다. 시험이 하나도 빠뜨리지 않았는지 확인하는 데도 씁니다.
-    pub const ALL: [SchemaKind; 8] = [
+    pub const ALL: [SchemaKind; 16] = [
         SchemaKind::Common,
         SchemaKind::EvidenceLevel,
         SchemaKind::TranscriptSegment,
@@ -64,6 +77,14 @@ impl SchemaKind {
         SchemaKind::Question,
         SchemaKind::Answer,
         SchemaKind::SessionEvent,
+        SchemaKind::SessionProfileV2,
+        SchemaKind::MaterialRef,
+        SchemaKind::AssetRef,
+        SchemaKind::TutorResponseV2,
+        SchemaKind::SessionSummaryV2,
+        SchemaKind::ActivityCard,
+        SchemaKind::ActivitySetV2,
+        SchemaKind::SessionBundleV2,
     ];
 
     /// 짧은 이름입니다. 보기 `session-event`
@@ -77,6 +98,14 @@ impl SchemaKind {
             SchemaKind::Question => "question",
             SchemaKind::Answer => "answer",
             SchemaKind::SessionEvent => "session-event",
+            SchemaKind::SessionProfileV2 => "session-profile-v2",
+            SchemaKind::MaterialRef => "material-ref",
+            SchemaKind::AssetRef => "asset-ref",
+            SchemaKind::TutorResponseV2 => "tutor-response-v2",
+            SchemaKind::SessionSummaryV2 => "session-summary-v2",
+            SchemaKind::ActivityCard => "activity-card",
+            SchemaKind::ActivitySetV2 => "activity-set-v2",
+            SchemaKind::SessionBundleV2 => "session-bundle-v2",
         }
     }
 
@@ -91,6 +120,14 @@ impl SchemaKind {
             SchemaKind::Question => "question.schema.json",
             SchemaKind::Answer => "answer.schema.json",
             SchemaKind::SessionEvent => "session-event.schema.json",
+            SchemaKind::SessionProfileV2 => "session-profile-v2.schema.json",
+            SchemaKind::MaterialRef => "material-ref.schema.json",
+            SchemaKind::AssetRef => "asset-ref.schema.json",
+            SchemaKind::TutorResponseV2 => "tutor-response-v2.schema.json",
+            SchemaKind::SessionSummaryV2 => "session-summary-v2.schema.json",
+            SchemaKind::ActivityCard => "activity-card.schema.json",
+            SchemaKind::ActivitySetV2 => "activity-set-v2.schema.json",
+            SchemaKind::SessionBundleV2 => "session-bundle-v2.schema.json",
         }
     }
 
@@ -129,6 +166,30 @@ impl SchemaKind {
             SchemaKind::SessionEvent => {
                 include_str!("../../../../../packages/contracts/schemas/session-event.schema.json")
             }
+            SchemaKind::SessionProfileV2 => include_str!(
+                "../../../../../packages/contracts/schemas/session-profile-v2.schema.json"
+            ),
+            SchemaKind::MaterialRef => {
+                include_str!("../../../../../packages/contracts/schemas/material-ref.schema.json")
+            }
+            SchemaKind::AssetRef => {
+                include_str!("../../../../../packages/contracts/schemas/asset-ref.schema.json")
+            }
+            SchemaKind::TutorResponseV2 => include_str!(
+                "../../../../../packages/contracts/schemas/tutor-response-v2.schema.json"
+            ),
+            SchemaKind::SessionSummaryV2 => include_str!(
+                "../../../../../packages/contracts/schemas/session-summary-v2.schema.json"
+            ),
+            SchemaKind::ActivityCard => {
+                include_str!("../../../../../packages/contracts/schemas/activity-card.schema.json")
+            }
+            SchemaKind::ActivitySetV2 => include_str!(
+                "../../../../../packages/contracts/schemas/activity-set-v2.schema.json"
+            ),
+            SchemaKind::SessionBundleV2 => include_str!(
+                "../../../../../packages/contracts/schemas/session-bundle-v2.schema.json"
+            ),
         }
     }
 }
@@ -284,7 +345,7 @@ fn validate_at(
 pub fn schema_of(kind: SchemaKind) -> &'static Value {
     registry()
         .get(kind.file_name())
-        .expect("계약 스키마 여덟 개는 모두 등록되어 있습니다")
+        .expect("계약 스키마는 모두 등록되어 있습니다")
 }
 
 fn registry() -> &'static HashMap<&'static str, Value> {
@@ -353,7 +414,18 @@ fn check(
             "additionalProperties" => {
                 check_additional_properties(spec, map.get("properties"), value, path, out)
             }
-            "items" => check_items(root, spec, value, path, depth, out),
+            "items" => check_items(
+                root,
+                spec,
+                map.get("additionalItems"),
+                value,
+                path,
+                depth,
+                out,
+            ),
+            // 튜플 items와 함께 위에서 처리합니다.
+            "additionalItems" => {}
+            "uniqueItems" => check_unique_items(spec, value, path, out),
             "minimum" => check_bound(spec, value, path, Bound::Minimum, out),
             "maximum" => check_bound(spec, value, path, Bound::Maximum, out),
             "minLength" => check_length(spec, value, path, Bound::Minimum, out),
@@ -690,31 +762,66 @@ fn safe_name(name: &str) -> Option<&str> {
 fn check_items(
     root: &Value,
     spec: &Value,
+    additional: Option<&Value>,
     value: &Value,
     path: &str,
     depth: usize,
     out: &mut Vec<Violation>,
 ) {
-    if spec.is_array() {
+    let Some(items) = value.as_array() else {
+        return;
+    };
+
+    if let Some(tuple) = spec.as_array() {
+        for (index, item) in items.iter().enumerate().take(tuple.len()) {
+            check(
+                root,
+                &tuple[index],
+                item,
+                &child_path(path, &index.to_string()),
+                depth,
+                out,
+            );
+        }
+        if items.len() > tuple.len() && additional == Some(&Value::Bool(false)) {
+            out.push(Violation::value(
+                path,
+                format!("항목은 최대 {} 개입니다", tuple.len()),
+            ));
+        }
+    } else {
+        for (index, item) in items.iter().enumerate() {
+            check(
+                root,
+                spec,
+                item,
+                &child_path(path, &index.to_string()),
+                depth,
+                out,
+            );
+        }
+    }
+}
+
+fn check_unique_items(spec: &Value, value: &Value, path: &str, out: &mut Vec<Violation>) {
+    let Some(unique) = spec.as_bool() else {
         out.push(Violation::unsupported(
             path,
-            "items 는 스키마 낱개만 다룹니다 · 배열 형태는 다루지 않습니다",
+            "uniqueItems 는 참/거짓이어야 합니다",
         ));
+        return;
+    };
+    if !unique {
         return;
     }
     let Some(items) = value.as_array() else {
         return;
     };
-
     for (index, item) in items.iter().enumerate() {
-        check(
-            root,
-            spec,
-            item,
-            &child_path(path, &index.to_string()),
-            depth,
-            out,
-        );
+        if items[..index].contains(item) {
+            out.push(Violation::value(path, "배열 항목은 서로 달라야 합니다"));
+            return;
+        }
     }
 }
 
@@ -849,6 +956,9 @@ fn matches_known_pattern(pattern: &str, text: &str) -> Option<bool> {
     match pattern {
         PERIOD_ID_PATTERN => Some(is_period_id(text)),
         LOWER_HEX_PATTERN => Some(is_lower_hex(text)),
+        LOWER_HEX_64_PATTERN => Some(text.len() == 64 && is_lower_hex(text)),
+        MEDIA_TYPE_PATTERN => Some(is_media_type(text)),
+        SAFE_ASSET_PATH_PATTERN => Some(is_safe_asset_path(text)),
         _ => None,
     }
 }
@@ -857,6 +967,9 @@ fn pattern_hint(pattern: &str) -> &'static str {
     match pattern {
         PERIOD_ID_PATTERN => "교시 이름은 2026-09-02-p3 모양입니다",
         LOWER_HEX_PATTERN => "소문자 16진 숫자만 쓸 수 있습니다",
+        LOWER_HEX_64_PATTERN => "소문자 16진 숫자 64자여야 합니다",
+        MEDIA_TYPE_PATTERN => "image/jpeg 같은 미디어 타입이어야 합니다",
+        SAFE_ASSET_PATH_PATTERN => "번들 안의 안전한 슬래시 상대경로여야 합니다",
         _ => "계약의 pattern 을 보세요",
     }
 }
@@ -895,7 +1008,33 @@ fn is_lower_hex(text: &str) -> bool {
             .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
-/// `format` 은 계약이 쓰는 `date-time` 하나만 다룹니다.
+fn is_media_type(text: &str) -> bool {
+    let Some((top, sub)) = text.split_once('/') else {
+        return false;
+    };
+    let allowed = |part: &str| {
+        let mut letters = part.bytes();
+        letters
+            .next()
+            .is_some_and(|first| first.is_ascii_alphanumeric())
+            && letters
+                .all(|letter| letter.is_ascii_alphanumeric() || b"!#$&^_.+-".contains(&letter))
+    };
+    allowed(top) && allowed(sub) && !sub.contains('/')
+}
+
+fn is_safe_asset_path(text: &str) -> bool {
+    if text.is_empty() || text.starts_with('/') || text.contains('\\') {
+        return false;
+    }
+    let bytes = text.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        return false;
+    }
+    !text.split('/').any(|part| part == "..")
+}
+
+/// 계약이 쓰는 `date-time`·`date`·`uri`를 다룹니다.
 fn check_format(spec: &Value, value: &Value, path: &str, out: &mut Vec<Violation>) {
     let Some(format) = spec.as_str() else {
         out.push(Violation::unsupported(
@@ -904,23 +1043,78 @@ fn check_format(spec: &Value, value: &Value, path: &str, out: &mut Vec<Violation
         ));
         return;
     };
-    if format != "date-time" {
-        out.push(Violation::unsupported(
-            path,
-            format!("지원하지 않는 format 입니다: {format}"),
-        ));
-        return;
-    }
     let Some(text) = value.as_str() else {
         return;
     };
 
-    if !is_rfc3339_date_time(text) {
-        out.push(Violation::value(
-            path,
+    let (valid, message) = match format {
+        "date-time" => (
+            is_rfc3339_date_time(text),
             "시각 모양이 아닙니다 · 2026-09-02T10:32:18+09:00 처럼 적습니다",
-        ));
+        ),
+        "date" => (
+            is_calendar_date(text),
+            "날짜 모양이 아닙니다 · 2026-09-02 처럼 적습니다",
+        ),
+        "uri" => (is_absolute_uri(text), "절대 URI 모양이 아닙니다"),
+        _ => {
+            out.push(Violation::unsupported(
+                path,
+                format!("지원하지 않는 format 입니다: {format}"),
+            ));
+            return;
+        }
+    };
+    if !valid {
+        out.push(Violation::value(path, message));
     }
+}
+
+fn is_calendar_date(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    if bytes.len() != 10 || bytes[4] != b'-' || bytes[7] != b'-' {
+        return false;
+    }
+    let number = |part: &[u8]| -> Option<u32> {
+        if !part.iter().all(u8::is_ascii_digit) {
+            return None;
+        }
+        std::str::from_utf8(part).ok()?.parse().ok()
+    };
+    let Some(year) = number(&bytes[0..4]) else {
+        return false;
+    };
+    let Some(month) = number(&bytes[5..7]) else {
+        return false;
+    };
+    let Some(day) = number(&bytes[8..10]) else {
+        return false;
+    };
+    let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0);
+    let max_day = match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if leap => 29,
+        2 => 28,
+        _ => return false,
+    };
+    (1..=max_day).contains(&day)
+}
+
+fn is_absolute_uri(text: &str) -> bool {
+    let Some((scheme, rest)) = text.split_once(':') else {
+        return false;
+    };
+    !scheme.is_empty()
+        && scheme
+            .bytes()
+            .enumerate()
+            .all(|(index, letter)| match index {
+                0 => letter.is_ascii_alphabetic(),
+                _ => letter.is_ascii_alphanumeric() || matches!(letter, b'+' | b'-' | b'.'),
+            })
+        && !rest.is_empty()
+        && !text.chars().any(char::is_whitespace)
 }
 
 fn check_all_of(
@@ -1176,7 +1370,7 @@ mod tests {
     fn valid_examples_all_pass() {
         let dir = repo_root().join("packages/contracts/schemas/examples");
         let files = json_files_in(&dir);
-        assert_eq!(files.len(), 14, "예시 파일 개수가 바뀌었습니다: {files:?}");
+        assert_eq!(files.len(), 22, "예시 파일 개수가 바뀌었습니다: {files:?}");
 
         for path in files {
             let file_name = path.file_name().unwrap().to_string_lossy().to_string();
@@ -1210,6 +1404,26 @@ mod tests {
                 "session-event.unknown-type.json",
                 SchemaKind::SessionEvent,
                 "/type",
+            ),
+            (
+                "activity-card.missing-evidence.json",
+                SchemaKind::ActivityCard,
+                "/evidenceRefIds",
+            ),
+            (
+                "activity-set-v2.four-slots.json",
+                SchemaKind::ActivitySetV2,
+                "/",
+            ),
+            (
+                "asset-ref.absolute-path.json",
+                SchemaKind::AssetRef,
+                "/path",
+            ),
+            (
+                "tutor-response-v2.no-evidence.json",
+                SchemaKind::TutorResponseV2,
+                "/evidenceRefIds",
             ),
         ];
         let dir = repo_root().join("packages/contracts/schemas/examples/invalid");
