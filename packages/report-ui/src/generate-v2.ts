@@ -1,9 +1,14 @@
 // 메모리에 있는 SessionBundleV2를 정적 상세 페이지와 컬렉션 허브로 만듭니다.
 
 import {
+  closeSync,
+  constants,
   copyFileSync,
+  fstatSync,
+  ftruncateSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   realpathSync,
   statSync,
@@ -82,11 +87,22 @@ function pathEntryExists(entryPath: string): boolean {
   }
 }
 
+interface SafeOutputTarget {
+  readonly path: string;
+  readonly existed: boolean;
+  readonly identity?: { readonly dev: number; readonly ino: number } | undefined;
+}
+
 /**
  * 출력 폴더 아래 기존 조상과 기존 파일의 실제 경로를 확인합니다.
- * junction/symlink가 출력 폴더 밖을 가리키면 undefined를 돌려 외부 쓰기를 막습니다.
+ * 기존 junction/symlink/hard link는 가리키는 위치와 관계없이 거부하고, 출력 폴더
+ * 밖으로 이어지는 경로도 undefined로 돌려 외부 쓰기를 막습니다.
  */
-function safeOutputTarget(outDir: string, href: string): string | undefined {
+function safeOutputTarget(outDir: string, href: string): SafeOutputTarget | undefined {
+  if (!isSafeBundlePath(href) || href.includes("\\")) return undefined;
+
+  const outDirEntry = lstatSync(outDir);
+  if (outDirEntry.isSymbolicLink() || !outDirEntry.isDirectory()) return undefined;
   const realOutDir = realpathSync(outDir);
   const parts = href.split("/");
   const fileName = parts.pop();
@@ -98,6 +114,9 @@ function safeOutputTarget(outDir: string, href: string): string | undefined {
     if (!pathEntryExists(current)) {
       mkdirSync(current);
     }
+    if (lstatSync(current).isSymbolicLink()) {
+      return undefined;
+    }
     const realCurrent = realpathSync(current);
     if (!isWithinOrEqual(realOutDir, realCurrent) || !statSync(realCurrent).isDirectory()) {
       return undefined;
@@ -106,12 +125,47 @@ function safeOutputTarget(outDir: string, href: string): string | undefined {
 
   const target = path.join(current, fileName);
   if (pathEntryExists(target)) {
+    const targetEntry = lstatSync(target);
+    if (targetEntry.isSymbolicLink() || targetEntry.nlink > 1) {
+      return undefined;
+    }
     const realTarget = realpathSync(target);
     if (!isWithinRoot(realOutDir, realTarget) || !statSync(realTarget).isFile()) {
       return undefined;
     }
+    return {
+      path: target,
+      existed: true,
+      identity: { dev: targetEntry.dev, ino: targetEntry.ino },
+    };
   }
-  return target;
+  return { path: target, existed: false };
+}
+
+function writeSafeTextOutput(outDir: string, href: string, content: string): string {
+  const target = safeOutputTarget(outDir, href);
+  if (target === undefined) {
+    throw new Error("HTML 출력 경로가 안전한 일반 파일이 아니에요");
+  }
+  let descriptor: number | undefined;
+  try {
+    // 새 파일은 배타적으로 만들고, 기존 파일은 검사했던 항목과 열린 항목이 같은지 확인한 뒤 씁니다.
+    descriptor = openSync(target.path, target.existed ? "r+" : "wx");
+    const opened = fstatSync(descriptor);
+    const sameExistingFile =
+      target.identity === undefined ||
+      (opened.dev === target.identity.dev && opened.ino === target.identity.ino);
+    if (!opened.isFile() || opened.nlink > 1 || !sameExistingFile) {
+      throw new Error("unsafe-output-file");
+    }
+    ftruncateSync(descriptor, 0);
+    writeFileSync(descriptor, content, { encoding: "utf8" });
+  } catch {
+    throw new Error("HTML 출력 파일을 안전하게 쓰지 못했어요");
+  } finally {
+    if (descriptor !== undefined) closeSync(descriptor);
+  }
+  return target.path;
 }
 
 interface PreparedAssets {
@@ -207,8 +261,8 @@ function prepareAssets(
         warnings.push(`자산 ${assetId}의 출력 경로가 출력 폴더 밖으로 이어져 복사하지 않았어요`);
         continue;
       }
-      copyFileSync(realSource, target);
-      copied.push(target);
+      copyFileSync(realSource, target.path, target.existed ? 0 : constants.COPYFILE_EXCL);
+      copied.push(target.path);
       hrefs.set(assetId, href);
       takenHrefs.add(href);
     } catch {
@@ -224,14 +278,14 @@ function generateSessionCore(options: GenerateSessionCoreOptions): GenerateSessi
   mkdirSync(outDir, { recursive: true });
 
   const prepared = prepareAssets(options.bundle, options.bundleDir, outDir, warnings);
-  const page = path.join(outDir, sessionFileName(options.bundle));
+  const pageHref = sessionFileName(options.bundle);
   const html = renderSessionHtml(options.bundle, {
     tokenCss: options.tokenCss ?? readDesignTokenCss(),
     assetHrefs: prepared.hrefs,
     warnings,
     ...(options.collectionHref === undefined ? {} : { collectionHref: options.collectionHref }),
   });
-  writeFileSync(page, html, "utf8");
+  const page = writeSafeTextOutput(outDir, pageHref, html);
 
   return {
     outDir,
@@ -293,8 +347,11 @@ export function generateCollection(options: GenerateCollectionOptions): Generate
     }
   }
 
-  const hub = path.join(outDir, COLLECTION_FILE_NAME);
-  writeFileSync(hub, renderCollectionHtml(drawn, { tokenCss, collectionId }), "utf8");
+  const hub = writeSafeTextOutput(
+    outDir,
+    COLLECTION_FILE_NAME,
+    renderCollectionHtml(drawn, { tokenCss, collectionId }),
+  );
   pages.push(hub);
   return { outDir, collectionId, pages, assets, warnings };
 }

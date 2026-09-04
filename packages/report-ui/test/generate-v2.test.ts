@@ -1,5 +1,6 @@
 import {
   existsSync,
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -24,6 +25,19 @@ function scratch(prefix: string): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), prefix));
   scratchDirs.push(dir);
   return dir;
+}
+
+/** Windows에서 파일 symlink 권한이 없으면 같은 외부 덮어쓰기 위험을 가진 hard link로 시험합니다. */
+function makeMaliciousFileAlias(source: string, target: string): void {
+  try {
+    symlinkSync(source, target, "file");
+  } catch (error) {
+    const code = error instanceof Error && "code" in error ? error.code : undefined;
+    if (process.platform !== "win32" || (code !== "EPERM" && code !== "EACCES")) {
+      throw error;
+    }
+    linkSync(source, target);
+  }
 }
 
 afterEach(() => {
@@ -432,6 +446,35 @@ describe("generateSession", () => {
     expect(existsSync(path.join(outside, "junction-session", "junction-image.jpg"))).toBe(false);
     expect(readFileSync(path.join(root, "frames", "safe.jpg"), "utf8")).toBe("safe-image");
   });
+
+  it("기존 세션 HTML symlink가 출력 폴더 밖 파일을 가리키면 덮어쓰지 않는다", () => {
+    const root = scratch("classmate-v2-page-link-assets-");
+    const out = scratch("classmate-v2-page-link-report-");
+    const outside = scratch("classmate-v2-page-link-outside-");
+    const victim = path.join(outside, "keep.txt");
+    writeFileSync(victim, "do-not-overwrite", "utf8");
+    const bundle = makeSessionBundleV2("class", { sessionId: "linked-page" });
+    makeMaliciousFileAlias(victim, path.join(out, "session-linked-page.html"));
+
+    expect(() =>
+      generateSession({ bundle, bundleDir: root, outDir: out, tokenCss: STUB_TOKEN_CSS }),
+    ).toThrow("HTML 출력 경로가 안전한 일반 파일이 아니에요");
+    expect(readFileSync(victim, "utf8")).toBe("do-not-overwrite");
+  });
+
+  it("기존 일반 세션 HTML은 안전 검사를 거쳐 다시 생성한다", () => {
+    const root = scratch("classmate-v2-page-rewrite-assets-");
+    const out = scratch("classmate-v2-page-rewrite-report-");
+    const first = makeSessionBundleV2("class", { sessionId: "rewrite-page", title: "첫 제목" });
+    const second = makeSessionBundleV2("class", { sessionId: "rewrite-page", title: "바뀐 제목" });
+
+    generateSession({ bundle: first, bundleDir: root, outDir: out, tokenCss: STUB_TOKEN_CSS });
+    const result = generateSession({ bundle: second, bundleDir: root, outDir: out, tokenCss: STUB_TOKEN_CSS });
+    const html = readFileSync(result.page, "utf8");
+
+    expect(html).toContain("바뀐 제목");
+    expect(html).not.toContain("첫 제목");
+  });
 });
 
 describe("generateCollection", () => {
@@ -473,5 +516,24 @@ describe("generateCollection", () => {
     expect(hub).toContain('href="session-class-1.html"');
     expect(hub).toContain('href="session-exam-1.html"');
     expect(hub).toContain('href="session-meeting-1.html"');
+  });
+
+  it("기존 collection HTML symlink가 출력 폴더 밖 파일을 가리키면 덮어쓰지 않는다", () => {
+    const root = scratch("classmate-v2-collection-link-assets-");
+    const out = scratch("classmate-v2-collection-link-report-");
+    const outside = scratch("classmate-v2-collection-link-outside-");
+    const victim = path.join(outside, "keep.txt");
+    writeFileSync(victim, "do-not-overwrite", "utf8");
+    makeMaliciousFileAlias(victim, path.join(out, "collection.html"));
+
+    expect(() =>
+      generateCollection({
+        bundles: [makeSessionBundleV2("meeting", { sessionId: "collection-link" })],
+        bundleDir: root,
+        outDir: out,
+        tokenCss: STUB_TOKEN_CSS,
+      }),
+    ).toThrow("HTML 출력 경로가 안전한 일반 파일이 아니에요");
+    expect(readFileSync(victim, "utf8")).toBe("do-not-overwrite");
   });
 });
