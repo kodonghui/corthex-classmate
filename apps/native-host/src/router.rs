@@ -98,23 +98,48 @@ pub fn serve<R: Read, W: Write + Send>(reader: &mut R, writer: &mut W) -> io::Re
 
 /// 채널에 실려 오는 값을 프레임 하나씩 내보냅니다. 채널이 닫히면 flush 하고 끝납니다.
 ///
-/// **프레임 하나가 상한을 넘으면 그 한 건만 버리고 계속 삽니다.** 자발 알림 한 건이 크다는
-/// 이유로 프로세스 전체가 끝나면 수업 도중에 호스트가 사라집니다. `framing::encode_body` 는
-/// 상한을 넘은 본문을 한 바이트도 내보내지 않고 `InvalidData` 로 되돌리므로, 이 갈래로
-/// 버려도 스트림은 다음 프레임 경계에 그대로 서 있습니다. 파이프가 끊기는 것 같은 진짜
-/// I/O 오류(`BrokenPipe` 등)는 예전처럼 그대로 올려보내 종료로 이어집니다.
+/// **프레임 하나가 상한을 넘으면 그 한 건만 건너뛰고 계속 삽니다.** 단, 부탁에 대한 답은
+/// 그냥 버리지 않고 작은 `error` 답으로 바꿉니다. 확장은 부탁과 답을 FIFO로 맞추므로 답 한
+/// 건이 사라지면 그 뒤의 모든 답이 한 칸씩 어긋나기 때문입니다. `tutor.event`·`tutor.delta`
+/// 같은 자발 알림만 조용히 버립니다. `framing::encode_body` 는 상한을 넘은 본문을 한 바이트도
+/// 내보내지 않고 `InvalidData` 로 되돌리므로, 대체 오류를 써도 프레임 경계는 온전합니다.
+/// 파이프가 끊기는 것 같은 진짜 I/O 오류(`BrokenPipe` 등)는 그대로 올려보내 종료합니다.
 fn pump_output<W: Write>(sink: Receiver<Value>, writer: &mut W) -> io::Result<()> {
     for message in sink {
         if let Err(error) = framing::write_message(writer, &message) {
             if error.kind() == io::ErrorKind::InvalidData {
                 // 본문은 담지 않습니다. 어느 종류였는지와 까닭만 stderr 로 알립니다.
-                eprintln!("[classmate-host] 내보내지 못한 메시지 하나를 버립니다 · {error}");
+                eprintln!("[classmate-host] 내보내지 못한 메시지 하나를 건너뜁니다 · {error}");
+                if !is_unsolicited_push(&message) {
+                    framing::write_message(writer, &oversize_reply(&message))?;
+                }
                 continue;
             }
             return Err(error);
         }
     }
     writer.flush()
+}
+
+/// 부탁과 짝이 없는 자발 알림인지입니다. 이 둘은 없어져도 다음 부탁의 FIFO 자리를 쓰지 않습니다.
+fn is_unsolicited_push(message: &Value) -> bool {
+    matches!(
+        message.get("type").and_then(Value::as_str),
+        Some("tutor.event" | "tutor.delta")
+    )
+}
+
+/// Chrome의 1 MiB 상한을 넘은 응답 대신 보내는 고정 크기 오류입니다.
+///
+/// 원래 응답의 본문·세션 id·경로는 되돌리지 않습니다. `received`도 최대 64글자의 type만
+/// 담으므로, 비정상적으로 큰 값이 다시 오류 응답을 키울 수 없습니다.
+fn oversize_reply(message: &Value) -> Value {
+    json!({
+        "type": "error",
+        "message": "host response too large",
+        "reason": "response-too-large",
+        "received": echoed_type(message),
+    })
 }
 
 /// 프레임을 하나씩 읽어 라우터에 넘기고, 나온 답을 채널로 흘려보냅니다.
@@ -945,6 +970,38 @@ mod tests {
             "큰 것 하나만 버리고 나머지는 나간다: {seen:?}"
         );
         assert_eq!(seen[0]["type"], "hello");
+    }
+
+    #[test]
+    fn oversized_reply_becomes_a_small_error_and_keeps_fifo_alignment() {
+        let (out, sink) = mpsc::channel();
+        let huge = "가".repeat(framing::MAX_MESSAGE_BYTES);
+        out.send(json!({
+            "type": "session.bundled",
+            "bundle": { "transcript": huge },
+        }))
+        .expect("큰 응답을 실을 수 있어야 한다");
+        out.send(json!({ "type": "hello" }))
+            .expect("다음 응답을 실을 수 있어야 한다");
+        drop(out);
+
+        let mut written = Vec::new();
+        pump_output(sink, &mut written).expect("큰 응답은 작은 오류로 바뀌어야 한다");
+
+        let seen = frames_in(written);
+        assert_eq!(
+            seen.len(),
+            2,
+            "답 한 건이 사라지면 FIFO가 어긋난다: {seen:?}"
+        );
+        assert_eq!(seen[0]["type"], "error");
+        assert_eq!(seen[0]["reason"], "response-too-large");
+        assert_eq!(seen[0]["received"], "session.bundled");
+        assert_eq!(seen[1]["type"], "hello");
+        assert!(
+            serde_json::to_vec(&seen[0]).expect("오류 JSON").len() < 256,
+            "대체 오류는 항상 작아야 한다"
+        );
     }
 
     #[test]
