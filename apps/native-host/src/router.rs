@@ -36,7 +36,7 @@
 //! 비면 확장은 그 답을 조용히 흘려버립니다.
 
 use std::collections::hash_map::Entry;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::env;
 use std::ffi::OsString;
 use std::io::{self, Read, Write};
@@ -52,7 +52,7 @@ use classmate_transport::schema::{describe, Violation};
 use classmate_transport::{envelope_reason, rule_for, validate_envelope};
 
 use crate::store::frames::ScreenFrameMeta;
-use crate::store::sessions::{SessionCatalog, SessionReadError};
+use crate::store::sessions::{SessionBundleV2, SessionCatalog, SessionReadError};
 use crate::store::{self, base64, SessionEvent, SessionStore, StoreError};
 use crate::tutor::{self, AskEnvelope, TutorConfig, TutorError, TutorHandle, TutorPipeline};
 
@@ -298,6 +298,9 @@ impl Router {
             "session.bundle" => self
                 .try_session_bundle(&msg)
                 .unwrap_or_else(|error| session_read_failure(kind, &error)),
+            "activity.save" => self
+                .try_save_activity(&msg)
+                .unwrap_or_else(|error| activity_save_failure(&error)),
             "frame.store" => self
                 .try_store_frame(&msg)
                 .unwrap_or_else(|error| frame_failure(&error)),
@@ -524,6 +527,32 @@ impl Router {
         }))
     }
 
+    /// 완성된 `ActivitySetV2`를 기존 세션 DB에 하나만 저장합니다.
+    ///
+    /// 봉투의 정본 스키마 검증은 [`Router::handle`]에서 이미 끝났지만 저장소도 다시 검증합니다.
+    /// 먼저 읽기 전용 카탈로그로 실제 사건이 든 세션인지 확인하므로, 없는 `sessionId`가 빈
+    /// SQLite 파일을 만드는 일도 없습니다.
+    fn try_save_activity(&mut self, message: &Value) -> Result<Value, ActivitySaveError> {
+        let session_id = session_id_of(message)?;
+        let activity_set = message
+            .get("activitySet")
+            .cloned()
+            .ok_or(StoreError::MalformedActivitySet)?;
+
+        let data_dir = self.data_dir()?;
+        let bundle = SessionCatalog::new(&data_dir).bundle(&session_id)?;
+        if !activity_evidence_is_grounded(&activity_set, &bundle) {
+            return Err(ActivitySaveError::UnknownEvidence);
+        }
+        self.store(&session_id)?.save_activity_set(&activity_set)?;
+
+        Ok(json!({
+            "type": "activity.saved",
+            "sessionId": session_id,
+            "activitySet": activity_set,
+        }))
+    }
+
     /// `frame.store` — WebP 한 장을 파일로 놓고 메타와 `screen.frame` 기록을 함께 남깁니다.
     ///
     /// 봉투에 실린 `frame.path` 는 **대조용**일 뿐입니다. 실제로 쓰는 자리는 호스트가 `id` 로
@@ -558,6 +587,32 @@ impl Router {
     }
 }
 
+/// 활동의 모든 근거가 이 세션 번들 안에 실제로 존재하는지 확인합니다.
+///
+/// 허용되는 것은 정본 번들이 내보내는 자료·순간·실제 파일 식별자뿐입니다. 받은 식별자는 오류나
+/// 로그에 담지 않고, 하나라도 목록 밖이면 묶음 전체를 거절합니다.
+fn activity_evidence_is_grounded(activity_set: &Value, bundle: &SessionBundleV2) -> bool {
+    let mut allowed = BTreeSet::new();
+    allowed.extend(bundle.sources.iter().map(|source| source.id.as_str()));
+    allowed.extend(bundle.moments.iter().map(|moment| moment.id.as_str()));
+    allowed.extend(bundle.artifacts.iter().map(|artifact| artifact.id.as_str()));
+
+    activity_set.as_array().is_some_and(|activities| {
+        activities.iter().all(|activity| {
+            activity
+                .get("evidenceRefIds")
+                .and_then(Value::as_array)
+                .is_some_and(|references| {
+                    references.iter().all(|reference| {
+                        reference
+                            .as_str()
+                            .is_some_and(|reference| allowed.contains(reference))
+                    })
+                })
+        })
+    })
+}
+
 /// `ping` 의 답입니다. 부수 효과가 없습니다.
 fn hello() -> Value {
     json!({
@@ -583,6 +638,36 @@ fn session_id_of(message: &Value) -> Result<String, SessionReadError> {
         .and_then(Value::as_str)
         .map(str::to_string)
         .ok_or(SessionReadError::InvalidSessionId)
+}
+
+/// 활동 저장은 기존 세션 확인(읽기)과 SQLite 갱신(쓰기)을 모두 거칩니다.
+#[derive(Debug)]
+enum ActivitySaveError {
+    Session(SessionReadError),
+    Store(StoreError),
+    UnknownEvidence,
+}
+
+impl ActivitySaveError {
+    fn reason_code(&self) -> &'static str {
+        match self {
+            Self::Session(error) => error.reason_code(),
+            Self::Store(error) => error.reason_code(),
+            Self::UnknownEvidence => "unknown-activity-evidence",
+        }
+    }
+}
+
+impl From<SessionReadError> for ActivitySaveError {
+    fn from(error: SessionReadError) -> Self {
+        Self::Session(error)
+    }
+}
+
+impl From<StoreError> for ActivitySaveError {
+    fn from(error: StoreError) -> Self {
+        Self::Store(error)
+    }
 }
 
 /// 봉투가 계약과 어긋났을 때의 응답입니다.
@@ -703,6 +788,21 @@ fn session_read_failure(kind: &str, error: &SessionReadError) -> Value {
         "message": "session read failed",
         "reason": error.reason_code(),
         "received": kind,
+    })
+}
+
+/// 활동 저장 오류는 본문·SQLite 원문·절대 경로 없이 고정 이유 낱말만 돌려줍니다.
+fn activity_save_failure(error: &ActivitySaveError) -> Value {
+    eprintln!(
+        "[classmate-host] activity.save 를 처리하지 못했습니다 · {}",
+        error.reason_code()
+    );
+
+    json!({
+        "type": "error",
+        "message": "activity save failed",
+        "reason": error.reason_code(),
+        "received": "activity.save",
     })
 }
 
@@ -855,6 +955,55 @@ mod tests {
             .join("../../fixtures/synthetic-class/golden-ioc/question.json");
         let text = fs::read_to_string(path).expect("fixtures 를 읽을 수 있어야 한다");
         serde_json::from_str(&text).expect("질문 fixture 가 JSON 이어야 한다")
+    }
+
+    /// 정본 순서의 완성된 다섯 활동 묶음.
+    fn fixture_activity_set() -> Value {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../packages/contracts/schemas/examples/activity-set-v2.1.json");
+        let text = fs::read_to_string(path).expect("활동 fixture 를 읽을 수 있어야 한다");
+        serde_json::from_str(&text).expect("활동 fixture 가 JSON 이어야 한다")
+    }
+
+    fn activity_set_with_evidence(references: &[&str]) -> Value {
+        let mut activity_set = fixture_activity_set();
+        for activity in activity_set.as_array_mut().expect("다섯 활동 배열") {
+            activity["evidenceRefIds"] = json!(references);
+        }
+        activity_set
+    }
+
+    fn grounded_transcript_event(period_id: &str, segment_id: &str) -> SessionEvent {
+        SessionEvent {
+            id: format!("ev-{segment_id}"),
+            period_id: period_id.to_string(),
+            at: "2026-09-02T10:31:40+09:00".to_string(),
+            kind: "transcript.segment".to_string(),
+            payload: json!({
+                "segmentId": segment_id,
+                "segment": {
+                    "id": segment_id,
+                    "text": "근거가 되는 합성 전사입니다.",
+                    "source": "fixture-transcript"
+                }
+            }),
+        }
+    }
+
+    fn append_grounded_session(router: &mut Router) {
+        let started = fixture_events().remove(0);
+        let period_id = started.period_id.clone();
+        for event in [
+            started,
+            grounded_transcript_event(&period_id, "ts-ground-001"),
+        ] {
+            let ack = router.handle(json!({
+                "type": "event.append",
+                "periodId": event.period_id,
+                "event": event,
+            }));
+            assert_eq!(ack["type"], "event.ack", "{ack}");
+        }
     }
 
     /// 고정 계약 (마) 그대로의 `tutor.ask` 봉투 하나.
@@ -1282,6 +1431,178 @@ mod tests {
         assert_eq!(invalid["reason"], "envelope-invalid", "{invalid}");
         assert_eq!(invalid["received"], "session.getSummary", "{invalid}");
         assert!(!invalid.to_string().contains("secret"));
+    }
+
+    #[test]
+    fn activity_save_ack_round_trips_the_exact_set_through_session_bundle() {
+        let dir = temp_dir("activity-round-trip");
+        let (mut router, _sink) = router_with(&dir);
+        append_grounded_session(&mut router);
+        let expected = activity_set_with_evidence(&["ts-ground-001"]);
+
+        let saved = router.handle(json!({
+            "type": "activity.save",
+            "sessionId": "2026-09-02-p3",
+            "activitySet": expected,
+        }));
+        assert_eq!(saved["type"], "activity.saved", "{saved}");
+        assert_eq!(saved["sessionId"], "2026-09-02-p3");
+        assert_eq!(saved["activitySet"], expected);
+
+        let bundled = router.handle(json!({
+            "type": "session.bundle",
+            "sessionId": "2026-09-02-p3",
+        }));
+        assert_eq!(bundled["type"], "session.bundled", "{bundled}");
+        assert_eq!(bundled["bundle"]["activities"], saved["activitySet"]);
+
+        let inspect =
+            rusqlite::Connection::open(dir.join("2026-09-02-p3.sqlite")).expect("활동 DB 검사");
+        let rows: i64 = inspect
+            .query_row("SELECT COUNT(*) FROM activity_state", [], |row| row.get(0))
+            .expect("단일 행 수");
+        assert_eq!(rows, 1, "세션마다 활동 묶음은 정확히 하나입니다");
+    }
+
+    #[test]
+    fn activity_save_rejects_unknown_and_mixed_evidence_without_changing_storage() {
+        let dir = temp_dir("activity-grounding");
+        let (mut router, _sink) = router_with(&dir);
+        append_grounded_session(&mut router);
+        let private_unknown = r"C:\Users\private-user\lecture.txt https://tiro.ooo/s/private-token";
+
+        let unknown = router.handle(json!({
+            "type": "activity.save",
+            "sessionId": "2026-09-02-p3",
+            "activitySet": activity_set_with_evidence(&[private_unknown]),
+        }));
+        assert_eq!(unknown["type"], "error", "{unknown}");
+        assert_eq!(unknown["reason"], "unknown-activity-evidence", "{unknown}");
+        assert_eq!(unknown["received"], "activity.save", "{unknown}");
+        assert!(!unknown.to_string().contains("private-user"));
+        assert!(!unknown.to_string().contains("tiro.ooo"));
+        assert!(!unknown.to_string().contains("private-token"));
+
+        let mixed = router.handle(json!({
+            "type": "activity.save",
+            "sessionId": "2026-09-02-p3",
+            "activitySet": activity_set_with_evidence(&["ts-ground-001", private_unknown]),
+        }));
+        assert_eq!(mixed["type"], "error", "{mixed}");
+        assert_eq!(mixed["reason"], "unknown-activity-evidence", "{mixed}");
+        let serialized = mixed.to_string();
+        assert!(!serialized.contains("private-user"));
+        assert!(!serialized.contains("tiro.ooo"));
+        assert!(!serialized.contains("private-token"));
+
+        let inspect =
+            rusqlite::Connection::open(dir.join("2026-09-02-p3.sqlite")).expect("거절 뒤 DB 검사");
+        let table_count: i64 = inspect
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'activity_state'",
+                [],
+                |row| row.get(0),
+            )
+            .expect("활동 표 수");
+        assert_eq!(table_count, 0, "거절된 묶음은 표도 만들지 않습니다");
+    }
+
+    #[test]
+    fn activity_save_grounds_and_restores_an_events_only_legacy_database() {
+        let dir = temp_dir("activity-legacy");
+        let db = dir.join("2026-09-02-p3.sqlite");
+        let connection = rusqlite::Connection::open(&db).expect("옛 DB 만들기");
+        connection
+            .execute_batch(
+                "CREATE TABLE events (
+                    seq INTEGER PRIMARY KEY AUTOINCREMENT,
+                    id TEXT NOT NULL UNIQUE,
+                    period_id TEXT NOT NULL,
+                    at TEXT NOT NULL,
+                    \"type\" TEXT NOT NULL,
+                    payload TEXT NOT NULL
+                );",
+            )
+            .expect("옛 events 표");
+        for event in [
+            SessionEvent {
+                id: "ev-legacy-start".to_string(),
+                period_id: "2026-09-02-p3".to_string(),
+                at: "2026-09-02T10:31:35+09:00".to_string(),
+                kind: "period.started".to_string(),
+                payload: json!({"subject":"옛 세션"}),
+            },
+            grounded_transcript_event("2026-09-02-p3", "ts-legacy-001"),
+        ] {
+            connection
+                .execute(
+                    "INSERT INTO events (id, period_id, at, \"type\", payload)
+                     VALUES (?1, ?2, ?3, ?4, ?5)",
+                    rusqlite::params![
+                        event.id,
+                        event.period_id,
+                        event.at,
+                        event.kind,
+                        event.payload.to_string(),
+                    ],
+                )
+                .expect("옛 사건 저장");
+        }
+        drop(connection);
+
+        let (mut router, _sink) = router_with(&dir);
+        let expected = activity_set_with_evidence(&["ts-legacy-001"]);
+        let saved = router.handle(json!({
+            "type": "activity.save",
+            "sessionId": "2026-09-02-p3",
+            "activitySet": expected,
+        }));
+        assert_eq!(saved["type"], "activity.saved", "{saved}");
+        assert_eq!(saved["activitySet"], expected);
+
+        let bundled = router.handle(json!({
+            "type": "session.bundle",
+            "sessionId": "2026-09-02-p3",
+        }));
+        assert_eq!(bundled["type"], "session.bundled", "{bundled}");
+        assert_eq!(bundled["bundle"]["activities"], expected);
+    }
+
+    #[test]
+    fn activity_save_rejects_missing_or_unsafe_sessions_without_leaking_input() {
+        let dir = temp_dir("activity-guard");
+        let (mut router, _sink) = router_with(&dir);
+
+        let missing = router.handle(json!({
+            "type": "activity.save",
+            "sessionId": "2026-09-02-p9",
+            "activitySet": fixture_activity_set(),
+        }));
+        assert_eq!(missing["type"], "error", "{missing}");
+        assert_eq!(missing["message"], "activity save failed", "{missing}");
+        assert_eq!(missing["reason"], "session-not-found", "{missing}");
+        assert_eq!(missing["received"], "activity.save", "{missing}");
+        assert!(
+            !dir.join("2026-09-02-p9.sqlite").exists(),
+            "없는 세션을 활동 저장만으로 만들면 안 됩니다"
+        );
+
+        let mut private_activity_set = fixture_activity_set();
+        private_activity_set[0]["prompt"] =
+            json!(r"C:\Users\private-user\lecture.txt https://tiro.ooo/s/private-token");
+        let unsafe_reply = router.handle(json!({
+            "type": "activity.save",
+            "sessionId": "../../private-user",
+            "activitySet": private_activity_set,
+        }));
+        let serialized = unsafe_reply.to_string();
+        assert_eq!(unsafe_reply["type"], "error", "{unsafe_reply}");
+        assert_eq!(unsafe_reply["reason"], "envelope-invalid", "{unsafe_reply}");
+        assert_eq!(unsafe_reply["received"], "activity.save", "{unsafe_reply}");
+        assert!(!serialized.contains("private-user"));
+        assert!(!serialized.contains("C:\\\\Users"));
+        assert!(!serialized.contains("tiro.ooo"));
+        assert!(!serialized.contains("private-token"));
     }
 
     #[test]

@@ -53,8 +53,8 @@ pub const REASON_MALFORMED_SNAPSHOT: &str = "malformed-snapshot";
 /// 표 한 줄로는 적을 수 없는 봉투별 추가 검사입니다.
 ///
 /// 스키마 하나로 값 하나를 보는 것으로 끝나지 않는 봉투가 있어서 둡니다.
-/// `frame.store`(고정 계약 (가) · `apps/native-host/README.md` §2-5)와
-/// `tutor.ask`(고정 계약 (마)) 둘입니다.
+/// `frame.store`(고정 계약 (가) · `apps/native-host/README.md` §2-5),
+/// `tutor.ask`(고정 계약 (마)), V2 세션·활동 요청입니다.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtraCheck {
     /// 추가로 볼 것이 없습니다.
@@ -92,7 +92,7 @@ pub struct EnvelopeRule {
 /// `apps/native-host/src/router.rs` 의 `Router::handle` 이 실제로 나눠 주는 이름과 같습니다.
 /// 한쪽만 늘면 `the_table_matches_the_router_in_router_rs` 시험이 먼저 빨갛게 됩니다.
 /// 여기 없는 `type` 은 호스트가 `unknown-message-type` 으로 답하므로 이 표도 모르는 것으로 답합니다.
-pub const ENVELOPE_RULES: [EnvelopeRule; 10] = [
+pub const ENVELOPE_RULES: [EnvelopeRule; 11] = [
     EnvelopeRule {
         message_type: "ping",
         needs_period_id: false,
@@ -148,6 +148,14 @@ pub const ENVELOPE_RULES: [EnvelopeRule; 10] = [
         payload: None,
         extra: ExtraCheck::SessionId,
         summary: "V1 기록을 V2 세션 번들로 읽습니다",
+    },
+    EnvelopeRule {
+        message_type: "activity.save",
+        needs_period_id: false,
+        needs_question_id: false,
+        payload: Some(("activitySet", SchemaKind::ActivitySetV2)),
+        extra: ExtraCheck::SessionId,
+        summary: "완성된 다섯 활동 묶음을 세션 SQLite에 하나만 저장합니다",
     },
     EnvelopeRule {
         message_type: "frame.store",
@@ -769,9 +777,9 @@ mod tests {
     }
 
     #[test]
-    fn the_table_holds_the_ten_request_types() {
-        // V1 일곱 이름과 V2 읽기 세 이름입니다. 순서까지 표와 같아야 합니다.
-        const EXPECTED: [&str; 10] = [
+    fn the_table_holds_the_eleven_request_types() {
+        // V1 일곱 이름, V2 읽기 세 이름, V2 활동 저장 한 이름입니다. 순서까지 같습니다.
+        const EXPECTED: [&str; 11] = [
             "ping",
             "event.append",
             "session.status",
@@ -779,6 +787,7 @@ mod tests {
             "session.list",
             "session.getSummary",
             "session.bundle",
+            "activity.save",
             "frame.store",
             "tutor.ask",
             "tutor.retry",
@@ -813,6 +822,67 @@ mod tests {
         .expect_err("파일 키가 될 수 없습니다");
         assert_eq!(paths(&escaping), vec!["/sessionId"]);
         assert!(!describe(&escaping).contains("secret"));
+    }
+
+    #[test]
+    fn activity_save_requires_a_safe_session_and_the_canonical_five_slots() {
+        let activity_set: Value = serde_json::from_str(include_str!(
+            "../../../../../packages/contracts/schemas/examples/activity-set-v2.1.json"
+        ))
+        .expect("정본 활동 예시");
+        let valid = json!({
+            "type": "activity.save",
+            "sessionId": "2026-09-04-p3",
+            "activitySet": activity_set,
+        });
+
+        let rule = validate_envelope(&valid).expect("정확한 다섯 슬롯은 통과합니다");
+        assert_eq!(
+            rule.payload,
+            Some(("activitySet", SchemaKind::ActivitySetV2))
+        );
+        assert_eq!(rule.extra, ExtraCheck::SessionId);
+
+        let mut four = valid.clone();
+        four["activitySet"].as_array_mut().expect("배열").pop();
+        let violations = validate_envelope(&four).expect_err("네 슬롯은 거절합니다");
+        assert!(paths(&violations)
+            .iter()
+            .all(|path| path.starts_with("/activitySet")));
+
+        let mut wrong_order = valid.clone();
+        wrong_order["activitySet"]
+            .as_array_mut()
+            .expect("배열")
+            .swap(0, 1);
+        assert!(validate_envelope(&wrong_order).is_err());
+
+        let mut wrong_fields = valid.clone();
+        wrong_fields["activitySet"][0]
+            .as_object_mut()
+            .expect("활동 객체")
+            .remove("answer");
+        wrong_fields["activitySet"][0]["unexpected"] =
+            json!(r"C:\Users\private-user\lecture.txt https://tiro.ooo/s/private-token");
+        let violations =
+            validate_envelope(&wrong_fields).expect_err("빠진 필드와 추가 필드는 거절합니다");
+        let detail = describe(&violations);
+        assert!(paths(&violations).contains(&"/activitySet/0/answer"));
+        assert!(paths(&violations).contains(&"/activitySet/0/unexpected"));
+        assert!(!detail.contains("private-user"));
+        assert!(!detail.contains("tiro.ooo"));
+        assert!(!detail.contains("private-token"));
+
+        let escaping = json!({
+            "type": "activity.save",
+            "sessionId": "../../private-user",
+            "activitySet": valid["activitySet"],
+        });
+        let violations = validate_envelope(&escaping).expect_err("임의 경로는 거절합니다");
+        assert_eq!(paths(&violations), vec!["/sessionId"]);
+        let detail = describe(&violations);
+        assert!(!detail.contains("private-user"));
+        assert!(!detail.contains(".."));
     }
 
     #[test]

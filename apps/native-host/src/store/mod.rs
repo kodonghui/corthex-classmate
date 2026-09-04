@@ -25,6 +25,7 @@
 //!   받습니다.
 //! - 오류 문구에 파일 경로를 담지 않습니다. 경로에는 사용자 이름이 들어가기 때문입니다.
 
+pub mod activities;
 pub mod base64;
 pub mod clock;
 pub mod frames;
@@ -142,6 +143,8 @@ pub enum StoreError {
     DuplicateFrame,
     /// `bytesBase64` 를 바이트로 읽지 못했습니다.
     InvalidBase64(base64::Base64Error),
+    /// 다섯 활동 묶음이 `ActivitySetV2` 정본 계약과 어긋납니다.
+    MalformedActivitySet,
     /// WAL 이 켜지지 않았습니다. 담긴 값은 실제로 켜진 모드입니다.
     JournalMode(String),
     /// 내보내기 경로를 받을 수 없습니다.
@@ -187,6 +190,9 @@ impl fmt::Display for StoreError {
             }
             Self::DuplicateFrame => write!(formatter, "같은 id 의 프레임이 이미 있습니다"),
             Self::InvalidBase64(reason) => write!(formatter, "bytesBase64 · {reason}"),
+            Self::MalformedActivitySet => {
+                write!(formatter, "다섯 활동 묶음이 ActivitySetV2 계약과 어긋납니다")
+            }
             Self::JournalMode(actual) => {
                 write!(formatter, "journal_mode 가 wal 이 아니라 {actual} 입니다")
             }
@@ -226,6 +232,7 @@ impl StoreError {
             Self::MalformedFrame(_) => "malformed-frame",
             Self::DuplicateFrame => "duplicate-frame",
             Self::InvalidBase64(_) => "invalid-base64",
+            Self::MalformedActivitySet => "malformed-activity-set",
             Self::JournalMode(_) => "journal-mode",
             Self::UnusableExportPath => "unusable-export-path",
             Self::NoDataDir => "no-data-dir",

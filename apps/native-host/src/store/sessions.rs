@@ -316,6 +316,7 @@ impl SessionCatalog {
             return Err(SessionReadError::SessionNotFound);
         }
         let legacy_frames = read_frames(&connection)?;
+        let activities = read_activities(&connection)?;
         let summary = summarize(session_id, &events);
         let mut warnings = BTreeSet::new();
         let assets = build_assets(
@@ -366,7 +367,7 @@ impl SessionCatalog {
             ended_at: summary.ended_at.clone(),
             sources,
             moments,
-            activities: Vec::new(),
+            activities,
             artifacts: assets,
             summary: Some(summary),
             warnings: warnings.into_iter().collect(),
@@ -514,6 +515,34 @@ fn read_frames(connection: &Connection) -> Result<Vec<LegacyFrame>, SessionReadE
         });
     }
     Ok(frames)
+}
+
+/// 저장된 완성 활동 묶음을 읽습니다. 예전 DB에 표가 없거나 아직 저장한 값이 없으면 빈 배열입니다.
+///
+/// 정상 호스트가 쓰는 표에는 `singleton_id = 1` 한 행만 존재합니다. 수동 변경 등으로 다른 행이
+/// 있거나 JSON이 정본 `ActivitySetV2`와 어긋나면, 일부 값을 복구한 척하지 않고 안전한 `json`
+/// 오류로 세션 번들 전체를 거절합니다. 오류에는 저장된 본문을 싣지 않습니다.
+fn read_activities(connection: &Connection) -> Result<Vec<Value>, SessionReadError> {
+    if !has_table(connection, "activity_state")? {
+        return Ok(Vec::new());
+    }
+
+    let mut statement = connection.prepare(
+        "SELECT singleton_id, activity_set_json FROM activity_state ORDER BY singleton_id",
+    )?;
+    let mut rows = statement.query([])?;
+    let Some(first) = rows.next()? else {
+        return Ok(Vec::new());
+    };
+    let singleton_id = first.get::<_, i64>(0)?;
+    let serialized = first.get::<_, String>(1)?;
+    if singleton_id != 1 || rows.next()?.is_some() {
+        return Err(SessionReadError::Json);
+    }
+
+    let value: Value = serde_json::from_str(&serialized).map_err(|_| SessionReadError::Json)?;
+    validate(SchemaKind::ActivitySetV2, &value).map_err(|_| SessionReadError::Json)?;
+    value.as_array().cloned().ok_or(SessionReadError::Json)
 }
 
 fn summarize(session_id: &str, events: &[StoredEvent]) -> SessionSummaryV2 {
@@ -1085,6 +1114,13 @@ mod tests {
         }
     }
 
+    fn activity_set() -> Value {
+        serde_json::from_str(include_str!(
+            "../../../../packages/contracts/schemas/examples/activity-set-v2.1.json"
+        ))
+        .expect("정본 활동 예시")
+    }
+
     fn seeded(dir: &Path) {
         let store = SessionStore::open(dir, PERIOD).expect("V1 저장소");
         let rows = [
@@ -1213,6 +1249,24 @@ mod tests {
         let json = serde_json::to_value(&bundle).expect("번들 직렬화");
         validate(SchemaKind::SessionBundleV2, &json)
             .unwrap_or_else(|violations| panic!("{}", describe(&violations)));
+    }
+
+    #[test]
+    fn a_saved_activity_set_is_restored_unchanged_in_the_bundle() {
+        let dir = temp_dir("activities");
+        seeded(&dir);
+        let expected = activity_set();
+        SessionStore::open(&dir, PERIOD)
+            .expect("쓰기 저장소")
+            .save_activity_set(&expected)
+            .expect("활동 저장");
+
+        let bundle = SessionCatalog::new(&dir).bundle(PERIOD).expect("번들");
+        assert_eq!(
+            Value::Array(bundle.activities),
+            expected,
+            "저장한 다섯 활동의 필드와 순서가 그대로여야 합니다"
+        );
     }
 
     #[test]
@@ -1401,6 +1455,7 @@ mod tests {
         let verify = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .expect("읽기 전용 확인");
         assert!(!has_table(&verify, "frames").expect("표 확인"));
+        assert!(!has_table(&verify, "activity_state").expect("활동 표 확인"));
         let modified_after = fs::metadata(&path).expect("메타").modified().expect("시각");
         assert_eq!(
             modified_after, modified_before,
