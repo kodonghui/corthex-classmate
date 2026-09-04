@@ -1,16 +1,20 @@
 import { createValidator } from '@classmate/contracts';
 import activityExample from '@classmate/contracts/schemas/examples/activity-card.1.json';
+import activitySetExample from '@classmate/contracts/schemas/examples/activity-set-v2.1.json';
 import assetExample from '@classmate/contracts/schemas/examples/asset-ref.1.json';
 import materialExample from '@classmate/contracts/schemas/examples/material-ref.1.json';
 import bundleExample from '@classmate/contracts/schemas/examples/session-bundle-v2.1.json';
 import { describe, expect, it } from 'vitest';
 
 import {
+  activitySetsEqual,
+  isActivitySetV2,
   isSafeRelativeAssetPath,
   isSafeSessionId,
   isSessionBundleV2,
   isSessionSummaryV2,
 } from './types';
+import type { ActivitySetV2 } from './types';
 
 const SUMMARY = {
   sessionId: '2026-09-04-p1',
@@ -27,6 +31,43 @@ const SUMMARY = {
 } as const;
 
 describe('과거 세션 V2 경계', () => {
+  it('완성 활동은 정본처럼 정확히 다섯 슬롯의 고정 순서만 받습니다', () => {
+    const canonical = createValidator('activity-set-v2');
+    const fourCards = activitySetExample.slice(0, 4);
+    const wrongOrder = [
+      activitySetExample[1],
+      activitySetExample[0],
+      ...activitySetExample.slice(2),
+    ];
+    const extraField = activitySetExample.map((activity, index) =>
+      index === 0 ? { ...activity, privatePath: 'C:\\private\\answer.txt' } : activity,
+    );
+
+    for (const candidate of [activitySetExample, fourCards, wrongOrder, extraField]) {
+      expect(isActivitySetV2(candidate)).toBe(canonical(candidate));
+    }
+    expect(isActivitySetV2(activitySetExample)).toBe(true);
+    expect(isActivitySetV2(fourCards)).toBe(false);
+    expect(isActivitySetV2(wrongOrder)).toBe(false);
+    expect(isActivitySetV2(extraField)).toBe(false);
+
+    const changed = activitySetExample.map((activity, index) =>
+      index === 0 ? { ...activity, prompt: '다른 저장 요청입니다.' } : activity,
+    );
+    expect(
+      activitySetsEqual(
+        activitySetExample as unknown as ActivitySetV2,
+        structuredClone(activitySetExample) as unknown as ActivitySetV2,
+      ),
+    ).toBe(true);
+    expect(
+      activitySetsEqual(
+        activitySetExample as unknown as ActivitySetV2,
+        changed as unknown as ActivitySetV2,
+      ),
+    ).toBe(false);
+  });
+
   it('정본 SessionBundleV2 예시와 모든 선택 필드 예시를 Ajv와 같이 받습니다', () => {
     const canonical = createValidator('session-bundle-v2');
     const withOptionalShapes = {

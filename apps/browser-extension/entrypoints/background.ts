@@ -36,7 +36,11 @@ import {
   isTiroMessage,
 } from '../src/background/tiro-messages';
 import { PANEL_PORT_NAME } from '../src/live/messages';
-import { HISTORY_SESSION_ERROR, isSessionHistoryRequest } from '../src/session-history/messages';
+import {
+  HISTORY_ACTIVITY_SAVE,
+  HISTORY_SESSION_ERROR,
+  isSessionHistoryRequest,
+} from '../src/session-history/messages';
 
 /** Offscreen 문서의 상대 URL. WXT 가 entrypoints/offscreen/index.html 을 여기로 냅니다. */
 const OFFSCREEN_URL = 'offscreen.html';
@@ -666,7 +670,7 @@ export default defineBackground(() => {
           sendResponse({
             type: HISTORY_SESSION_ERROR,
             requestType: message.type,
-            reason: 'read-failed',
+            reason: message.type === HISTORY_ACTIVITY_SAVE ? 'invalid-response' : 'read-failed',
           });
         });
       return true;

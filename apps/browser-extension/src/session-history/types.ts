@@ -7,6 +7,7 @@
  */
 
 import type {
+  ActivitySetV2,
   AssetRef,
   SessionBundleV2,
   SessionMomentTypeV2,
@@ -17,6 +18,7 @@ import type {
 
 // 정본 타입은 contracts에서만 나옵니다. 이 파일은 Native Messaging 경계의 런타임 검사만 맡습니다.
 export type {
+  ActivitySetV2,
   AssetRef,
   SessionBundleV2,
   SessionMomentTypeV2,
@@ -392,6 +394,46 @@ function isActivityCard(value: unknown): boolean {
   if (!isNonEmptyStringArray(value['hints']) || !isNonEmptyString(value['answer'])) return false;
   if (!isOptionalNonEmptyString(value['variation'])) return false;
   return Array.isArray(value['attempts']) && value['attempts'].every(isActivityAttempt);
+}
+
+const ACTIVITY_SLOTS = ['RECALL', 'EXPLAIN', 'INSPECT', 'APPLY', 'TRANSFER'] as const;
+
+/** 정본 `ActivitySetV2`처럼 정확히 다섯 카드가 고정 슬롯 순서로 있는지 확인합니다. */
+export function isActivitySetV2(value: unknown): value is ActivitySetV2 {
+  return (
+    Array.isArray(value) &&
+    value.length === ACTIVITY_SLOTS.length &&
+    value.every(
+      (activity, index) =>
+        isActivityCard(activity) && activity['slot'] === ACTIVITY_SLOTS[index],
+    )
+  );
+}
+
+function jsonValuesEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((item, index) => jsonValuesEqual(item, right[index]))
+    );
+  }
+  if (!isRecord(left) || !isRecord(right)) return false;
+  const leftKeys = Object.keys(left).sort();
+  const rightKeys = Object.keys(right).sort();
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every(
+      (key, index) => key === rightKeys[index] && jsonValuesEqual(left[key], right[key]),
+    )
+  );
+}
+
+/** 호스트가 ACK한 묶음이 저장을 부탁한 JSON과 정확히 같은지 키 순서와 무관하게 대조합니다. */
+export function activitySetsEqual(left: ActivitySetV2, right: ActivitySetV2): boolean {
+  return jsonValuesEqual(left, right);
 }
 
 export function isSessionAssetRefV2(value: unknown): value is SessionAssetRefV2 {

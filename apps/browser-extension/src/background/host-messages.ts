@@ -20,6 +20,7 @@
  *   session.list {}                            session.listed {sessions}
  *   session.getSummary {sessionId}             session.summary {summary}
  *   session.bundle {sessionId}                 session.bundled {bundle}
+ *   activity.save {sessionId, activitySet}      activity.saved {sessionId, activitySet}
  *   (부탁이 실패하면 언제나)                    error {message, reason, received}
  *
  *   호스트가 스스로 미는 것 (부탁에 대한 답이 아님)
@@ -34,8 +35,14 @@
 import type { Answer, QuestionSnapshot, SessionEvent } from '@classmate/contracts';
 import type { FrameStoreMessage, FrameStoredMessage, HostErrorMessage } from '../capture/host-messages';
 import { isFrameStoredMessage, isHostErrorMessage } from '../capture/host-messages';
-import type { SessionBundleV2, SessionSummaryV2 } from '../session-history/types';
-import { isSessionBundleV2, isSessionSummaryV2 } from '../session-history/types';
+import type { ActivitySetV2, SessionBundleV2, SessionSummaryV2 } from '../session-history/types';
+import {
+  activitySetsEqual,
+  isActivitySetV2,
+  isSafeSessionId,
+  isSessionBundleV2,
+  isSessionSummaryV2,
+} from '../session-history/types';
 
 /**
  * 로컬 도우미의 Native Messaging 이름입니다.
@@ -60,6 +67,8 @@ export const SESSION_GET_SUMMARY = 'session.getSummary';
 export const SESSION_SUMMARY = 'session.summary';
 export const SESSION_BUNDLE = 'session.bundle';
 export const SESSION_BUNDLED = 'session.bundled';
+export const ACTIVITY_SAVE = 'activity.save';
+export const ACTIVITY_SAVED = 'activity.saved';
 /**
  * 답이 만들어지는 **동안** 흐르는 조각입니다. 호스트가 스스로 밉니다.
  *
@@ -118,6 +127,13 @@ export interface SessionBundleEnvelope {
   sessionId: string;
 }
 
+/** 정본 다섯 활동 묶음을 기존 세션에 원자적으로 저장합니다. */
+export interface ActivitySaveEnvelope {
+  type: typeof ACTIVITY_SAVE;
+  sessionId: string;
+  activitySet: ActivitySetV2;
+}
+
 /** 확장이 호스트로 보내는 것 전부입니다. */
 export type HostEnvelope =
   | PingEnvelope
@@ -127,7 +143,8 @@ export type HostEnvelope =
   | TutorRetryEnvelope
   | SessionListEnvelope
   | SessionGetSummaryEnvelope
-  | SessionBundleEnvelope;
+  | SessionBundleEnvelope
+  | ActivitySaveEnvelope;
 
 export interface HelloReply {
   type: typeof HELLO;
@@ -172,6 +189,12 @@ export interface SessionBundledReply {
   bundle: SessionBundleV2;
 }
 
+export interface ActivitySavedReply {
+  type: typeof ACTIVITY_SAVED;
+  sessionId: string;
+  activitySet: ActivitySetV2;
+}
+
 /** 호스트가 스스로 미는 것입니다. 부탁에 대한 답이 아니므로 대기열을 쓰지 않습니다. */
 export interface TutorEventPush {
   type: typeof TUTOR_EVENT;
@@ -213,6 +236,7 @@ export type HostReply =
   | SessionListedReply
   | SessionSummaryReply
   | SessionBundledReply
+  | ActivitySavedReply
   | TutorEventPush
   | HostErrorMessage;
 
@@ -272,6 +296,16 @@ export function isSessionBundledReply(value: unknown): value is SessionBundledRe
   );
 }
 
+export function isActivitySavedReply(value: unknown): value is ActivitySavedReply {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, ['type', 'sessionId', 'activitySet']) &&
+    value['type'] === ACTIVITY_SAVED &&
+    isSafeSessionId(value['sessionId']) &&
+    isActivitySetV2(value['activitySet'])
+  );
+}
+
 export function isTutorEventPush(value: unknown): value is TutorEventPush {
   if (!isRecord(value) || value['type'] !== TUTOR_EVENT) return false;
   return typeof value['periodId'] === 'string' && isRecord(value['event']);
@@ -311,6 +345,7 @@ export function isHostReply(value: unknown): value is HostReply {
     isSessionListedReply(value) ||
     isSessionSummaryReply(value) ||
     isSessionBundledReply(value) ||
+    isActivitySavedReply(value) ||
     isTutorEventPush(value) ||
     isHostErrorMessage(value)
   );
@@ -350,6 +385,12 @@ export function replyMatchesEnvelope(envelope: HostEnvelope, reply: HostReply): 
       return isSessionSummaryReply(reply) && reply.summary.sessionId === envelope.sessionId;
     case SESSION_BUNDLE:
       return isSessionBundledReply(reply) && reply.bundle.sessionId === envelope.sessionId;
+    case ACTIVITY_SAVE:
+      return (
+        isActivitySavedReply(reply) &&
+        reply.sessionId === envelope.sessionId &&
+        activitySetsEqual(reply.activitySet, envelope.activitySet)
+      );
   }
 }
 

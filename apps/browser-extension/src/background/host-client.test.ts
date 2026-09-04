@@ -1,12 +1,14 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { SessionEvent } from '@classmate/contracts';
+import type { ActivitySetV2, SessionEvent } from '@classmate/contracts';
+import activitySetExample from '@classmate/contracts/schemas/examples/activity-set-v2.1.json';
 import type { NativePortLike } from './host-client';
 import { NativeHostClient, backoffDelayMs } from './host-client';
 import type { EventAppendEnvelope } from './host-messages';
 import { isHostReply, isTutorDeltaPush } from './host-messages';
 
 const PERIOD = '2026-09-02-p3';
+const ACTIVITY_SET = activitySetExample as unknown as ActivitySetV2;
 
 /**
  * 가짜 Native Messaging 포트입니다.
@@ -200,6 +202,70 @@ describe('NativeHostClient · 왕복', () => {
       status: 'replied',
       message: { type: 'session.listed', sessions: [{ sessionId: PERIOD }] },
     });
+  });
+
+  it('활동 ACK의 reply type·sessionId가 다르면 FIFO를 소비하지 않습니다', async () => {
+    const harness = makeHarness();
+    harness.client.start();
+    harness.handshake();
+
+    const sending = harness.client.send({
+      type: 'activity.save',
+      sessionId: PERIOD,
+      activitySet: ACTIVITY_SET,
+    });
+    harness.port().reply({ type: 'session.listed', sessions: [] });
+    harness.port().reply({
+      type: 'activity.saved',
+      sessionId: 'other-session',
+      activitySet: ACTIVITY_SET,
+    });
+    harness.port().reply({
+      type: 'activity.saved',
+      sessionId: PERIOD,
+      activitySet: ACTIVITY_SET.map((activity, index) =>
+        index === 0 ? { ...activity, prompt: '다른 저장 요청입니다.' } : activity,
+      ),
+    });
+    expect(harness.client.stats().waiting).toBe(1);
+
+    harness.port().reply({
+      type: 'activity.saved',
+      sessionId: PERIOD,
+      activitySet: ACTIVITY_SET,
+    });
+
+    expect(await sending).toMatchObject({
+      status: 'replied',
+      message: { type: 'activity.saved', sessionId: PERIOD },
+    });
+    expect(harness.warnings.filter((line) => line.includes('기다리던 부탁과 다른 답'))).toHaveLength(3);
+  });
+
+  it('다른 부탁의 오류도 활동 저장 FIFO를 소비하지 않습니다', async () => {
+    const harness = makeHarness();
+    harness.client.start();
+    harness.handshake();
+
+    const sending = harness.client.send({
+      type: 'activity.save',
+      sessionId: PERIOD,
+      activitySet: ACTIVITY_SET,
+    });
+    harness.port().reply({
+      type: 'error',
+      message: 'session read failed',
+      reason: 'session-not-found',
+      received: 'session.bundle',
+    });
+    harness.port().reply({
+      type: 'activity.saved',
+      sessionId: PERIOD,
+      activitySet: ACTIVITY_SET,
+    });
+
+    expect(await sending).toMatchObject({ status: 'replied', message: { type: 'activity.saved' } });
+    expect(harness.warnings.some((line) => line.includes('기다리던 부탁과 다른 답'))).toBe(true);
   });
 
   it('모양은 정상이어도 맨 앞 부탁과 다른 답은 FIFO를 소비하지 않습니다', async () => {
@@ -430,6 +496,22 @@ describe('NativeHostClient · 왕복', () => {
       message: { type: 'event.ack', id: 'ev-after-history-timeout' },
     });
     expect(harness.client.stats().waiting).toBe(0);
+  });
+
+  it('활동 저장 ACK가 시간 안에 안 오면 다시 보내지 않고 timeout으로 끝냅니다', async () => {
+    const harness = makeHarness({ requestTimeoutMs: 100 });
+    harness.client.start();
+    harness.handshake();
+
+    const saving = harness.client.send({
+      type: 'activity.save',
+      sessionId: PERIOD,
+      activitySet: ACTIVITY_SET,
+    });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(await saving).toEqual({ status: 'dropped', reason: 'timeout' });
+    expect(harness.client.stats()).toMatchObject({ waiting: 0, queued: 0, connected: false });
   });
 });
 
