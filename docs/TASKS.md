@@ -194,22 +194,26 @@
 - [x] V2-002 호스트 `session.list`·`session.getSummary`·`session.bundle` 읽기 봉투와 시험 추가 — `5b0eb5b`
 - [x] V2-003 프레임 id로 실제 `.jpg/.png/.webp`를 해결하는 asset manifest 추가 — `5b0eb5b`
 - [x] V2-004 실제 SQLite 사건을 전사·질문·답·화면이 연결된 번들로 조립 — `5b0eb5b`
-- [x] V2-005 report-ui가 V2 번들에서 독립 세션 HTML과 묶음 허브 생성 — `7f53595`
-- [ ] V2-006 Chrome 완전 재시작 뒤 과거 세션 목록·상세 열기
+- [x] V2-005 report-ui가 V2 번들에서 독립 세션 HTML과 묶음 허브 생성 — 생성 `7f53595`, 출력 경계 `46ce7c0`, 시도 전 정답 원문 제외 `bc74019`
+- [ ] V2-006 Chrome 완전 재시작 뒤 과거 세션 목록·상세 열기 — 확장 읽기·재시도·복원 코드는 `d0c8d56`, 실제 설치판 완전 재시작 관문은 남음
 - [ ] V2-007 명시적 내보내기·삭제 UI와 보존 경계 추가
+- [ ] V2-008 브라우저는 `sessionId`만 보내고 호스트가 앱 전용 staging에서 독립 HTML을 생성·원자 게시하는 보고서 경로 추가
+- [ ] V2-009 시스템 Node·저장소 원본 없이 설치 묶음만으로 1 MiB 초과 세션과 실제 JPG 보고서 E2E 통과
 
 ### Slice 2 — Profiles, vision, five activities
 
-- [ ] V2-101 `class`·`exam`·`meeting` 프로필과 중립 레이블 추가
+- [x] V2-101 `class`·`exam`·`meeting` 프로필과 중립 레이블 추가 — `3e5db4e`
 - [x] V2-102 `TutorResponseV2` 동적 섹션과 V1 답 어댑터 추가 — 계약 `3147dc1`, 읽기 어댑터 `5b0eb5b`
 - [x] V2-103 다섯 슬롯 `ActivityCard`·시도·힌트·피드백·지연 변형 계약 추가 — `3147dc1`; 실제 생성 엔진은 V2-104에서 검증
 - [x] V2-104 세 모드 비식별 합성 fixture와 결정적 다섯 활동 시험 추가 — `46d7ea2`
 - [ ] V2-105 화면 픽셀에만 답이 있는 Claude/Codex 시각 E2E 관문 추가
+- [x] V2-106 과거 세션에서 다섯 활동을 생성하고 시도·확신·힌트·정답 공개를 저장 ACK 뒤에만 진행 — 호스트 저장 `da3430c`, 확장 브리지 `7cc1e44`, 원문 보존 `67f38f9`, 화면 흐름 `4f82240`
+- [ ] V2-107 활동 자기 수정·근거 기반 피드백·다음 회상 시각과 65분 세션 재진입 UX 검증
 
 ### Slice 3 — Codex provider
 
-- [ ] V2-201 공식 Codex app-server handshake·인증·스트리밍 가짜 서버 시험
-- [ ] V2-202 취소·시간 초과·로그인 실패·읽기 전용 안전 경계 추가
+- [ ] V2-201 공식 Codex app-server handshake·인증·스트리밍 가짜 서버 시험 — `b4f9dd1`에서 fake handshake·스트리밍 완료, 공식 `account/read`와 실제 서버 확인은 남음
+- [ ] V2-202 취소·시간 초과·로그인 실패·읽기 전용 안전 경계 추가 — `b4f9dd1`에서 fake 취소·시간 제한은 완료, 설치된 CLI의 제한 읽기 루트와 전역 설정 격리는 남음
 - [ ] V2-203 Claude와 같은 텍스트·화면 골든 시험 통과 뒤 설정 활성화
 
 ### 공개·장시간 사람 관문

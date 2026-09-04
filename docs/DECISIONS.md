@@ -195,3 +195,27 @@ kickoff.md 와 master-prompt.md 가 충돌하면 kickoff.md 가 우선하고 여
 - 결정: 저장소와 `Corthex Classmate` 이름을 유지한 채 공통 코어에 `class`, `exam`, `meeting` 프로필을 얹는다. 구현 순서는 (1) 실제 SQLite → 과거 세션 → 근거 포함 HTML, (2) 중립 프로필 + 화면 이해 증명 + `RECALL/EXPLAIN/INSPECT/APPLY/TRANSFER` 다섯 활동, (3) 공식 Codex app-server 제공자다. 기존 `periodId`와 V1 DB·답 계약은 지우거나 일괄 변환하지 않고 `LegacyPeriodAdapter`와 V2 뷰를 추가한다. Tiro는 기본 입력이지만 공통 전사 계약 밖의 한 어댑터로 두고, 공식 증분 API가 확인되기 전까지 현재 DOM 경로를 폴백으로 유지한다. 현재 합의 정본은 `docs/kickoff-v0.2.md`, `docs/kickoff.md`는 v0.1 역사 기록이다.
 - 근거: 2026-09-04 실제 PoC에서 전사·질문·화면·Claude 답·SQLite 저장이 이어졌지만 과거 세션 UI, 실제 DB→HTML, 화면 픽셀 이해 증명, 다섯 활동, Codex는 미완성이다. 법무사·세무사·회계사 수험생과 회의 사용 가능성을 원하는 사용자 승인이 있었고, 넓은 제품명을 먼저 만드는 것보다 현재 검증된 한 번의 붙잡기 흐름을 보존하는 편이 위험이 작다.
 - 대안: 별도 범용 플랫폼을 새로 시작하기 → 공통화는 깨끗하지만 현재 작동하는 확장·호스트·저장 경로를 중복시키고 공개 데모를 늦춰 보류. 현재 코드에 분야별 if문만 추가하기 → 계약과 UI가 더 굳어져 거부. 기존 DB를 V2로 일괄 마이그레이션하기 → 사용자 실측 기록 손상 위험 때문에 거부.
+
+## 2026-09-05 — 활동은 세션당 한 묶음으로 저장하고 정답은 저장 ACK 뒤에만 공개한다
+
+- 결정: `ActivitySetV2`는 세션 SQLite의 `activity_state` 단일 행에 원자적으로 저장한다. 저장 전 모든 `evidenceRefIds`가 실제 세션의 자료·순간·자산 id인지 확인하고, 확장과 호스트는 `sessionId`뿐 아니라 요청·응답의 활동 묶음 전체가 같을 때만 성공으로 인정한다. 정적 HTML도 최신 시도에 `revealedAt`이 없으면 정답 원문을 생성물에 넣지 않으며, 사용하지 않은 힌트는 `hintLevel` 이후부터 제외한다.
+- 근거: 이벤트 표에 활동 상태 전이 여러 종류를 더하면 기존 V1 사건 재생과 장시간 세션 로그가 불필요하게 커진다. 반대로 한 행 전체 교체는 정확히 다섯 카드라는 작은 계약에 맞고 트랜잭션 실패 때 옛 묶음을 보존한다. 닫힌 `<details>` 안에 정답 원문을 미리 넣는 방식은 UI만 가릴 뿐 답 공개 전 시도를 보장하지 못한다. 응답·자기 수정·피드백의 `trim()`은 빈값 검사에만 쓰고 들여쓰기·개행을 포함한 원문을 저장한다. 구현 근거는 호스트 `da3430c`, 확장 브리지 `7cc1e44`, 보고서 공개 게이트 `bc74019`, 원문 보존 `67f38f9`, 다섯 활동 화면 `4f82240`이다.
+- 대안·보류: 카드·시도별 관계형 표는 조회 요구가 생기기 전까지 보류한다. 여러 패널의 동시 편집을 위한 `revision/expectedRevision`, AI가 만드는 근거 기반 피드백, 자기 수정과 다음 회상 시각의 실제 UX는 V2-107에서 다룬다.
+
+## 2026-09-05 — 세션 프로필은 첫 시작 사건에 고정하고 설치판은 숫자판과 Git 식별자를 함께 쓴다
+
+- 결정: 설정 키 `classmate.profile`은 `class | exam | meeting`만 허용하고 예전 값·깨진 값은 `class`로 읽는다. 새 세션의 최초 `period.started.payload.profile`이 그 세션의 정본이며, 진행 중 설정 변경이나 두 번째 시작 사건은 프로필·주제·슬롯을 소급 변경하지 않는다. 시험·회의 UI에는 IntelliJ를 필수 자료원처럼 표시하지 않는다. 다음 설치 후보 숫자판은 `0.0.3`, 표시판은 `0.0.3+g<commit>[.dirty]`로 두고 WXT·개발 ZIP·스토어 ZIP이 모두 일치하지 않으면 패키징을 실패시킨다.
+- 근거: 같은 SQLite 세션의 의미가 중간에 바뀌면 질문·화면·활동의 도메인 해석이 갈라진다. 또한 이전 설치 폴더는 `0.0.1`, 과거 ZIP과 최신 소스 빌드는 서로 다른 코드인데 모두 `0.0.2`로 보이는 상태가 실측됐다. Chrome은 업데이트용 `version`과 표시용 `version_name`을 구분하며, WXT는 앱 `package.json`의 version을 매니페스트 기본값으로 쓴다. 구현은 프로필 `3e5db4e`, 릴리스 식별 `1f1a70e`, 설정 화면의 현재 manifest 표시 `9a54ecd`다.
+- 대안·보류: 타임스탬프만 표시하면 어느 소스 커밋인지 재현하기 어려워 쓰지 않는다. 실제 `C:\\CorthexClassmate\\extension` 교체와 Chrome 재로드는 사람 관문이며 자동화하지 않는다. 설정 화면은 manifest의 `version_name → version → 확인 불가`만 표시하고 이름·URL·설치 경로·Git 환경은 읽지 않는다.
+
+## 2026-09-05 — Codex app-server PoC는 안전 경계가 실제 설치판에서 증명될 때까지 비활성으로 둔다
+
+- 결정: 공식 JSONL 순서(`initialize → initialized → thread/start → turn/start`), 스트리밍, 완료, 취소, 시간 제한과 `localImage` 격리 복사를 가짜 app-server로 구현하되 사용자 라우터에서는 계속 `provider-unavailable`로 둔다. V2-201은 공식 `account/read` 인증 확인 전, V2-202는 제한된 읽기 루트와 전용 설정·환경 격리 전에는 완료로 표시하지 않는다.
+- 근거: 이 PC의 설치된 Codex CLI 0.152.0 생성 스키마에서 `readOnly`는 네트워크 차단만 표현하고 허용 읽기 루트를 좁히는 필드가 없다. `approvalPolicy: never`도 도구 실행 금지가 아니라 승인 질문을 하지 않는 정책이며, 부모 `CODEX_HOME`, MCP와 환경 상속도 아직 차단하지 않았다. `item/started` 뒤 위험 도구를 감지해 interrupt하는 것은 결과 저장을 막을 뿐 실행 전 차단 증거가 아니다. 비활성 PoC 커밋은 `b4f9dd1`이다.
+- 대안·보류: 지원하지 않는 필드를 보내거나 안전하다고 가정해 Codex 설정을 여는 안은 거부한다. 전용 `CODEX_HOME`과 최소 환경, 설치 버전의 제한 읽기 지원 탐지, 실제 로그인·화면 골든 시험을 통과한 뒤 V2-203에서 활성화한다.
+
+## 2026-09-05 — 독립 보고서는 브라우저를 우회해 호스트가 앱 전용 staging에서 만든다
+
+- 결정: 확장은 `report.generate {sessionId}`만 보내고, Rust 호스트가 실제 SQLite와 JPG를 직접 읽어 `<data-dir>/reports/.part-<exportId>`에서 생성한 뒤 같은 볼륨의 `<exportId>` 폴더로 원자 rename한다. 응답에는 불투명 `exportId`, 상태와 개수만 싣고 전사·질문·절대경로·이미지 바이트·worker stderr는 싣지 않는다. 검증된 `report-ui`는 단일 CommonJS worker로 묶고 설치 패키지에 고정 portable Node 런타임과 버전·SHA-256·라이선스를 포함한다.
+- 근거: Native Messaging의 1 MiB 한계 때문에 하루 수업 번들과 JPG를 Chrome으로 왕복시키면 긴 세션에서 실패한다. 호스트에는 이미 실제 SQLite→`SessionBundleV2`와 asset id→실제 파일 해석 경로가 있고, `report-ui`에는 React 텍스트 이스케이프와 출력 파일 경계가 있다. 이를 Rust로 다시 쓰면 템플릿·CSS·안전 검사를 이중 유지해야 한다. Node SEA는 현재 공식 문서상 Active Development이므로 첫 배포 기본값으로 고정하지 않는다.
+- 대안·보류: 시스템 PATH의 Node 사용, 실행 중 다운로드, 브라우저가 `outDir`·HTML·바이트를 지정하는 안은 거부한다. SEA 단일 EXE, 임의 위치로 저장, 보고서 목록·삭제·보존 기간은 설치형 경로가 검증된 뒤 다룬다.

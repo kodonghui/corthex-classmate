@@ -350,3 +350,17 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 - 검증: `cargo test -p classmate-transport` → 단위 59 + 문서 4 모두 통과. `cargo test -p classmate-host` → 수정 전 기준 단위 166 + 통합 32 + 문서 3 모두 통과. 추가 경계 뒤 `cargo test -p classmate-host store::sessions::tests -- --nocapture` → 세션 읽기 9/9 통과(손상 SQLite 건너뛰기 포함). `cargo clippy -p classmate-transport -p classmate-host --all-targets -- -D warnings`와 `cargo fmt --manifest-path apps/native-host/Cargo.toml --all -- --check`도 통과했습니다.
 - 위험: 이 커밋은 조회 API와 번들 조립까지만 완성합니다. Chrome 완전 재시작 뒤 목록·상세를 실제 설치판에서 여는 U/E2E, HTML을 사용자가 누르는 내보내기, 삭제·보존 UI는 아직 별도 관문입니다. Codex 제공자 변경은 안전 검토 중이라 이 커밋에 섞지 않았습니다.
 - 다음 행동: 확장의 과거 세션 목록·상세에서 시간대·경고 익명화·재시도 경계를 끝내고 자동시험과 빌드를 통과시킵니다.
+
+## 2026-09-05 01:14 — 시간별 체크포인트: V2 확장 세션 이력 진행 상태 저장
+
+- 변경: 자동화는 구현 파일과 기존 작업자의 변경을 수정하지 않았습니다. 직전 체크포인트 뒤 작업 트리에는 과거 세션 목록·상세 UI, Native Host 메시지, 세션 이력 저장소와 시험 관련 수정 18개 및 새 `session-profile.ts`가 남아 있습니다. 검증된 `kdh.session.v1` 스냅샷과 이 WORKLOG 항목만 저장했습니다.
+- 검증: `python "C:\\Users\\elddl\\kodonghui_myWs\\Study-saltlux-ai-agent-service\\scripts\\kdh-save-session" --cwd "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate" --next-action "Complete the extension past-session list and detail flow, including timezone display and anonymized warning/retry boundaries, then run its tests and build."` → `verify: VERIFIED`; `session_id: codex`; snapshot `C:\\Users\\elddl\\.kdh\\state\\sessions\\codex\\20260904T161415Z0000-caqx`. 이어서 `git diff --check` → 출력 없음(통과).
+- 위험: 기본 KDH-wiki 캡처는 `No module named 'scripts'`로 실패했습니다(`wiki_capture: failed`). 세션 스냅샷 검증은 통과했으나 위키 보조 기록은 생성되지 않았습니다. 진행 중 변경은 자동화가 테스트·커밋·수정하지 않았습니다.
+- 다음 행동: 확장의 과거 세션 목록·상세 흐름을 시간대 표시와 익명화된 경고·재시도 경계까지 완성한 뒤 관련 시험과 빌드를 실행합니다.
+
+## 2026-09-05 01:52 — 실제 세션의 5단계 복습과 설치 빌드 식별 완료
+
+- 변경: 과거 세션의 실제 `SessionBundleV2`를 보존한 채 근거 기반 `RECALL → EXPLAIN → INSPECT → APPLY → TRANSFER` 다섯 활동을 한 번 생성하고 SQLite 저장 ACK 뒤에만 복습 화면으로 채택하도록 연결했습니다. 답·확신도·단계별 힌트는 전체 `ActivitySetV2`로 저장하며, ACK 전·실패·다른 세션으로 이동한 뒤에는 모범 답이 DOM에 나타나지 않습니다. 응답·자기 수정·피드백은 공백-only 여부만 검사하고 코드 들여쓰기·CRLF/LF·Windows 경로·말미 개행을 포함한 원문을 보존합니다. 설정의 앱 정보에는 현재 로드된 manifest의 `version_name` 또는 숫자 `version`만 표시합니다. 로컬 커밋은 원문 보존 `67f38f9`, 활동 화면 `4f82240`, 설치 빌드 표시 `9a54ecd`입니다.
+- 검증: 확장 전체 Vitest `52 files / 859 tests` 통과, TypeScript 검사 통과, WXT Chrome MV3 빌드 통과(`3.72 MB`), Playwright 확장 E2E `18/18` 통과했습니다. E2E에서 설정 화면의 빌드 문자열이 실제 `chrome.runtime.getManifest()` 값과 정확히 같은지, 콘솔·페이지 오류가 없는지도 확인했습니다. 학습 엔진은 `3 files / 21 tests`와 타입 검사를 통과했고 `git diff --check`도 출력 없이 통과했습니다.
+- 위험: 자동시험은 빌드된 임시 확장을 새 Chromium에 올린 증거이며 사용 중인 `C:\\CorthexClassmate\\extension`을 교체하거나 실제 학습 SQLite를 수정하지 않았습니다. 동일 세션을 여러 패널이 동시에 저장할 때의 CAS/revision, 자기 수정·AI 피드백·다음 복습 시각 UX, 설치판 Chrome 완전 재시작은 남아 있습니다. 현재 작업 트리에 다른 문서 체크포인트가 함께 있었으며 그대로 보존했습니다.
+- 다음 행동: 브라우저에 큰 세션·JPG를 왕복시키지 않는 호스트 전용 정적 보고서 생성 경로를 구현하고, 다섯 활동 뒤 자기 수정·피드백·다음 회상 시각을 작은 후속 슬라이스로 연결합니다.
