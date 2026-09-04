@@ -294,3 +294,17 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 - 검증: 앱 작성 영역 lint, TypeScript, Sites 프로덕션 빌드가 통과했고 `npm audit --omit=dev`는 0건입니다. 데스크톱과 390px 모바일을 눈으로 확인하고, 모바일에서 `대기` 필터가 전체 6개 중 정확히 3개만 남기는 것을 확인했습니다. 민감 경로·Tiro 공유 링크 모양의 정적 검색은 0건입니다.
 - 위험: Sites 생성기의 고정 의존성에는 감사 경고가 있어 호환 peer 범위 안의 최신 React 19.2.8·Vinext beta.9·Vite 8.2.2·Cloudflare 도구로 올린 뒤 다시 빌드했습니다. 배포·도메인 연결·원격 저장소 생성은 아직 하지 않았습니다.
 - 다음 행동: 제품 쪽은 U-06′ 실제 화면 한 장 실측, 상태판 쪽은 사용자 확인 뒤 비공개 배포와 원격 저장소 연결입니다.
+
+## 2026-09-04 16:46 — 시간별 체크포인트: 실제 캡처 실측 대기 상태 저장
+
+- 변경: 구현 파일과 기존 작업 변경은 수정하지 않았습니다. 이번 확인 시 `git status --short`와 `git diff`가 비어 있어, 직전 기록 뒤 제품 저장소의 새 미커밋 변경은 없었습니다. 검증된 `kdh.session.v1` 스냅샷만 저장했습니다.
+- 검증: `python "C:\\Users\\elddl\\kodonghui_myWs\\Study-saltlux-ai-agent-service\\scripts\\kdh-save-session" --cwd "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate" --next-action "Run the U-06-prime real video-tab capture measurement and record one screen.frame result with image-byte size."` → `verify: VERIFIED`; `session_id: codex`; snapshot `C:\\Users\\elddl\\.kdh\\state\\sessions\\codex\\20260904T074641Z0000-zu3a`.
+- 위험: 기본 KDH-wiki 캡처는 기존과 같이 `No module named 'scripts'`로 실패했습니다(`wiki_capture: failed`). 검증된 세션 스냅샷은 남았지만 위키 보조 기록은 생성되지 않았습니다.
+- 다음 행동: U-06′ 실제 영상 탭 캡처를 1회 실측해 `screen.frame` 결과와 이미지 바이트 크기를 기록합니다.
+
+## 2026-09-04 17:53 — GitHub 원격 반영과 Workbench 비공개 배포 완료
+
+- 변경: 제품 저장소의 확정 커밋 5개를 `origin/main`에 올렸습니다. 별도 `corthex-classmate-workbench` 저장소를 GitHub 비공개로 만들고, Sites 프로젝트를 새로 등록해 소유자 전용 프로덕션으로 배포했습니다. 16:46 시간별 체크포인트 기록은 내용 변경 없이 함께 보존했습니다.
+- 검증: 제품 로컬·GitHub HEAD가 `654c2b9b61936c873b338fd6137462bbe844fe26`으로 같고 push-triggered GitHub Actions `test`가 성공했습니다. Workbench 로컬·GitHub·Sites 저장 버전의 원본 커밋이 `e02fadafe99e65f1b38c44386c68fca608508aef`으로 일치합니다. Workbench lint·TypeScript·프로덕션 빌드가 통과했고, Sites 배포는 `succeeded`입니다. 접근 정책은 소유자 1명, 외부 방문자 0명, workspace·tenant 그룹 0개입니다.
+- 위험: 실제 설치 Chrome에서 새 빌드로 영상 탭 화면 한 장을 저장하는 U-06′ 실측은 아직 하지 않았습니다. 이번 `npm audit --omit=dev` 재확인은 레지스트리 응답이 90초 넘게 없어 중단했으며, 의존성 파일 변경 전 직전 감사 결과는 0건입니다.
+- 다음 행동: 현재 빌드 해시를 고정한 뒤 사용자에게 설치 직전 확인을 받고 Chrome 확장을 교체해 U-06′ 실제 화면 캡처를 검증합니다.
