@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { SessionAreaLike } from './session-area';
 import {
   LESSON_TAB_STORAGE_KEY,
+  LessonTabSelection,
   forgetLessonTab,
   readLessonTab,
   rememberLessonTab,
@@ -85,5 +86,79 @@ describe('수업 화면 탭 저장', () => {
     await expect(
       rememberLessonTab(store.area, { tabId: -1, windowId: 3, at: 1 }),
     ).rejects.toThrow(RangeError);
+  });
+});
+
+describe('수업 화면 탭 최신 선택', () => {
+  it('느린 복원이 끝나도 그사이 사용자가 고른 탭을 덮지 않습니다', async () => {
+    let finishRead: ((value: Record<string, unknown>) => void) | undefined;
+    const read = new Promise<Record<string, unknown>>((resolve) => {
+      finishRead = resolve;
+    });
+    const values: Record<string, unknown> = {};
+    const area: SessionAreaLike = {
+      get: () => read,
+      set: async (items) => {
+        Object.assign(values, items);
+      },
+    };
+    const selection = new LessonTabSelection(area);
+    const restoring = selection.snapshot();
+
+    const saving = selection.choose({ tabId: 22, windowId: 4, at: 2 });
+    finishRead?.({ [LESSON_TAB_STORAGE_KEY]: { tabId: 11, windowId: 3, at: 1 } });
+
+    await saving;
+    expect(await restoring).toEqual({
+      lessonTab: { tabId: 22, windowId: 4, at: 2 },
+      revision: 1,
+    });
+    expect(values[LESSON_TAB_STORAGE_KEY]).toEqual({ tabId: 22, windowId: 4, at: 2 });
+  });
+
+  it('옛 캡처의 지우기 요청은 더 최근에 고른 탭을 지우지 않습니다', async () => {
+    const store = memoryStore();
+    const selection = new LessonTabSelection(store.area);
+    await selection.choose({ tabId: 11, windowId: 3, at: 1 });
+    const oldRevision = selection.revision;
+    await selection.choose({ tabId: 22, windowId: 4, at: 2 });
+
+    expect(await selection.clearIfRevision(oldRevision)).toBe(false);
+    expect(await selection.snapshot()).toEqual({
+      lessonTab: { tabId: 22, windowId: 4, at: 2 },
+      revision: 2,
+    });
+  });
+
+  it('앞 저장이 늦게 끝나도 저장소의 최종값은 마지막 선택입니다', async () => {
+    let releaseFirst: (() => void) | undefined;
+    let firstStarted: (() => void) | undefined;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const started = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+    const values: Record<string, unknown> = {};
+    let writes = 0;
+    const area: SessionAreaLike = {
+      get: async () => ({}),
+      set: async (items) => {
+        writes += 1;
+        if (writes === 1) {
+          firstStarted?.();
+          await firstGate;
+        }
+        Object.assign(values, items);
+      },
+    };
+    const selection = new LessonTabSelection(area);
+    const first = selection.choose({ tabId: 11, windowId: 3, at: 1 });
+    await started;
+    const second = selection.choose({ tabId: 22, windowId: 4, at: 2 });
+    releaseFirst?.();
+
+    await Promise.all([first, second]);
+    expect(values[LESSON_TAB_STORAGE_KEY]).toEqual({ tabId: 22, windowId: 4, at: 2 });
   });
 });

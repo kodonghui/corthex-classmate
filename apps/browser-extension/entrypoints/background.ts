@@ -22,8 +22,7 @@ import { createFrameStorePort } from '../src/background/frame-port';
 import { NativeHostClient } from '../src/background/host-client';
 import type { NativePortLike } from '../src/background/host-client';
 import { NATIVE_HOST_NAME } from '../src/background/host-messages';
-import type { LessonTab } from '../src/background/lesson-tab';
-import { forgetLessonTab, readLessonTab, rememberLessonTab } from '../src/background/lesson-tab';
+import { LessonTabSelection } from '../src/background/lesson-tab';
 import { PeriodLog } from '../src/background/period-log';
 import { Router } from '../src/background/router';
 import type { PanelPortLike, ScreenSnapshotSource } from '../src/background/router';
@@ -88,37 +87,32 @@ export default defineBackground(() => {
   const sessionArea = pickSessionArea(chrome.storage as unknown as StorageNamespaceLike);
 
   // 같은 서비스 워커 안에서는 메모리 값을 먼저 쓰고, 워커가 다시 뜬 때에만 세션 저장소에서
-  // 되살립니다. 아이콘 클릭과 비동기 복원이 엇갈려 새 선택을 옛 값으로 덮지 않습니다.
-  let lessonTab: LessonTab | null = null;
-  let lessonTabLoaded = false;
-  const restoredLessonTab = readLessonTab(sessionArea).catch(() => null);
+  // 되살립니다. 세대 번호와 직렬 쓰기가 늦은 옛 작업이 새 선택을 덮거나 지우지 않게 합니다.
+  const lessonTabs = new LessonTabSelection(sessionArea);
 
-  async function currentLessonTab(): Promise<LessonTab | null> {
-    if (lessonTabLoaded) return lessonTab;
-    const restored = await restoredLessonTab;
-    if (!lessonTabLoaded) {
-      lessonTab = restored;
-      lessonTabLoaded = true;
-    }
-    return lessonTab;
-  }
-
-  async function saveLessonTab(tab: LessonTab): Promise<void> {
-    lessonTab = tab;
-    lessonTabLoaded = true;
-    await rememberLessonTab(sessionArea, tab);
+  async function currentLessonTab() {
+    return (await lessonTabs.snapshot()).lessonTab;
   }
 
   /** 패널의 「다시 연결」이 고를, 가장 최근 Chrome 창의 앞 탭입니다. 권한은 주지 못합니다. */
-  async function selectActiveLessonTab(): Promise<void> {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    if (tab?.id === undefined || tab.windowId === undefined) {
-      lessonTab = null;
-      lessonTabLoaded = true;
-      await forgetLessonTab(sessionArea);
-      return;
+  async function selectActiveLessonTab(): Promise<'selected' | 'missing' | 'superseded'> {
+    const before = await lessonTabs.snapshot();
+    let tab: chrome.tabs.Tab | undefined;
+    try {
+      [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    } catch (error: unknown) {
+      if (lessonTabs.revision !== before.revision) return 'superseded';
+      throw error;
     }
-    await saveLessonTab({ tabId: tab.id, windowId: tab.windowId, at: Date.now() });
+    if (lessonTabs.revision !== before.revision) return 'superseded';
+    if (tab?.id === undefined || tab.windowId === undefined) {
+      const cleared = await lessonTabs.clearIfRevision(before.revision).catch(() => true);
+      if (!cleared || lessonTabs.revision !== before.revision + 1) return 'superseded';
+      return 'missing';
+    }
+    // 저장소 실패는 현재 워커의 메모리 선택을 무효로 만들지 않습니다.
+    await lessonTabs.choose({ tabId: tab.id, windowId: tab.windowId, at: Date.now() }).catch(() => {});
+    return 'selected';
   }
 
   /**
@@ -216,18 +210,16 @@ export default defineBackground(() => {
       // 못 얻은 까닭을 라우터로 넘겨 바닥줄의 `meet` 자리에 드러나게 합니다. 넘어가는 것은
       // **낱말 하나**뿐입니다 — dataURL·화면 내용·탭 주소는 어디에도 싣지 않습니다.
       let failure: SnapshotFailure | null = null;
-      const selected = await currentLessonTab();
-      const shot = await captureLessonTab(snapshotChrome, selected, {
+      const selected = await lessonTabs.snapshot();
+      const shot = await captureLessonTab(snapshotChrome, selected.lessonTab, {
         onFail: (reason) => {
           failure = reason;
         },
       });
       if (shot === null) {
-        if (failure === 'no-lesson-tab') {
-          lessonTab = null;
-          lessonTabLoaded = true;
-          void forgetLessonTab(sessionArea).catch(() => {
-            // 세션 저장소가 실패해도 메모리 선택은 이미 비웠습니다.
+        if (failure === 'no-lesson-tab' && selected.lessonTab !== null) {
+          void lessonTabs.clearIfRevision(selected.revision).catch(() => {
+            // 세션 저장소가 실패해도 같은 세대의 메모리 선택은 이미 비웠습니다.
           });
         }
         void router.noteScreenMissing(failure ?? 'capture-failed');
@@ -281,9 +273,13 @@ export default defineBackground(() => {
       reselectLessonTab: () => {
         // 패널 안 클릭은 `activeTab` 권한을 새로 주지 못합니다. 지금 앞 탭을 후보로만 다시
         // 잡고, 권한이 없으면 다음 붙잡기에서 아이콘 클릭 방법을 정확히 안내합니다.
-        void selectActiveLessonTab().catch(() => {
-          void router.noteScreenMissing('no-lesson-tab');
-        });
+        void selectActiveLessonTab()
+          .then((result) => {
+            if (result === 'missing') void router.noteScreenMissing('no-lesson-tab');
+          })
+          .catch(() => {
+            void router.noteScreenMissing('capture-failed');
+          });
       },
     },
     log,
@@ -613,7 +609,7 @@ export default defineBackground(() => {
   // `sidePanel.open` 은 사용자 동작 안에서만 허용되므로 약속을 기다리기 전에 바로 부릅니다.
   chrome.action.onClicked.addListener((tab) => {
     if (tab.id !== undefined) {
-      void saveLessonTab({ tabId: tab.id, windowId: tab.windowId, at: Date.now() }).catch(() => {
+      void lessonTabs.choose({ tabId: tab.id, windowId: tab.windowId, at: Date.now() }).catch(() => {
         // 저장소가 잠깐 실패해도 같은 워커의 메모리 선택과 activeTab 권한은 살아 있습니다.
       });
     }

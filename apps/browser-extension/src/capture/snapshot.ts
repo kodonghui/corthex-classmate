@@ -210,7 +210,7 @@ export async function captureLessonTab(
         return fail('no-permission');
       }
       warn(`화면 한 장을 찍지 못했어요 · 품질 ${quality}`);
-      return fail(tooLarge ? 'too-large' : 'capture-failed');
+      return fail('capture-failed');
     }
 
     const shot = decodeJpegDataUrl(dataUrl, warn);

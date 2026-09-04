@@ -372,7 +372,7 @@ describe('captureLessonTab', () => {
     }
   });
 
-  it('두 번째 셔터가 할당량에 걸려도 이미 확인한 too-large 를 유지합니다', async () => {
+  it('두 번째 셔터 자체가 실패하면 아직 크기를 모르므로 capture-failed 입니다', async () => {
     const chromeLike = fakeChrome({
       captureThrows: 2,
       dataUrlFor: () => jpegDataUrlOfSize(MAX_SNAPSHOT_BYTES + 1),
@@ -381,7 +381,7 @@ describe('captureLessonTab', () => {
     const { shot, reasons } = await capture(chromeLike);
 
     expect(shot).toBeNull();
-    expect(reasons).toEqual(['too-large']);
+    expect(reasons).toEqual(['capture-failed']);
   });
 });
 
