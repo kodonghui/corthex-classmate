@@ -264,3 +264,33 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
     그 결과는 「Meet 에서도 된다」의 증거가 **아닙니다** — 권한 모델이 같으므로 될 가능성이 높다는 것까지만.
 - 다음 행동: 학습자가 인계서 §5-① 을 먼저(2분), Codex 가 U-35·U-38·U-39, 학습자가 U-35 빌드로 §5-②(③ 선택).
   숫자는 이 파일 검증 줄에 사람이 적습니다.
+
+## 2026-09-04 14:45 — 시간별 체크포인트: 9라운드 인계 상태 저장
+
+- 변경: 구현 파일 변경 없이 `kdh.session.v1` 스냅샷을 저장했습니다. 직전 WORKLOG 항목 뒤 새 작업 증거는
+  `1ea20b5`의 `docs/plan/round-9-codex-handoff.md` 인계 문서뿐이며, `git status --short`와 `git diff`는 비어 있었습니다.
+- 검증: `python "C:\\Users\\elddl\\kodonghui_myWs\\Study-saltlux-ai-agent-service\\scripts\\kdh-save-session" --cwd "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate" --next-action "Read docs/plan/round-9-codex-handoff.md and implement U-35, U-38, and U-39 with their specified verification."` → `verify: VERIFIED`; snapshot `C:\\Users\\elddl\\.kdh\\state\\sessions\\codex\\20260904T054544Z0000-udcb`.
+- 위험: 기본 KDH-wiki 캡처는 `No module named 'scripts'`로 실패했습니다(`wiki_capture: failed`). 세션 스냅샷 검증은 통과했지만 위키 보조 기록은 이번 체크포인트에 없습니다.
+- 다음 행동: `docs/plan/round-9-codex-handoff.md`를 읽고 U-35·U-38·U-39를 명시된 검증과 함께 구현합니다.
+
+## 2026-09-04 15:31 — 9라운드 U-35·U-38 구현과 증거 기준선
+
+- 변경: U-35 `acd21bc`가 영상·Drive·LMS 등 학습자가 아이콘을 누른 탭을 `activeTab` 한 장 경로로 만들고, `6bb9c43`이 늦게 끝난 옛 캡처·복원 작업이 최신 선택을 지우는 경합을 막았습니다. U-38 `991dc95`는 CI에 typecheck·Rust fmt·clippy 관문을 추가했습니다. U-39 문서와 `docs/evidence-baseline-2026-09-04.md`는 코드·자동시험·합성·실기기·실수업 증거를 분리했습니다.
+- 검증: `pnpm test` 1,639건(vitest 1,161 · cargo 333 · Node 145), typecheck, fmt, clippy, 확장 빌드 3.65 MB, Playwright E2E 18건이 로컬에서 통과했습니다. 빌드 매니페스트는 `activeTab` 1 · `<all_urls>` 0 · Meet 호스트 0이고, 대표 골든 화면과 다시 생성된 `golden-04-answer.png`를 눈으로 확인했습니다. `packages/contracts`와 `fixtures` 변경은 없습니다.
+- 증거 경계: U-36 옛 오류 원문은 미채집입니다. 현재 설치 폴더와 새 빌드는 상대 경로 합집합 123개 중 7개가 달라 설치판을 `6bb9c43` 증거로 쓸 수 없습니다. 고정한 역사적 실수업 스냅샷은 전사 219 · 질문/완료 답 9/9 · 화면/편집기 0/0이고, 현재 세션 6개 단순 합계 594/68/62/0/0은 추가분 성격을 분류하지 않아 KPI로 쓰지 않습니다.
+- 위험: 아직 push하지 않아 새 CI 관문은 원격에서 실행되지 않았습니다. 정확한 U-35 빌드의 실제 `screen.frame`, IntelliJ 문맥, 실제 수업 복습자료, 60~65분 안정성은 미확인입니다.
+- 다음 행동: `6bb9c43` 기준 산출물을 해시로 묶어 설치판과 일치시킨 뒤 영상 탭에서 붙잡기 3회로 `screen.frame ≥ 1`과 그림 바이트를 측정합니다. 공개 워크벤치에는 원문 없이 판정과 집계만 싣습니다.
+
+## 2026-09-04 15:45 — 시간별 체크포인트: U-35·U-38·U-39 증거 상태 저장
+
+- 변경: 구현 파일은 수정하지 않았습니다. 현재 미커밋 변경은 9개입니다 — `docs/DECISIONS.md`, `docs/TASKS.md`, `docs/WORKLOG.md`, `docs/master-prompt.md`, `docs/plan/round-8-units.md`, `docs/plan/round-9-codex-handoff.md`, `docs/screenshots/golden-04-answer.png`, `docs/spikes/gate-b-meet.md`, 그리고 새 `docs/evidence-baseline-2026-09-04.md`입니다. 최근 커밋은 U-35·U-38의 `6bb9c43`이며, 세션 스냅샷 `C:\\Users\\elddl\\.kdh\\state\\sessions\\codex\\20260904T064543Z0000-ifnj`을 저장했습니다.
+- 검증: `python "C:\\Users\\elddl\\kodonghui_myWs\\Study-saltlux-ai-agent-service\\scripts\\kdh-save-session" --cwd "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate" --next-action "Hash and bind the 6bb9c43 build artifacts, then run three video-tab capture holds and record screen.frame and image-byte measurements."` → `verify: VERIFIED`, `session_id: codex`, `wiki_capture: failed`.
+- 위험: 기본 KDH-wiki 캡처가 `No module named 'scripts'`로 다시 실패했습니다. 검증된 `kdh.session.v1` 스냅샷은 남았지만 위키 보조 기록은 생성되지 않았습니다. 현재 문서·증거 변경은 다른 작업 흐름의 변경일 수 있으므로 자동화는 내용·커밋을 건드리지 않았습니다.
+- 다음 행동: `6bb9c43` 기준 산출물을 해시로 묶어 설치판과 일치시킨 뒤 영상 탭에서 붙잡기 3회로 `screen.frame`과 그림 바이트를 측정합니다.
+
+## 2026-09-04 16:07 — Sites 증거 워크벤치 로컬 완성
+
+- 변경: 제품 저장소와 섞지 않고 형제 폴더 `corthex-classmate-workbench`에 Sites 상태판을 만들었습니다. 전체 진행률 대신 코드·자동시험·합성·실기기·실수업 다섯 층, 설치판 7경로 불일치, 역사적 실수업 표본, 다음 단일 관문을 보여 줍니다. 전사·질문·화면·소스 원문과 공유 링크·토큰·사용자 절대 경로는 넣지 않았습니다. 로컬 커밋은 `f8fb854`·빌드 캐시 제외 `731cfeb`입니다.
+- 검증: 앱 작성 영역 lint, TypeScript, Sites 프로덕션 빌드가 통과했고 `npm audit --omit=dev`는 0건입니다. 데스크톱과 390px 모바일을 눈으로 확인하고, 모바일에서 `대기` 필터가 전체 6개 중 정확히 3개만 남기는 것을 확인했습니다. 민감 경로·Tiro 공유 링크 모양의 정적 검색은 0건입니다.
+- 위험: Sites 생성기의 고정 의존성에는 감사 경고가 있어 호환 peer 범위 안의 최신 React 19.2.8·Vinext beta.9·Vite 8.2.2·Cloudflare 도구로 올린 뒤 다시 빌드했습니다. 배포·도메인 연결·원격 저장소 생성은 아직 하지 않았습니다.
+- 다음 행동: 제품 쪽은 U-06′ 실제 화면 한 장 실측, 상태판 쪽은 사용자 확인 뒤 비공개 배포와 원격 저장소 연결입니다.

@@ -2,47 +2,58 @@
 
 이 문서는 **Codex 에게 그대로 주는 작업 지시서**입니다. 8라운드까지는 Claude Code 가 했고,
 9라운드부터는 Codex 가 합니다. 배경·결정·금지·검증 명령을 한 파일에 다 담았으므로
-이 문서 하나만 읽으면 시작할 수 있게 썼습니다. 줄 번호는 HEAD `0314dc7` 기준이고
-**심벌 이름으로 다시 찾은 뒤** 고치십시오(줄 번호는 밀립니다).
+이 문서 하나만 읽으면 인계 시점의 계획을 재구성할 수 있게 썼습니다. 줄 번호는 인계 기준판
+HEAD `0314dc7` 기준이고, 현재 코드를 다룰 때는 **심벌 이름으로 다시 찾으십시오**(줄 번호는 밀립니다).
 
 ---
 
 ## 0. 한 문단 요약
 
 이 저장소는 「수업 중 막힌 순간을 한 번에 붙잡고 한 문장으로 수업에 돌아가는」 Chrome
-사이드패널 AI 튜터(Corthex Classmate)입니다. 시험 1,640건이 CI 에서 초록이지만 **실제 수업
-한 교시에서 화면(프레임)이 남은 기록은 아직 0장**입니다. 9라운드의 목표는 하나입니다 —
-**「수업 화면」을 Google Meet 에 묶지 않고, 학습자가 고른 탭 한 장을 실제로 남기게 만드는 것.**
-그 과정에서 「왜 지금까지 0장이었는가」의 뿌리 원인 가설(§2)을 실측으로 확정합니다.
+사이드패널 AI 튜터(Corthex Classmate)입니다. 인계 기준판에서는 시험 1,640건이 원격 CI에서
+초록이었지만, 실제 한 교시에서 측정된 화면 프레임은 0장이었습니다. 9라운드의 구현 목표는
+**「수업 화면」을 Google Meet에 묶지 않고 학습자가 고른 탭 한 장을 남길 길을 만드는 것**이었습니다.
+U-35는 로컬에 구현됐지만 설치판의 `screen.frame ≥ 1`은 U-06′ 실측 대기이며, U-36을 실행하지
+못했으므로 과거 0장의 직접 원인은 실측 확정하지 않았습니다.
 
 ---
 
-## 1. 저장소와 지금 상태
+## 1. 저장소와 인계 당시 상태
 
 | 항목 | 값 |
 |---|---|
 | 경로 (Windows) | `C:\Users\elddl\kodonghui_myWs\corthex-classmate` |
-| HEAD | `0314dc7` · 커밋 217 · `origin/main` 과 같음 · 작업 트리 비어 있음 |
+| 인계 기준판 HEAD | `0314dc7` · 커밋 217 · `origin/main` 과 같음 · 작업 트리 비어 있음 |
 | origin | `https://github.com/kodonghui/corthex-classmate.git` — **비공개(private)** |
 | CI | `.github/workflows/test.yml` · `windows-latest` · 마지막 단계 `pnpm test` 하나 · 2026-09-04 처음 초록 |
 | 시험 수 | vitest 1,162 · cargo 333 · `node --test` 145 · playwright e2e 18(CI 는 건너뜀) |
 | 셸 | Git Bash 권장. Python 으로 한글 파일을 고칠 때 `PYTHONUTF8=1` 을 붙이고 heredoc 대신 `.py` 파일로 |
 | Rust | `export PATH="$HOME/.cargo/bin:$PATH"` 뒤에만 `cargo` 가 보임 · 툴체인은 `stable-x86_64-pc-windows-gnu` |
 
-**CI 초록은 「시험 통과」이지 「관문 통과」가 아닙니다.** 네 관문이 CI 밖에 있습니다 —
-`pnpm typecheck` · `cargo clippy` · `cargo fmt --check` · e2e 18건. 이번 라운드에서 앞 셋을 CI 에
-넣습니다(U-38).
+**인계 당시** CI 초록은 「시험 통과」이지 「관문 통과」가 아니었습니다. 네 관문이 CI 밖에
+있었습니다 — `pnpm typecheck` · `cargo clippy` · `cargo fmt --check` · e2e 18건.
+
+> **2026-09-04 실행 업데이트:** 로컬 main에는 U-35 `acd21bc`, U-38 `991dc95`, 선택 경합 보강
+> `6bb9c43`이 들어갔습니다. 현재 작업트리에서 `pnpm test` 1,639건, 확장 Vitest 728건,
+> typecheck·fmt·clippy·확장 build·Playwright E2E 18건이 로컬 통과했고, 빌드 매니페스트는
+> `activeTab` 1 · `<all_urls>` 0 · Meet 호스트 0입니다. 다만 E2E는 도구막대 아이콘 클릭,
+> `activeTab` 부여, 실제 화면 캡처를 검증하지 않습니다. `991dc95`는 typecheck·fmt·clippy를
+> CI 단계에 추가했습니다. 이 세 커밋은 아직 push하지 않아 원격 CI 검증 근거가 아닙니다.
+> 마지막으로 확인한 원격 성공은 `1ea20b5`의 run `33836539868`입니다. U-36 오류 원문은
+> 채집하지 못했고, Meet 권한 제거는 여러 영상 서비스 지원·URL 비접근·최소 권한이라는
+> 제품 결정으로 진행했습니다.
 
 **읽는 순서**: `AGENTS.md`(있으면) → `README.md` → `docs/master-prompt.md` §4 불변 원칙 →
 `docs/plan/round-8-units.md` §0 → `docs/WORKLOG.md` 마지막 두 항목 → 이 문서 §2·§3.
 
 ---
 
-## 2. 뿌리 원인 가설 — 「Meet 호스트 권한만으로는 화면을 못 찍는다」
+## 2. 기술 조건과 과거 뿌리 원인 가설 — 「Meet 호스트 권한만으로는 화면을 못 찍는다」
 
 ### 2-1. 코드가 믿고 있는 것
 
-`apps/browser-extension/src/capture/snapshot.ts:12-13` 과 `wxt.config.ts:29-42` 는 이렇게
+`0314dc7` 인계 기준판의 `apps/browser-extension/src/capture/snapshot.ts:12-13`과
+`wxt.config.ts:29-42`에는 이렇게
 적혀 있습니다: *「`chrome.tabs.captureVisibleTab` 은 제스처를 요구하지 않는다. 대신 그 탭의
 호스트 권한이 필요하다. 그래서 `host_permissions` 에 `https://meet.google.com/*` 만 넣었다.」*
 
@@ -52,17 +63,15 @@
 > "In order to call this method, the extension must have either the `<all_urls>` permission
 > or the `activeTab` permission."
 
-즉 **특정 호스트 권한 하나는 이 목록에 없습니다.** Chromium 의 권한 검사
+즉 **특정 호스트 권한 하나는 이 목록에 없습니다.** Chromium의 권한 검사
 (`PermissionsData::CanCaptureVisiblePage`, 요구 조건 `kActiveTabOrAllUrls`)도 「그 탭에 대한
-activeTab」 또는 「`<all_urls>`」 둘만 봅니다. 이때 나는 오류 문구가
-`Either the '<all_urls>' or 'activeTab' permission is required.` 입니다.
+`activeTab`」 또는 「`<all_urls>`」만 봅니다. Chromium 소스에 정의된 오류 문구는
+`Either the '<all_urls>' or 'activeTab' permission is required.`입니다.
 
 ### 2-3. 이 가설이 맞으면
 
-- 지금 판은 Meet 이 **앞 탭이어도** `capture-failed` 를 냅니다. 8라운드 U-06 의 「앞 탭/뒷 탭」
-  비교는 재기 전에 뜻을 잃습니다.
-- `snapshot.ts:276` 의 `warn(...)` 이 오류 문구를 서비스 워커 콘솔에 남기므로, **실제 수업이
-  없어도** 2분이면 확정할 수 있습니다(§5 절차 ①).
+- U-36은 실행하지 않아 이 PC의 과거 설치판 오류 원문을 채집하지 못했습니다. §5 ①은 과거
+  가설의 미실행 기록으로 남기며, 옛 빌드 재설치는 현재 기본 절차가 아닙니다.
 - 고치는 길은 `<all_urls>` 가 아니라 **`activeTab`** 입니다. `<all_urls>` 는 은행·메일 탭까지 찍을 수
   있게 하므로 이 프로젝트가 처음부터 거부한 권한입니다(`wxt.config.ts:35-38`).
 
@@ -75,6 +84,9 @@ activeTab」 또는 「`<all_urls>`」 둘만 봅니다. 이때 나는 오류 �
 이 사실이 곧 설계를 정합니다: **「수업 화면 탭」 = 학습자가 확장 아이콘을 누른 그 탭.**
 Meet 인지 YouTube 인지 Drive 인지 묻지 않습니다. 이것이 학습자의 요구 「꼭 영상이 Google Meet
 일 필요는 없게」의 구현이자, 0장 문제의 해법입니다.
+
+이 기술 조건은 U-35의 설계를 정한 근거이지, 과거 0장의 직접 원인이나 새 설치판 성공을 실측한
+결과는 아닙니다. 전자는 U-36 미확정, 후자는 U-06′ 대기입니다.
 
 ---
 
@@ -92,16 +104,22 @@ Meet 인지 YouTube 인지 Drive 인지 묻지 않습니다. 이것이 학습자
 
 ---
 
-## 4. 이번 라운드 단위 — 다섯 + 사람 하나
+## 4. 인계 당시 세운 단위 계획과 현재 실행 결과 — 다섯 + 사람 하나
 
 | 단위 | 이름 | 크기 | 누가 | 의존 |
 |---|---|---|---|---|
-| U-36 | 뿌리 원인 확정 — 지금 판에서 오류 문구를 채집한다 | S | 사람(학습자) + Codex 가 절차·기록 | 없음 |
-| U-35 | 수업 화면 탭을 `activeTab` 으로 잡는다 — Meet 무관 | M | Codex | 없음(U-36 결과에 따라 §4-1 ⑤ 갈래) |
+| U-36 | U-35 이전 설치판 오류 원문 채집 — 미실행/waived, 과거 0장 인과 미확정 | S | 사람(학습자) | 없음 |
+| U-35 | 수업 화면 탭을 `activeTab`으로 잡는다 — 로컬 구현 완료, 설치판 실측 대기 | M | Codex | U-36과 무관한 제품·개인정보 결정 |
 | U-38 | CI 에 관문 셋(typecheck · clippy · fmt)을 넣는다 | S | Codex | 없음 |
 | U-39 | 문서 부채 — TASKS `[~]` 셋 · `:163` · master-prompt §3-7 · round-8 U-09 상태 | S | Codex | U-35 뒤 |
 | U-37 | (선택) `chrome.commands` Alt+S 전역 단축키 — 두 번째 `activeTab` 입구 | M | Codex | U-35 뒤 · 시간 남을 때만 |
 | U-06′ | 집에서 재는 실측 — §5 | 사람 | 학습자 | U-35 빌드 |
+
+실행 결과: U-35·U-38은 로컬 구현/검증 완료했고, U-39 문서도 현재 증거에 맞춰 정렬했습니다.
+U-36은 미실행이며 추정 오류를 실측값으로 승격하지 않습니다. U-06′의 실제 설치판 수치는 비어 있습니다.
+
+> 아래 U-35·U-38 상세는 `0314dc7`에서 작성한 구현 계획 기록입니다. 현재 사실은 §1 실행
+> 업데이트가 우선하며, U-36 조건부 갈래는 실행하지 않았습니다.
 
 ### 4-1. U-35 상세 — 수업 화면 탭을 `activeTab` 으로 잡는다
 
@@ -126,11 +144,10 @@ Meet 인지 YouTube 인지 Drive 인지 묻지 않습니다. 이것이 학습자
   `src/background/session-area.ts` 가 이미 그 저장소를 감쌉니다).
 - `screen.capture` 는 `captureMeetTab(snapshotChrome)` 대신 `captureLessonTab(snapshotChrome, lessonTab)` 을
   부릅니다. `snapshotChrome` 에 `tabs.get(tabId)` 를 더합니다(`query` 는 ⑤에 따라 남기거나 뺍니다).
-- `classmate.reconnect { connector: "meet-tab" }` 는 지금 `restartCapture()`(tabCapture)를 부릅니다.
-  한 장 찍기 길에서 「다시 연결」의 뜻은 **「패널이 있는 창의 앞 탭을 수업 화면으로 다시 잡기」**입니다.
-  다만 `activeTab` 은 코드로 줄 수 없으므로, 새로 잡은 탭에 권한이 없으면 다음 붙잡기가
-  `no-permission` 을 내고 바닥줄이 「그 탭에서 아이콘을 눌러 주세요」라고 말하게 합니다. 정직한 실패가
-  조용한 0장보다 낫습니다.
+- `classmate.reconnect { connector: "meet-tab" }`는 현재 `reselectLessonTab()`을 부릅니다. 가장
+  최근 Chrome 창의 앞 탭을 수업 화면 후보로 다시 기록하지만, 사이드패널 안의 클릭은 `activeTab`
+  권한을 새로 주지 못합니다. 권한이 없으면 다음 붙잡기에서 `no-permission`을 내고 바닥줄이
+  해당 탭에서 확장 아이콘을 누르도록 안내합니다.
 
 ③ **`src/background/lesson-tab.ts` (새 파일 · 순수 · 시험 포함)**
 - `rememberLessonTab(store, {tabId, windowId, at})` · `readLessonTab(store)` · `forgetLessonTab(store)`.
@@ -226,12 +243,15 @@ rustup 단계가 이미 `--component rustfmt --component clippy` 를 깔아 둡�
 
 ### 4-3. U-39 상세 — 문서 부채
 
-- `docs/TASKS.md:163-165` 의 `[~]` 셋을 `[x]` 로 — 각각 U-22(`33801156140`→초록 `33803599999`) · U-21 ·
-  U-33/U-34 의 커밋을 적습니다. `:163` 의 「`.github` 폴더는 없습니다」는 낡았습니다(지금은 있음).
-- `docs/master-prompt.md:245` 「입력창 없음」 옆에 `(2026-09-03 DECISIONS 로 뒤집힘 — 듣는 중 화면 아래
-  대화 칸)` 한 줄. 본문을 다시 쓰지 않습니다 — master-prompt 는 역사 문서입니다.
+- `docs/TASKS.md:163-165`는 증거대로 나눕니다 — U-22와 U-33/U-34는 `[x]`, U-21은
+  `native-host paused` 사건은 나가지만 패널 표시가 `off`만 처리하므로 `[~]` 유지. `:163`의
+  「`.github` 폴더는 없습니다」는 낡았습니다(지금은 있음).
+- `docs/master-prompt.md:245`의 「입력창 없음」과 `:252`의 「텍스트 입력창은 여기 맨 아래에만」은
+  역사 원문으로 남기고, 바로 아래에 2026-09-03부터 듣는 중 화면에 항상 열린 대화 칸이 있으며
+  자세히 화면의 이어 묻기 입력창도 유지된다는 정정문을 둡니다. 사용자 문구 `Meet`는 U-35부터
+  `화면`·`수업 화면`으로 일반화했고, 고정 계약의 내부 `meet-tab`과 UI key `meet`만 유지한다고 함께 밝힙니다.
 - `docs/plan/round-8-units.md:256-258` U-09 「진행 중 … 남은 것: 뒷 탭인 Meet 도 찍을 길」 → 이 문서 §3 을
-  가리키며 「(가)는 API 한계 · (나)는 U-35 로 해결」로 닫습니다. §0 표 아래에 9라운드 단위 표를 한 줄로
+  가리키며 「(가)는 API 한계 · (나)는 U-35에서 구현했고 실제 설치판 성립은 U-06′에서 확인」으로 닫습니다. §0 표 아래에 9라운드 단위 표를 한 줄로
   가리킵니다(`→ docs/plan/round-9-codex-handoff.md §4`).
 - `docs/TASKS.md` 「Meet 화면 실측」 줄(`:161`) → 「수업 화면 실측 — §5 절차 · 숫자 칸 비어 있음」.
 
@@ -248,15 +268,14 @@ round-8 의 U-03·U-13 이 이것입니다 — 하되 **U-35 가 끝나고 시�
 
 ## 5. U-06′ — 집에서 재는 절차 (학습자가 함 · 숫자는 비워 둠)
 
-학원이 아니라 집에서, 실제 Meet 없이 **녹화 영상 한 편**으로 잽니다. 세 조건이고 ③은 선택입니다.
+학원이 아니라 집에서, 실제 Meet 없이 **녹화 영상 한 편**으로 잽니다. 필수 검증은 ②이고 ③은 선택입니다. ①은 과거 가설의 미실행 기록입니다.
 
-**① 뿌리 원인 확정 (지금 판 `0314dc7` · U-35 이전 · 2분)**
-1. 확장이 지금 `main` 빌드인지 확인(`docs/first-class.md`). `chrome://extensions` → Corthex Classmate →
-   「서비스 워커」 링크로 콘솔을 엽니다.
-2. `https://meet.google.com/` 랜딩 페이지를 **앞 탭**으로 열어 둡니다(회의에 들어가지 않아도 주소는 Meet).
-3. 패널을 열고 낱말 하나를 눌러 붙잡습니다.
-4. 콘솔의 `[classmate] 화면 한 장을 찍지 못했어요 · 품질 60 · …` 줄을 **그대로** 적습니다.
-   `activeTab` 이 든 문구가 나오면 §2 가설 확정입니다. 아무 경고 없이 바닥줄이 「화면」 초록이면 기각입니다.
+**① 과거 가설 확인 — 미실행으로 남김**
+
+U-35 이전 `0314dc7` 설치판의 Chrome 오류 원문은 채집하지 못했습니다. 이를 확인하려고 옛
+빌드를 다시 설치하는 일은 현재 제품 성공 검증에 필요하지 않으므로 기본 절차에서 뺍니다.
+문서에는 `미실행`으로 남기고, 특정 Meet 호스트 권한만으로 실패했다는 문장을 실측 사실로
+쓰지 않습니다. 필요해져 옛 판을 별도 재현할 때만 정확한 커밋 빌드와 설치판을 구분해 잽니다.
 
 **② 앞 탭 (U-35 빌드)**
 1. 영상 탭(YouTube·Drive 재생·Meet 녹화 어느 것이든 `https`)을 열고 **그 탭이 앞에 있을 때** 확장 아이콘을
@@ -285,15 +304,15 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 ```
 `sqlite3.exe` 가 없으면 셋째 줄(파일 수)만으로도 판정의 절반은 섭니다.
 
-**WORKLOG 에 적을 것**: ① 의 오류 문구 원문 · ② 앞 탭 `screen.frame` 건수 / `not-active` 건수 ·
+**WORKLOG 에 적을 것**: ① `미실행` · ② 앞 탭 `screen.frame` 건수 / `not-active` 건수 ·
 ③ (나) 건수(했으면) · `frames/` 파일 수·바이트 · 붙잡기 횟수. 하나도 없으면 「0건」이라고 적습니다.
 
 **판정표**
 | 결과 | 그러면 |
 |---|---|
-| ①에서 `activeTab` 문구 | §2 확정 → U-35 ⑤ 「지우는 갈래」 |
+| ① | 미실행 유지. 오류 원문을 새로 얻기 전에는 §2 가설을 실측 확정하지 않음 |
 | ②-3 에서 N ≥ 1 | 한 장 찍기 길이 처음으로 실제 화면을 남김. U-14(연속 캡처)는 「한 장으로 부족」이 나올 때까지 접어 둠 |
-| ②-3 에서 0장인데 ①은 확정 | 권한 뒤에 또 다른 벽. `capture-failed` 의 문구를 다시 채집해 WORKLOG |
+| ②-3 에서 0장 | 새 판에도 다른 벽이 있음. `capture-failed` 또는 상태 문구를 그대로 채집해 WORKLOG |
 | ③에서 N ≥ 1 | 「뒷 탭 (나)」 성립. 최소화 결과는 따로 |
 
 ---

@@ -34,7 +34,7 @@
 - [x] Gate A `gate-a-tiro.md` — **PASS(부분)**: 공유 페이지 커넥터(`src/tiro/` 파서·MutationObserver 관찰기·content script·MCP 스텁) + fixtures 4종 단위 테스트 36건 · 관찰 하네스 `spikes/tiro-share-observe.mjs` · 검증자 minor 4건 수정 완료(문단별 2겹 판별 · 마지막 문단은 명시적 확정 표시만 · stateSource 4값 · stop() 가드 · 공백 계산은 첫 사건부터)
 - [!] 대기 — Gate A 실측 (a) MCP 녹음 중 문단 반환 (b) 60분 연속 유지 (c) 발화→화면 지연: 사람이 Real-time 공유 링크를 채팅으로 주면 `TIRO_SHARE_URL=… node spikes/tiro-share-observe.mjs --minutes 60`
 - [x] Gate B `gate-b-meet.md` — **PASS(부분)**: `src/capture/`(dHash·FrameStore·pipeline·WebP 인코더) + `SamplingLoop`(겹침 방지·재예약) + offscreen 엔트리 + background 캡처 메시지 + manifest 권한(tabCapture·offscreen) · 실측 dHash 2.75ms · WebP 2.7~607 KiB(실제 인코더 클래스) · capture 테스트 42건 · 검증자 minor 5건 수정 완료
-- [!] 대기 — Gate B 실측: 실제 Meet 탭 tabCapture 5분 · 실제 화면 바이트 · 60분 메모리 곡선 (사람이 `.output/chrome-mv3` 를 압축해제 확장으로 로드해 측정, 절차는 문서 §사람이 할 일)
+- [ ] 조건부 보류 — 역사적 Gate B의 연속 `tabCapture` 5분·실제 WebP 바이트·60분 메모리 곡선은 U-35의 질문별 한 장 방식이 학습에 부족하다는 실측이 생길 때만 별도로 재개합니다. 현재 사람이 확인할 항목은 U-06′에서 `6bb9c43`을 포함한 로컬 빌드를 해시로 묶어 설치판과 일치시킨 뒤 `screen.frame ≥ 1`과 실제 JPEG 바이트가 남는지입니다
 - [x] Gate C `gate-c-intellij.md` — **BLOCKED(부분)**: 탐침 `spikes/intellij-mcp-probe.mjs` + 읽기 전용 허용 목록 `spikes/lib/intellij-readonly.mjs` 를 스텁 서버로 검증(21건) · 토큰은 `INTELLIJ_MCP_TOKEN` 만 · 실제 IDE 는 64342 미개방
 - [!] 대기 — IntelliJ Settings → Tools → MCP Server → Enable 후 `node spikes/intellij-mcp-probe.mjs` 재실행 (도구 개수·인증 방식 실측)
 - [x] Gate C2 `gate-c2-provider.md` — Claude **PASS(25자 단문 기준)**: 2세트 10/10 성공 · TTFT p50 6.6~6.8s · 모델 claude-opus-5[1m] · 누적 실측 비용 2.72 USD(그중 1.25 USD 는 검증 중 import 부작용으로 승인 없이 지출 → 모든 스파이크에 진입점 가드) · Windows `.cmd` 래퍼 해제 + `taskkill /T /F` 트리 종료 수정 완료(1.5s 타임아웃에서 1.7~1.8s 정리, 모의 바이너리 테스트 13건 · spikes 62건)
@@ -79,12 +79,12 @@
   - [ ] report-ui: 토큰을 정본 파일 대신 `@classmate/design-tokens` 에서 읽기 · 오개념/값 흐름/변형과 허브 5절은 회상 기록이 붙으면 채움 · 프레임 출력 경로 규약 `frames/p<교시>/` 는 `src/assets.ts`
   - [ ] tutor-core: 확장 쪽 Clock/Scheduler 구현체 · question.asked 에 봉인을 싣는 문맥 수집기 · `next` 입력의 실제 트리거 정의
   - [x] tiro: background 가 tiro.hint_degraded/selector_broken 을 connector.status payload 로 싣기 · tiro.stop 보내는 쪽(세션 관리) · classmate.periodNumber 쓰는 쪽(설정) · 새로고침 뒤 seq 이어 붙이기(세션 스토어) · 배너 등급(class-partial/structure) 결정 — 2라운드 단위 2 가 `connector.status tiro-share paused/connected` 로 실음 · `tiro.stop` 은 `classmate.reconnect` 가 보냄 · `classmate.periodNumber` 는 설정 화면(단위 1a)이 씀. 남음: 새로고침 뒤 seq 이어 붙이기(세션 스토어 도착 순 seq 로 정렬) · 배너 등급 결정
-  - [x] capture: background.ts 의 frameSink 를 NativeHostFrameSink 로 교체 · frame.stored/error 응답 처리 · 재연결 정책 · 캡처 버튼이 생기면 onClicked 갈래·`classmateCapture` 콘솔 손잡이 제거 — 2라운드 단위 2 완료(`NativeHostFrameSink` · `frame.stored/error` · 재연결 1·2·4…≤30초 · 오프라인 60장 폴백). 남음: 캡처 버튼 뒤 `onClicked` 갈래·`classmateCapture` 제거
+  - [x] capture: `background.ts`의 `frameSink`를 `NativeHostFrameSink`로 교체 · `frame.stored/error` 응답 처리 · 재연결 정책 — 2라운드 단위 2 완료(`NativeHostFrameSink` · `frame.stored/error` · 재연결 1·2·4…≤30초 · 오프라인 60장 폴백). 후속 U-35부터 `chrome.action.onClicked`는 수업 탭 지정·`activeTab` 부여·패널 열기의 제품 입구라 유지합니다. `globalThis.classmateCapture`는 별개의 연속 `tabCapture` 손시험 손잡이이며, 연속 캡처를 제품 기능으로 채택해 별도 제어 UI를 만들 때만 제거를 검토합니다
   - [x] transport 후속: 2라운드에 `src/main.rs` 가 `classmate_transport::framing` 을 쓰고 `src/protocol.rs` 삭제 · 루트 Cargo.toml 에 의존성 추가 · `Router::handle` 앞에 `validate_envelope` · 계약이 새 키워드/정규식/format 을 쓰면 `schema.rs` 도 함께 확장(UnsupportedSchema 로 멈춤) — 2라운드 단위 5 완료(`protocol.rs` 삭제 · 루트 의존성 · `validate_envelope` · ENVELOPE_RULES 7). 남음: 계약이 새 키워드/format 을 쓰면 `schema.rs` 확장
   - [ ] session-store 후속: 강제 종료 때 남는 짝 없는 `.webp`/`.part` 정리 시점(교시 종료 vs 복습자료 생성) 결정 · `StoreError::reason_code()` 낱말 목록(invalid-frame-id · frame-path-mismatch · duplicate-frame · invalid-base64 · malformed-frame · period-id-shape · invalid-state-transition)을 확장이 분기값으로 쓸지와 계약 문서화 여부 · 2라운드 뒤 확장이 보는 낱말: 봉투 검사 `envelope-invalid` · `question-too-long` · `malformed-snapshot`, 튜터 `provider-unavailable` · `unknown-question`(DECISIONS 2026-09-03 고정 계약 (마)) — 저장소 낱말은 그대로 뒤에 남음
   - [x] providers 후속: `AskRequest` 에 본문 칸(materials) 추가 여부 확정(DECISIONS 제안 (b)) — tutor-core 가 봉인 식별자로 본문을 조립해 넘기는 구조 · Gate C2 골든 재측정(비용 승인 대기) 뒤 프롬프트 조립과 README §3·§9 갱신 · Codex 한도 복구 뒤 `src/codex.rs` 실측 칸 7행 채우고 스텁 교체 · 프리워밍/`--input-format stream-json` 상시 프로세스는 다음 라운드 — materials 칸은 2라운드 단위 7 `with_materials` + 통합 A 로 확정(파이프라인이 조립해 넘김). 남음: Gate C2 골든 재측정(비용 승인 대기) · Codex 스텁 교체 · 프리워밍
   - [ ] 검토 보류(1파 낮음) 11건 — design-tokens: 생성기가 같은 이름의 뒤 선언을 남기게(L1) · 값 시험 표본 6→전수(L2) · 저장소 상대 경로·시험 상수를 공개 API 에서 빼기(L3) · README/vitest 주석(L4·L5) — tutor-core: EXIT_RECALL 에서 새 질문 붙잡을 때 이전 answerId·answerStatus 초기화(L7) · DELAYED_CHECK→CAPTURE 에서 periodEnded 초기화(L8) — report-ui: 칩·근거 알약 모서리 4/6px(L12) · 전사에 `--type-transcript`(L17) · labels 주석 근거(L11) — ui-classmate: 안 쓰는 `@classmate/contracts` 의존 제거(L27). 표: `docs/reviews/batch-1-review.md`
-  - [ ] 검토에서 문서로만 남긴 한계 — session-store `store_failure` 의 reason 을 고정 낱말로(지금은 한국어 문구) · 프레임 id 유일성은 1초 단위(같은 초 재시작이면 `duplicate-frame`) · Tiro seq 는 방출 순서라 뒤집힐 수 있어 세션 스토어 도착 순 seq 로 정렬(2라운드에서 확인) · `background.ts` 손 시험 갈래·`classmateCapture` 는 캡처 버튼 뒤 제거
+  - [ ] 검토에서 문서로만 남긴 한계 — session-store `store_failure` 의 reason 을 고정 낱말로(지금은 한국어 문구) · 프레임 id 유일성은 1초 단위(같은 초 재시작이면 `duplicate-frame`) · Tiro seq 는 방출 순서라 뒤집힐 수 있어 세션 스토어 도착 순 seq 로 정렬(2라운드에서 확인) · `chrome.action.onClicked`는 U-35 제품 입구로 유지 · 연속 캡처를 제품 기능으로 채택해 별도 제어 UI가 생길 때만 `globalThis.classmateCapture` 제거 검토
 - [x] 부채 해소(Gate D): `protocol::read_frame` 이 본문을 끝까지 읽은 UTF-8·JSON 오류는 `{"type":"error","message":"unreadable message"}` 로 답하고 계속 삶 · 헤더/본문 절단·상한 초과만 종료 (테스트 `serve_survives_a_frame_it_cannot_read`)
 - [x] `/batch` 2라운드 완료 (2026-09-03) — 9단위 `batch-2/<단위>` 전부 main 병합 + 통합 커밋 A `9d47d64`(라우터 → TutorPipeline) · B `71036de`(App.tsx 라이브) · C `9afdd24`(비교 G/H-1) · 기록 `docs/WORKLOG.md` 2라운드 항목 · 결정 `docs/DECISIONS.md` 2026-09-03 세 항목
   - [x] (1b) panel-live-store `7b86fed` — `ReplayStore.live` · 빈 번들 · questionId 당 ask 1회 · 60초 워치독 · id 규칙 `event-ids.ts`
@@ -99,7 +99,7 @@
 - [ ] 2라운드 후속(워커 메모 이월)
   - [ ] 사이드패널: 설정 값 배선 — `answerLength`("바로 자세히" 자동 이동 — 검토 수정 뒤 라디오는 잠금 · 배선할 때 questionId 당 한 번만 자동으로 열어야 `back()` 과 무한 왕복이 안 생김) · `periodNumber`/`subject` 가 헤더·교시 id 에 즉시 반영(지금은 패널 재열기 · 교시 중간에 바꾸면 사건 id `ev-<periodId>-x…` 가 갈라지므로 계약 논의 먼저 · 제공자·자동 접기는 `ReplayStore.updateEnv` 로 즉시 적용됨 · `autoFold` 를 다시 켜도 지금 떠 있는 메모에는 접힘 시계를 새로 걸지 않음) · `capture.*` 3칸(검토 수정 뒤 잠금)을 `ReplayStore#seal` 의 sealSnapshot 입력과 라이브 수집 양쪽에서 읽어 서비스 워커 캡처에 · 점선 낱말 목록을 `GOLDEN_TERMS` 대신 설정/라이브 옵션에서(라이브 전사에 밑줄 거의 없음) · "오늘 기록 지우기"(검토 수정 뒤 잠금 · Dialog 와 `onClearToday` 배선은 남김)는 호스트 삭제 봉투가 생기면 `LiveApp` 이 `onClearToday` 를 넘기고 `disabled`·설명 한 줄만 걷어 냄 · 라이브 편집기 자리표시 문구("아직 열린 파일 없음")가 preparing 자료줄에 보임 · 기록에서 연 지난 순간에 후속 칩(스토어에 "어느 질문에 대해 묻는가" 축 필요) · 설정 화면 380×720 스크롤 · `replay-handle`·`classmateConnector` 는 개발 빌드에서만 · 라이브 첫 수십 ms 빈 화면
   - [ ] design-tokens: `spacing.css` 의 `--panel-inset` 식(`4vw + 0.8px` → 360 에서 15.2px)을 토큰 쪽에서 바로잡을지 결정(지금은 패널 `style.css` 만 `10vw - 22px` 로 덮음)
-  - [ ] 서비스 워커: 손시험 갈래(`chrome.action.onClicked` · `classmateCapture`)는 패널 캡처 버튼이 생기면 제거 · IntelliJ MCP 는 `router.pushEditor`/`live.editor` 자리만 · 확장이 `event.append` 에 segment/context 본문을 실어야 호스트 자료가 모임(라우터 표대로 실리는지 실제 Chrome 왕복 '대기') · 서비스 워커가 내려갔다 올라올 때 메모리 상태 — 검토 수정(`e847c61`)으로 교시 id·질문 수·화면 장 수·커넥터·`period.started` 를 `chrome.storage.session` 의 `classmate.routerState` 에 되살림(`storage.local` 폴백 없음). 남음: 전사 중복 걸름 기억(`seenSegments`)은 담지 않아 재기동 사이 같은 문단이 오면 한 줄 더 남을 수 있음 · 패널 캡처 버튼이 생기면 `onClicked` 갈래·콘솔 손잡이와 함께 제스처 앞 `await currentPeriodId()` 도 제거(검토 #4·#19 보류) · `buildFrameStore` 를 던지지 않고 `{skipped, reason}` 으로 바꾸는 절반은 `src/capture/host-messages.test.ts:122` 가 던짐을 단언해 캡처 소유자와 함께(검토 #15 절반 보류)
+  - [ ] 서비스 워커: `chrome.action.onClicked` 는 이제 수업 탭 선택 + `activeTab` 권한 + 패널 열기의 **제품 입구**라 제거하지 않음(`acd21bc`) · `classmateCapture` 만 연속 `tabCapture` 손시험용 레거시 손잡이 · IntelliJ MCP 는 `router.pushEditor`/`live.editor` 자리만 · 확장이 `event.append` 에 segment/context 본문을 실어야 호스트 자료가 모임(라우터 표대로 실리는지 실제 Chrome 왕복 '대기') · 서비스 워커가 내려갔다 올라올 때 메모리 상태 — 검토 수정(`e847c61`)으로 교시 id·질문 수·화면 장 수·커넥터·`period.started` 를 `chrome.storage.session` 의 `classmate.routerState` 에 되살림(`storage.local` 폴백 없음). 남음: 전사 중복 걸름 기억(`seenSegments`)은 담지 않아 재기동 사이 같은 문단이 오면 한 줄 더 남을 수 있음 · 연속 캡처를 제품 기능으로 채택할 때만 패널 시작/중지 버튼과 `classmateCapture` 제거를 함께 검토 · `buildFrameStore` 를 던지지 않고 `{skipped, reason}` 으로 바꾸는 절반은 `src/capture/host-messages.test.ts:122` 가 던짐을 단언해 캡처 소유자와 함께(검토 #15 절반 보류)
   - [ ] 호스트: 교시가 바뀌어도 `Router.tutors` 손잡이를 닫지 않음 → `period.ended` 때 닫는 정리 · 검토 보류 3건 — 재시도 간격표 두 벌의 정본 결정(`RetryPolicy::delay_for` 는 표가 끝나면 멈춤 vs 파이프라인 `delay_at` 은 마지막 값 되풀이 · 기본 3칸·3회에선 동일) · 워커 스레드가 죽으면 그 교시 손잡이가 영구 `stopped`(회복 경로는 `tutor_handle` 대여 구조 변경 + 패닉 주입 통로 필요) · `tutor.accepted` 가 워커의 `question.asked` 보다 먼저 나가는 순서 보장(`Router::handle` 이 "답 없음" 을 낼 수 있어야 해 응답 계약 변경) · 가짜 CLI 모드 추가됨(`tests/fake-tutor-cli.mjs --delay-ms` · `crates/providers/tests/fake-claude.mjs --break-stdout-and-linger`) · `ProviderEvent`(TextDelta) 는 버림(부분 답 스트리밍은 패널이 한 줄 답만 그리므로 보류) · 손잡이의 제공자와 봉투 `provider` 가 다르면 `provider-unavailable`(교시 중 제공자 변경은 패널 재열기) · transport 대조 시험이 `router.rs` 의 따옴표 이름 뒤 화살표를 전부 세므로 주석에도 그 모양을 쓰지 않음 · `docs/spikes/gate-c2-provider.md` 의 CLI 인자 표는 5개(`--include-partial-messages`)로 갱신함 · `docs/spikes/gate-d-recovery.md:224` 의 `frame-path-mismatch` 는 이제 봉투 검사 `envelope-invalid` 로 먼저 잡힘(주석 추가)
   - [ ] installer/문서: dev zip 확장 id 는 `extension-key.json` 과 같은지 chrome://extensions 에서 사람이 확인('대기') · 자동 업데이트·.crx 서명·설치 마법사는 `docs/first-class.md` §7 보류 · 비교 이미지 캡션 sha 는 한 커밋 뒤처짐(스크립트 커밋을 가리킴) · 비교 README "차이 있음" 11번(설정의 제공자 선택·개인정보 문구는 정본 밖에서 새로 쓴 것)
   - [ ] 도구: worktree 병렬 cargo 빌드는 공유 `CARGO_TARGET_DIR` 을 쓰지 않는다(rlib 이름 충돌 · DECISIONS 2026-09-03 통합 (6)) — worktree 마다 target 을 나누거나 순차로
@@ -110,7 +110,7 @@
 - [ ] 메모: TypeScript 7.0.2 는 `node_modules/@types/*` 전역 타입을 자동 포함하지 않음 → 패키지마다 `/// <reference types="…" />` 한 줄 .d.ts
 - [ ] 메모: Rust 빌드는 짧은 경로에서만 (MAX_PATH 260) — 임시 폴더에서 돌리면 `CARGO_TARGET_DIR` 을 60자 이내로
 - [ ] 메모: 제품 코드에서 `@classmate/contracts` 는 `import type` 만 (Ajv 의 new Function 이 MV3 CSP 에 막힘) · 검증은 테스트에서만
-- [ ] Phase 2 사이드패널에 캡처 시작/중지 버튼 필요(tabCapture 는 사용자 제스처 요구) → 생기면 background.ts 의 `chrome.action.onClicked` 손시험 갈래 제거
+- [ ] 선택: 한 장 캡처로 학습에 부족하다는 실측이 나올 때만 연속 `tabCapture` 시작/중지 버튼을 만든다. `chrome.action.onClicked` 는 수업 탭 지정 입구라 유지하고, 버튼이 생기면 콘솔 손잡이 `classmateCapture` 만 제거한다
 - [x] Phase 2 background 가 받을 메시지: `tiro.segment` / `tiro.partial` / `tiro.selector_broken` (커넥터) · `capture.start` / `capture.stop` / `capture.frame` (캡처) — 2라운드 단위 2 라우터 표(`src/background/router.ts`)에 전부 있음
 - [ ] 결정 필요: Phase 2 제공자 호출 시 `--model` 을 명시 고정할지 CLI 기본값(현재 claude-opus-5[1m])을 따를지
 - [ ] spikes 에 esbuild 를 넣어 `node:module stripTypeScriptTypes`(ExperimentalWarning) 우회를 안정 도구로 교체할지 검토
@@ -118,7 +118,7 @@
 - [ ] Phase 2 세션 저장소: 교시 종료(period.ended) 시 남아 있는 진행 중 문단(partial)을 확정 세그먼트로 마무리하는 처리 (Gate A 후속)
 - [ ] 선택: `spikes/test/tiro-share-observe.test.mjs` 로 관찰 하네스 `summarize()` 공백 계산 5케이스 회귀 테스트화
 - [ ] Gate B 손 시험 때 확인 항목 (d) `skippedWhileBusy` 실측값 기록 (설계상 0)
-- [ ] Phase 2 사이드패널: `PipelineStats` 새 모양(`loop` 포함) 기준으로 SourceFooter 배선 · 완료 시 `chrome.action.onClicked` 갈래와 `globalThis.classmateCapture` 손잡이 제거
+- [ ] Phase 2 사이드패널: `PipelineStats` 새 모양(`loop` 포함) 기준으로 SourceFooter 배선 · 연속 캡처를 채택해 패널 제어가 생기면 `globalThis.classmateCapture` 손잡이만 제거
 - [ ] 선택: WebP 인코더가 캔버스를 직접 받게 바꿔 getImageData → putImageData 이중 복사 제거 (측정상 압축 시간에 묻혀 우선순위 낮음)
 
 - [x] packages/tutor-core 상태기계 + ContextSnapshot (1라운드 단위 4 · 71 tests)
@@ -153,16 +153,18 @@
 각 줄 끝의 확인 명령은 이 문서를 쓸 때(HEAD `7d649bd`) 실제로 돌려 본 것입니다.
 
 - [ ] 드래그로 고른 부분을 그대로 묻는 길이 없음 — 붙잡는 길은 낱말 누름 · 문장 누름 · `Alt+S` · 대화 칸 입력 넷뿐입니다. 확인: `grep -rn -E "dragstart|dragend|onDrag|draggable|selectionchange|getSelection" apps packages installer` → 0줄
-- [ ] 패널이 닫혀 있으면 `Alt+S` 가 안 먹음 — 전역 단축키(`chrome.commands`) 배선이 0곳입니다. 확인: `grep -rn "chrome.commands|\"commands\"" apps/browser-extension` → 0줄. 사이드패널은 `activeTab` 을 주는 네 자리(action 클릭 · 컨텍스트 메뉴 · commands · omnibox)에 없다는 조사(WORKLOG 12:51 발견 1)와 같은 뿌리입니다
-- [ ] 캡처 시작/중지 버튼이 아직 없어 `entrypoints/background.ts:588` 의 `chrome.action.onClicked` 손시험 갈래와 `globalThis.classmateCapture`(`:609`) 손잡이가 그대로 남음. 확인: `grep -rn "onClicked|classmateCapture" apps/browser-extension` → 제품 코드 2곳
-- [ ] 스크린샷이 batch-4~7 화면 변경보다 낡음 — `docs/screenshots/` 는 `2789992`(3라운드)에서 멈췄는데 `ListeningScreen.tsx` 는 그 뒤 `bf09996`(대화 칸) · `56cda04`(기다리는 중 화면)로, `SettingsScreen.tsx` 는 `ed174f5`(글씨 크기 4단계)로 바뀌었습니다. 확인: `git log --oneline -3 -- docs/screenshots/` 와 각 화면 파일의 `git log`
+- [ ] 패널이 닫혀 있으면 `Alt+S` 가 안 먹음 — 전역 단축키(`chrome.commands`) 배선이 0곳입니다. 확인: `grep -rn "chrome.commands|\"commands\"" apps/browser-extension` → 0줄. 확장 아이콘 클릭은 `activeTab` 권한과 패널 열기를 해결했지만(`acd21bc`), 패널 밖 `Alt+S` 는 별도 `commands` 입구가 필요합니다
+- [~] 수업 화면 한 장 길은 `acd21bc`에서 **영상 탭의 확장 아이콘 클릭 → 탭 선택 + `activeTab` + 패널 열기 → 질문 때 품질 60→30으로 최대 두 번 촬영을 시도하고 성공 프레임 최대 한 장 저장**으로 구현했고, `6bb9c43`이 느린 옛 캡처·탭 조회가 최신 선택을 지우는 경합을 막았습니다. 현재 작업트리에서 `pnpm test` 1,639건, 확장 Vitest 728건, typecheck·build, Playwright E2E 18건이 통과했고 빌드 매니페스트는 `activeTab` 1 · `<all_urls>` 0 · Meet 호스트 0입니다. 다만 E2E는 사이드패널 문서를 직접 열어 검사하므로 Chrome 도구막대 클릭·`activeTab` 부여·실제 `captureVisibleTab` 왕복을 검증하지 않습니다. 정확한 설치판의 `screen.frame ≥ 1`은 아직 미측정이며, `globalThis.classmateCapture`는 별개의 연속 `tabCapture` 손시험 손잡이로 남아 있습니다
+- [x] batch-4~7 뒤 낡았던 스크린샷을 U-35 `acd21bc`에서 골든 13장으로 재생성했습니다. Playwright E2E 18건이 통과했고 대표 장면(듣는 중·붙잡은 직후·자세히·기록)을 눈으로 확인했습니다. 후속 검증에서 다시 생성된 `golden-04-answer.png`도 같은 화면임을 확인했습니다
 - [ ] `docs/first-class.md` §3-3 이 예로 든 매니페스트 자리(`C:\CorthexClassmate\com.corthex.classmate.json`)와 이 PC 의 실제 등록 값이 다름 — 실제 값은 저장소 `installer/windows/dist/com.corthex.classmate.json` 의 절대 경로입니다. 확인: `reg query "HKCU\Software\Google\Chrome\NativeMessagingHosts\com.corthex.classmate"`. 깨끗한 PC 절차(문서)와 개발자 PC 실제(레지스트리) 중 어느 쪽을 정본으로 둘지 리허설 전에 정합니다
 - [ ] `CLASSMATE_TUTOR_SESSION=1`(교시 하나에 튜터 프로세스 하나 다시 쓰기)을 실제 CLI 로 검증한 적이 0회라 기본값이 거짓입니다(`apps/native-host/src/router.rs:156` "**기본값은 거짓**"). 확인: 그 줄과 `WORKLOG.md:126`
-- [ ] Meet 화면 실측 — `screen.frame` 이 실제로 몇 장 담기는지, 질문 한 건에 그림이 최대 몇 장 나가는지 아직 잰 적이 없습니다. `snapshot.ts:250` 이 창을 가리지 않고 찾도록 고쳐졌지만(`56cda04`) 그 뒤 실측 기록이 WORKLOG 에 없습니다 → 8라운드 U-06(사람)
+- [!] U-36 과거 오류 원문 채집은 **미실행/waived**입니다. 공식 API 조건상 `captureVisibleTab`은 `activeTab` 또는 `<all_urls>`가 필요하고 특정 Meet 호스트 권한만으로는 부족하지만, 2026-09-03 이 PC의 `screen.frame 0`이 바로 그 오류 때문이었다는 인과는 원문을 얻지 못해 확정하지 않습니다
+- [!] 수업 화면 실측 — `6bb9c43`을 포함한 로컬 빌드를 해시로 묶어 설치판과 일치시킨 뒤 9라운드 인계서 §5 절차로 `screen.frame` 수와 실제 그림 바이트를 잽니다. 현재 새 경로의 숫자 칸은 비어 있으며, 알려진 `screen.frame 0`은 U-35 이전 설치판의 역사 기록일 뿐 현재 경로의 성공·실패 근거가 아닙니다 → U-06′(사람)
 - [ ] 프레임 한 장 단가를 Gemini 기준으로 다시 계산하기 — `docs/spikes/meet-vision.md:383` 은 Claude 기준(약 1,196 시각 토큰 · 약 0.006 USD)만 적혀 있습니다. 확인: `grep -ric "gemini" docs/spikes/meet-vision.md` → 0
-- [~] 시험 네 갈래(vitest · cargo · node --test · e2e)를 루트 명령 하나로 — 루트 `package.json` 의 `test` 는 `pnpm -r --if-present test` 뿐이고 `.github` 폴더는 없습니다. 확인: `ls -a | grep github` → 없음 → 8라운드 U-22
-- [~] 기록 저장이 거절돼도 화면이 모르는 통로 → 8라운드 U-21
-- [~] 한 줄 결론 옆에 답 본문 첫 문단 → 8라운드 U-33 · 밀려난 붙잡기 질문을 대화 칸에서 그 줄로 → U-34
+- [x] 시험 네 갈래(vitest · cargo · node --test · e2e)를 루트 명령으로 분리 실행 — `1421e21` 이 `test:all`/`test:vitest`/`test:cargo`/`test:node`/`test:e2e` 를 만들었고, CI 수정 `b530e9d`·시간대 시험 수정 `b9708e5` 뒤 첫 초록 run `33803599999`, 마지막으로 확인한 원격 `1ea20b5` run `33836539868`도 성공했습니다. `pnpm test`는 빠른 세 갈래만 실행하고 E2E는 목록만 셉니다
+- [~] U-38 CI 관문 — `991dc95`가 typecheck·Rust fmt·clippy를 로컬 GitHub Actions 워크플로에 추가했고 세 명령은 로컬에서 통과했습니다. 로컬 main은 아직 push되지 않아 마지막 원격 성공 `1ea20b5` run `33836539868`에는 이 관문들이 없으며, 새 관문을 포함한 원격 CI 실행은 아직 없습니다
+- [~] 기록 저장 거절은 라우터가 `connector.status {native-host, paused}` 로 내지만 패널 표시는 아직 `off`만 별도 처리합니다. 사건 통로는 생겼고 사용자 화면 표현이 남았습니다 → 8라운드 U-21
+- [x] 한 줄 결론 바로 아래에 답 본문 첫 문단(U-33 `e27f340`) · 밀려난 붙잡기 질문을 대화 칸에서 물어본 원 전사 줄 옆 메모로 이동(U-34 `b6d0e3c`)
 
 ## 사람이 할 일 (대기)
 
@@ -170,7 +172,7 @@
 - [!] Tiro Max 결제 (월 무제한)
 - [!] 다음 녹음 때 Real-time 공유 링크로 Gate A (a)(b)(c) 실측 (링크·비밀번호는 채팅으로만)
 - [!] IntelliJ MCP Server 켜기 (Settings → Tools → MCP Server → Enable) → Gate C 재측정
-- [!] Meet 탭에서 압축해제 확장으로 Gate B 실측 (tabCapture 5분 · 화면 바이트 · 60분 메모리)
+- [!] 영상 탭에서 `6bb9c43` 압축해제 확장을 로드해 한 장 캡처 실측(`screen.frame ≥ 1` · 실제 바이트). 연속 `tabCapture` 5분·60분 메모리 실측은 한 장 방식이 부족하다는 근거가 생길 때 별도로 진행
 - [!] Gate C2 골든 컨텍스트 재측정 비용 승인 (약 1.5 USD 이상 예상)
 - [!] Codex 사용 한도 복구 확인 → Gate C2 Codex 측정
 - [!] 선생님께 Drive "뷰어 다운로드 허용" 요청

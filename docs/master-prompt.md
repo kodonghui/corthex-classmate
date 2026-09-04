@@ -7,6 +7,8 @@
 > 출처: Codex 스레드 `01a05aa0-…`(Classmate 설계·Tiro 검증·킥오프), Codex Sites 세션(UX 랩 4방향),
 > 2026-09-02 Claude Code 공식 문서 리서치(CHANGELOG 2.1.258 기준).
 
+> **현재 상태 주의(2026-09-04): 이 문서는 초기 구축 프롬프트의 역사 기록이며 그대로 다시 실행할 현재 작업 지시가 아닙니다.** 현재 실행·실측 기준은 `docs/plan/round-9-codex-handoff.md` §4~§5입니다. U-35의 기본 제품 경로는 학습자가 확장 아이콘을 누른 탭에 `activeTab`을 부여하고, 질문마다 `captureVisibleTab(windowId)`를 품질 60→30으로 최대 두 번 시도해 성공 프레임 최대 한 장만 저장하는 방식입니다. 아래 `tabCapture`+Offscreen+WebP 5분·60분 절차는 질문별 한 장이 부족하다는 실측이 생길 때만 재개하는 별도의 연속 캡처 실험입니다. 정확한 설치판의 `screen.frame ≥ 1`은 U-06′에서 아직 미측정이고, U-38 `991dc95`의 새 CI 관문은 로컬에서만 검증했으며 아직 원격 실행 전입니다.
+
 ---
 
 ## A. 사용 안내 (사람이 읽는 부분)
@@ -250,6 +252,8 @@ CAPTURE → ANSWER_MINIMAL → EXIT_RECALL → FEEDBACK → FADE_SUPPORT → DEL
   ```
 - Sites 랩에서 빌려와 디자인 시스템에 이미 반영된 것 3가지(2026-09-02, DesignSync로 적용·시제품 확인 완료): ① 초록 잉크 악센트 + Pretendard, ② **붙잡은 직후(preparing) 메모 첫 줄에 봉인한 세 자료** `● 전사 4초 전 · ● Meet 2초 전 · ● OrderService.java 1초 전`(`SourceStatus compact`) 다음에 "한 줄로 정리하고 있어요", ③ **듣는 중 화면 헤더 바로 아래에 `NowLine variant="plain"` 고정**("지금 · 생성자 주입 코드로 넘어갔어요", now 정보가 있을 때만). 구현 근거: `ui_kits/sidepanel/ListeningScreen.jsx`, `Classmate Side Panel.dc.html`.
 - 화면은 셋 + 설정: **듣는 중**(버튼 0개, 채도 블록 0개) · **자세히**(AnswerCard: 결론 + 근거 + 접힌 섹션 왜 그런가요/내 코드와 비교/선생님 화면 코드/선생님이 말한 부분 + 후속 칩, 하단 고정 바에 NowLine 과 유일한 primary 버튼 **"수업으로 돌아가기"**, 텍스트 입력창은 여기 맨 아래에만) · **기록**(MomentRow 를 교시별로, 헤어라인만) · **설정**. 상태 A~H 는 `design-system/prompts/claude-design-prompt.md` 에 정의되어 있고 `project-classmate-side-panel/Classmate Side Panel.dc.html` 이 그 구현 시제품이다.
+> **현재 구현 주의(2026-09-03 결정):** 바로 위 흐름의 `입력창 없음`과 `텍스트 입력창은 여기 맨 아래에만`은 역사 기록입니다. `docs/DECISIONS.md`의 batch-4→6 결정과 `5f0c692`·`bf09996`에 따라 듣는 중 화면 아래에도 늘 열린 대화 칸이 있고, 자세히의 이어 묻기 입력창도 유지합니다.
+> **현재 이름 주의(2026-09-04 결정):** 사용자에게 보이는 `Meet`는 U-35부터 `화면` 또는 `수업 화면`입니다. 고정 계약의 내부 선 위 값 `meet-tab`과 UI 내부 key `meet`만 호환을 위해 유지합니다.
 - **컴포넌트를 새로 그리지 말고 옮긴다**: `design-system/components/**/*.jsx`(React, `core/cm.js` 의 `css()`/`cx()`)와 `tokens/*.css`·`styles.css` 를 `packages/design-tokens` 와 확장 사이드패널로 포팅한다. 제품 컴포넌트: TranscriptFlow · MarginNote · GuessList · NowLine · SourceFooter · CodeCompare · MomentRow · AnswerCard · SourceStatus · StuckButton(전사 없는 모드의 폴백, 기본 화면엔 없음). 기반: Button · IconButton · Icon(Lucide, sparkles/bot/brain 금지) · Chip · Disclosure · CodeBlock · Evidence · StatusDot · Banner · Toast · Tooltip · Tabs · PanelHeader(44px) · Dialog · Card · Input/Select/Checkbox/Radio/Switch. 새 컴포넌트가 필요하면 왜 기존 것으로 안 되는지 한 줄을 DECISIONS.md 에.
 - 문구 규칙(CONTENT FUNDAMENTALS): 해요체, 제품 동사는 **붙잡다·접히다·남다·돌아가다**(저장/제출/전송/질문하기 금지), 튜터는 자신을 "저"라고 부르지 않고 사용자를 호칭하지 않음, 느낌표 없음, 메타는 중간점(·), 시각은 `10:32:18`, 결론은 40자 이내 "~예요/~해요", 근거는 모든 주장에, 대기 문구 "한 줄로 정리하고 있어요", 빈 상태 "아직 붙잡은 순간이 없어요".
 - 시각 규칙(VISUAL FOUNDATIONS, 2026-09-02 갱신본): 종이색 중립(`--paper-0…5`) + 잉크 텍스트(#1B212A) + 악센트 하나 `--ink-600` **#155D53 (Sites 랩 '수업 핀'의 깊은 초록, 파랑 #335493에서 교체)**, 상태색 초록=라이브·호박=부분·빨강=튜터 불통, 폰트 **Pretendard Variable**(jsDelivr) / IBM Plex Mono, 코드 타입명은 본문 잉크색(키워드 초록과 구분), `word-break: keep-all`, 4px 스페이싱, `--panel-inset` 14/16/20 @ 360/380/520, 모서리 3/4/6/8/12, 그림자는 Dialog/Toast 만, 모션 250ms 이하·바운스/스피너 없음, 포커스 링 2px `--ink-400`. **한 화면에 채도 있는 블록 하나까지, 듣는 중 화면엔 0개.**
