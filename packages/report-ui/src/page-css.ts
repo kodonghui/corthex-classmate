@@ -153,6 +153,20 @@ export const PAGE_CSS = `
 .code-block code { font: var(--type-code); white-space: pre; }
 .card > .code-block { margin-top: var(--space-5); }
 
+.session-figure { margin: 0 0 var(--space-5); }
+.session-figure:last-of-type { margin-bottom: 0; }
+.session-figure figcaption { margin-top: var(--space-2); }
+.evidence-refs { margin-top: var(--space-4); margin-bottom: 0; }
+.warning-list { margin-bottom: 0; padding-left: var(--space-8); color: var(--text-secondary); font: var(--type-body); }
+.warning-list li + li { margin-top: var(--space-2); }
+.activity-card .question-text { margin-bottom: var(--space-5); }
+.activity-hints { margin: 0 0 var(--space-5); padding-left: var(--space-8); color: var(--text-secondary); font: var(--type-body); }
+.activity-hints li + li { margin-top: var(--space-2); }
+.activity-variation { margin-top: var(--space-5); }
+.activity-answer { margin-top: var(--space-5); padding-top: var(--space-5); border-top: var(--border-w) solid var(--border-hairline); }
+.activity-answer summary { cursor: pointer; font: var(--type-body-strong); color: var(--text-accent); }
+.activity-answer .detail-body { margin-top: var(--space-4); }
+
 /* 수업 화면은 읽으라고 넣는 그림입니다. 그림 칸을 max-content 로 두면 1280px 원본이 페이지를 밀어내므로
    두 칸 모두 minmax(0, ...) 으로 접히게 둡니다. 크기 값은 정본 토큰에 없어 명시 값을 씁니다(README 참고). */
 .frame { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: var(--space-6); align-items: start; }

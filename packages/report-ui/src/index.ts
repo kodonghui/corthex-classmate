@@ -8,7 +8,18 @@
 /** 생성물 폴더(저장소 루트 기준). .gitignore 의 out/ 에 해당합니다. */
 export const REPORT_OUTPUT_DIR = "out";
 
-export type { PeriodBundle, PeriodRef } from "./types.ts";
+export type {
+  ActivityCard,
+  AssetRef,
+  MaterialRef,
+  PeriodBundle,
+  PeriodRef,
+  SessionBundleV2,
+  SessionMomentV2,
+  SessionProfileV2,
+  SessionSummaryV2,
+  TutorResponseV2,
+} from "./types.ts";
 
 export { parseJsonLines, periodIndexFromId, readPeriodBundle, readPeriodBundles } from "./bundle.ts";
 export {
@@ -20,6 +31,12 @@ export {
   periodKey,
 } from "./assets.ts";
 export type { FrameRef } from "./assets.ts";
+export {
+  COLLECTION_FILE_NAME,
+  SESSION_ASSETS_DIR,
+  sessionAssetHref,
+  sessionFileName,
+} from "./session-assets.ts";
 export {
   ANSWER_DETAIL_LABELS_KO,
   ANSWER_STATUS_LABELS_KO,
@@ -41,7 +58,22 @@ export {
 } from "./tokens.ts";
 export { HubPage, PERIODS_PER_DAY, hubPageTitle } from "./templates/HubPage.ts";
 export { PeriodPage, periodPageTitle } from "./templates/PeriodPage.ts";
-export { renderHubHtml, renderPeriodHtml } from "./render.ts";
-export type { HubRenderOptions, RenderOptions } from "./render.ts";
+export { CollectionPage, collectionPageTitle } from "./templates/CollectionPage.ts";
+export { SessionPage, sessionPageTitle, sessionProfileLabel } from "./templates/SessionPage.ts";
+export { renderCollectionHtml, renderHubHtml, renderPeriodHtml, renderSessionHtml } from "./render.ts";
+export type {
+  CollectionRenderOptions,
+  HubRenderOptions,
+  RenderOptions,
+  SessionRenderOptions,
+} from "./render.ts";
 export { generateDay } from "./generate.ts";
 export type { GenerateDayOptions, GenerateDayResult } from "./generate.ts";
+export { sanitizeWarning, sanitizeWarnings } from "./warnings.ts";
+export { generateCollection, generateSession } from "./generate-v2.ts";
+export type {
+  GenerateCollectionOptions,
+  GenerateCollectionResult,
+  GenerateSessionOptions,
+  GenerateSessionResult,
+} from "./generate-v2.ts";

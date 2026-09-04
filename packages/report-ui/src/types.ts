@@ -1,16 +1,35 @@
 // 교시 세션 번들을 메모리에 담는 모양입니다.
 //
-// 계약(`@classmate/contracts`)에는 번들 스키마가 없습니다(계약 고정). 그래서 번들 묶음 타입만
-// 이 패키지에서 정하고, 안에 들어가는 항목 타입은 계약에서 `import type` 으로만 가져옵니다.
+// V1 PeriodBundle 묶음은 이 패키지에서 유지하고, V1 항목과 V2 정본 타입은
+// `@classmate/contracts`에서 `import type`으로만 가져옵니다.
 
 import type {
+  ActivityCard,
   Answer,
+  AssetRef,
   EditorContext,
+  MaterialRef,
   Question,
   ScreenFrame,
+  SessionBundleV2,
   SessionEvent,
+  SessionMomentV2,
+  SessionProfileV2,
+  SessionSummaryV2,
   TranscriptSegment,
+  TutorResponseV2,
 } from "@classmate/contracts";
+
+export type {
+  ActivityCard,
+  AssetRef,
+  MaterialRef,
+  SessionBundleV2,
+  SessionMomentV2,
+  SessionProfileV2,
+  SessionSummaryV2,
+  TutorResponseV2,
+};
 
 /** 교시를 가리키는 최소 정보입니다. 파일 이름과 링크를 만들 때 씁니다. */
 export interface PeriodRef {

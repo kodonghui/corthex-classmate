@@ -14,8 +14,11 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { PAGE_CSS } from "./page-css.ts";
 import { HubPage, hubPageTitle, resolveDayId } from "./templates/HubPage.ts";
 import { PeriodPage, periodPageTitle } from "./templates/PeriodPage.ts";
+import { CollectionPage, collectionPageTitle } from "./templates/CollectionPage.ts";
+import { SessionPage, sessionPageTitle } from "./templates/SessionPage.ts";
 import { readDesignTokenCss } from "./tokens.ts";
-import type { PeriodBundle } from "./types.ts";
+import type { PeriodBundle, SessionBundleV2 } from "./types.ts";
+import { sanitizeWarnings } from "./warnings.ts";
 
 /** 두 렌더 함수가 함께 받는 선택 값입니다. */
 export interface RenderOptions {
@@ -27,6 +30,16 @@ export interface RenderOptions {
 export interface HubRenderOptions extends RenderOptions {
   /** 번들이 하나도 없을 때 제목에 쓸 날짜입니다. */
   readonly dayId?: string | undefined;
+}
+
+export interface SessionRenderOptions extends RenderOptions {
+  readonly assetHrefs?: ReadonlyMap<string, string> | undefined;
+  readonly warnings?: readonly string[] | undefined;
+  readonly collectionHref?: string | undefined;
+}
+
+export interface CollectionRenderOptions extends RenderOptions {
+  readonly collectionId?: string | undefined;
 }
 
 /**
@@ -82,5 +95,34 @@ export function renderHubHtml(bundles: readonly PeriodBundle[], options: HubRend
     title: hubPageTitle(dayId),
     tokenCss: options.tokenCss ?? readDesignTokenCss(),
     body: renderToStaticMarkup(h(HubPage, { dayId, bundles })),
+  });
+}
+
+/** 도메인 중립 V2 세션 상세 HTML 한 장을 만듭니다. */
+export function renderSessionHtml(bundle: SessionBundleV2, options: SessionRenderOptions = {}): string {
+  return documentHtml({
+    title: sessionPageTitle(bundle),
+    tokenCss: options.tokenCss ?? readDesignTokenCss(),
+    body: renderToStaticMarkup(
+      h(SessionPage, {
+        bundle,
+        assetHrefs: options.assetHrefs ?? new Map(),
+        warnings: sanitizeWarnings(options.warnings ?? bundle.warnings ?? []),
+        ...(options.collectionHref === undefined ? {} : { collectionHref: options.collectionHref }),
+      }),
+    ),
+  });
+}
+
+/** class/exam/meeting 공용 컬렉션 허브 HTML 한 장을 만듭니다. */
+export function renderCollectionHtml(
+  bundles: readonly SessionBundleV2[],
+  options: CollectionRenderOptions = {},
+): string {
+  const collectionId = options.collectionId ?? bundles[0]?.startedAt.slice(0, 10) ?? "세션 모음";
+  return documentHtml({
+    title: collectionPageTitle(collectionId),
+    tokenCss: options.tokenCss ?? readDesignTokenCss(),
+    body: renderToStaticMarkup(h(CollectionPage, { bundles, collectionId })),
   });
 }
