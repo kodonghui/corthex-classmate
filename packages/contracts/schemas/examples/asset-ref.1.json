@@ -1,0 +1,9 @@
+{
+  "id": "asset-frame-001",
+  "kind": "image",
+  "mediaType": "image/jpeg",
+  "path": "frames/frame-001.jpg",
+  "logicalPath": "frames/frame-001.webp",
+  "byteLength": 1280,
+  "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+}

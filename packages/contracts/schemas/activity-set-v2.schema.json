@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/activity-set-v2.schema.json",
+  "title": "ActivitySetV2",
+  "description": "완성된 다섯 활동을 고정 슬롯 순서로 담는 묶음입니다.",
+  "type": "array",
+  "items": [
+    {
+      "allOf": [
+        { "$ref": "activity-card.schema.json" },
+        { "properties": { "slot": { "const": "RECALL" } } }
+      ]
+    },
+    {
+      "allOf": [
+        { "$ref": "activity-card.schema.json" },
+        { "properties": { "slot": { "const": "EXPLAIN" } } }
+      ]
+    },
+    {
+      "allOf": [
+        { "$ref": "activity-card.schema.json" },
+        { "properties": { "slot": { "const": "INSPECT" } } }
+      ]
+    },
+    {
+      "allOf": [
+        { "$ref": "activity-card.schema.json" },
+        { "properties": { "slot": { "const": "APPLY" } } }
+      ]
+    },
+    {
+      "allOf": [
+        { "$ref": "activity-card.schema.json" },
+        { "properties": { "slot": { "const": "TRANSFER" } } }
+      ]
+    }
+  ],
+  "additionalItems": false,
+  "minItems": 5,
+  "maxItems": 5
+}

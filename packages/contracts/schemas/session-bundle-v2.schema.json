@@ -1,0 +1,156 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/session-bundle-v2.schema.json",
+  "title": "SessionBundleV2",
+  "description": "한 세션의 자료·시간순 순간·활동·실제 파일 참조를 함께 보존하는 도메인 중립 번들입니다.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "description": "이 번들의 계약 판별자입니다.",
+      "const": "2"
+    },
+    "sessionId": { "$ref": "common.schema.json#/definitions/Id" },
+    "legacyPeriodId": { "$ref": "common.schema.json#/definitions/PeriodId" },
+    "profile": { "$ref": "session-profile-v2.schema.json" },
+    "title": {
+      "description": "사람에게 보여 줄 선택적 세션 이름입니다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "startedAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "endedAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "summary": { "$ref": "session-summary-v2.schema.json" },
+    "sources": {
+      "description": "세션에 사용한 자료 참조입니다.",
+      "type": "array",
+      "items": { "$ref": "material-ref.schema.json" }
+    },
+    "moments": {
+      "description": "세션에서 보존할 사건을 시간순으로 담습니다.",
+      "type": "array",
+      "items": { "$ref": "#/definitions/SessionMomentV2" }
+    },
+    "activities": {
+      "description": "아직 생성되지 않았으면 비어 있고, 생성 중이거나 완료되면 최대 다섯 활동을 담습니다. 완성 묶음의 수와 순서는 ActivitySetV2가 검증합니다.",
+      "type": "array",
+      "items": { "$ref": "activity-card.schema.json" },
+      "maxItems": 5
+    },
+    "artifacts": {
+      "description": "번들 디렉터리 안 실제 파일들의 참조입니다.",
+      "type": "array",
+      "items": { "$ref": "asset-ref.schema.json" }
+    },
+    "warnings": {
+      "description": "번들을 열 때 함께 표시할 누락·변환·검증 경고입니다.",
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "sessionId",
+    "profile",
+    "startedAt",
+    "sources",
+    "moments",
+    "activities",
+    "artifacts"
+  ],
+  "additionalProperties": false,
+  "definitions": {
+    "SessionMomentTypeV2": {
+      "title": "SessionMomentTypeV2",
+      "description": "도메인과 무관하게 보존하는 세션 순간의 역할입니다.",
+      "type": "string",
+      "enum": ["transcript", "visual", "question", "response", "decision", "action"]
+    },
+    "TranscriptRevisionV2": {
+      "title": "TranscriptRevisionV2",
+      "description": "수정될 수 있는 전사 세그먼트의 판본과 선택적 제공자 정보를 담습니다.",
+      "type": "object",
+      "properties": {
+        "segmentId": { "$ref": "common.schema.json#/definitions/Id" },
+        "revision": { "type": "integer", "minimum": 0 },
+        "isFinal": { "type": "boolean" },
+        "speaker": { "type": "string", "minLength": 1 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "words": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/TranscriptWordV2" }
+        }
+      },
+      "required": ["segmentId", "revision", "isFinal"],
+      "additionalProperties": false
+    },
+    "TranscriptWordV2": {
+      "title": "TranscriptWordV2",
+      "description": "제공자가 지원할 때만 남기는 단어별 상대 시각입니다.",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string", "minLength": 1 },
+        "startMs": { "type": "integer", "minimum": 0 },
+        "endMs": { "type": "integer", "minimum": 0 },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+      },
+      "required": ["text", "startMs", "endMs"],
+      "additionalProperties": false
+    },
+    "SessionMomentV2": {
+      "title": "SessionMomentRecordV2",
+      "description": "전사·화면·질문·응답·결정·행동 중 하나를 시간순으로 보존하는 항목입니다.",
+      "type": "object",
+      "properties": {
+        "id": { "$ref": "common.schema.json#/definitions/Id" },
+        "type": { "$ref": "#/definitions/SessionMomentTypeV2" },
+        "at": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+        "materialRefIds": {
+          "description": "이 순간과 직접 연결된 자료 식별자입니다.",
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/definitions/Id" },
+          "uniqueItems": true
+        },
+        "assetRefIds": {
+          "description": "이 순간과 직접 연결된 실제 파일 식별자입니다.",
+          "type": "array",
+          "items": { "$ref": "common.schema.json#/definitions/Id" },
+          "uniqueItems": true
+        },
+        "text": {
+          "description": "전사·질문·결정·행동처럼 사람이 읽을 본문입니다.",
+          "type": "string",
+          "minLength": 1
+        },
+        "transcript": { "$ref": "#/definitions/TranscriptRevisionV2" },
+        "response": { "$ref": "tutor-response-v2.schema.json" }
+      },
+      "required": ["id", "type", "at", "materialRefIds", "assetRefIds"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "transcript" } },
+            "required": ["type"]
+          },
+          "then": { "required": ["text", "transcript"] }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "visual" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": { "assetRefIds": { "minItems": 1 } }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "response" } },
+            "required": ["type"]
+          },
+          "then": { "required": ["response"] }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "response-001",
+  "questionId": "moment-question-001",
+  "createdAt": "2026-09-04T20:31:10+09:00",
+  "conclusion": "화면의 조건과 전사 근거를 함께 확인해야 합니다.",
+  "evidenceRefIds": ["moment-transcript-001", "asset-frame-001"],
+  "sections": [
+    {
+      "id": "section-reason-001",
+      "title": "근거",
+      "content": "전사에는 원칙이 있고 화면에는 적용 조건이 있습니다.",
+      "evidenceRefIds": ["moment-transcript-001", "asset-frame-001"]
+    }
+  ],
+  "providerId": "fake-provider",
+  "model": "fixture-model",
+  "status": "completed",
+  "warnings": [],
+  "verification": {
+    "verificationStatus": "lecture-confirmed"
+  }
+}

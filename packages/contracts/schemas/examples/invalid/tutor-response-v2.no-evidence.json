@@ -1,0 +1,10 @@
+{
+  "id": "response-invalid-001",
+  "questionId": "moment-question-001",
+  "createdAt": "2026-09-04T20:31:10+09:00",
+  "conclusion": "근거가 없는 응답은 거부되어야 합니다.",
+  "evidenceRefIds": [],
+  "sections": [],
+  "providerId": "fake-provider",
+  "status": "completed"
+}

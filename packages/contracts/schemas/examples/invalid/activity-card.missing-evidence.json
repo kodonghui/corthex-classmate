@@ -1,0 +1,10 @@
+{
+  "id": "activity-invalid-001",
+  "slot": "RECALL",
+  "kind": "question",
+  "prompt": "핵심을 적어 보세요.",
+  "evidenceRefIds": [],
+  "hints": [],
+  "answer": "근거가 없는 활동은 거부되어야 합니다.",
+  "attempts": []
+}

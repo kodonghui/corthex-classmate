@@ -167,6 +167,70 @@ describe("손으로 적은 상수와 스키마가 같다", () => {
   });
 });
 
+describe("V2 계약 경계", () => {
+  it("AssetRef.path 는 안전한 슬래시 상대경로만 받는다", () => {
+    const validate = createValidator("asset-ref");
+    const base = readJson(join(examplesDir, "asset-ref.1.json")) as Record<string, unknown>;
+
+    expect(validate({ ...base, path: "frames/frame-001.jpg" })).toBe(true);
+    for (const path of [
+      "C:/private/frame.jpg",
+      "/private/frame.jpg",
+      "\\private\\frame.jpg",
+      "frames\\frame.jpg",
+      "../frame.jpg",
+      "frames/../frame.jpg",
+    ]) {
+      expect(validate({ ...base, path }), path).toBe(false);
+    }
+  });
+
+  it("초기 SessionBundleV2 는 활동이 비어도 되지만 여섯 개는 거부한다", () => {
+    const validate = createValidator("session-bundle-v2");
+    const base = readJson(join(examplesDir, "session-bundle-v2.1.json")) as Record<
+      string,
+      unknown
+    >;
+    const activities = base.activities as unknown[];
+
+    expect(validate({ ...base, activities: [] })).toBe(true);
+    expect(validate({ ...base, activities: [...activities, activities[0]] })).toBe(false);
+  });
+
+  it("ActivitySetV2 는 다섯 슬롯의 수와 순서를 모두 확인한다", () => {
+    const validate = createValidator("activity-set-v2");
+    const base = readJson(join(examplesDir, "activity-set-v2.1.json")) as unknown[];
+    const wrongOrder = [...base];
+    [wrongOrder[0], wrongOrder[1]] = [wrongOrder[1], wrongOrder[0]];
+
+    expect(validate(base)).toBe(true);
+    expect(validate(base.slice(0, 4))).toBe(false);
+    expect(validate(wrongOrder)).toBe(false);
+  });
+
+  it("전사·화면·응답 순간은 각 필수 내용을 갖는다", () => {
+    const validate = createValidator("session-bundle-v2");
+    const base = readJson(join(examplesDir, "session-bundle-v2.1.json")) as {
+      moments: Array<Record<string, unknown>>;
+      [key: string]: unknown;
+    };
+
+    const transcriptMissingRevision = base.moments.map((moment) =>
+      moment.type === "transcript" ? { ...moment, transcript: undefined } : moment,
+    );
+    const visualMissingAsset = base.moments.map((moment) =>
+      moment.type === "visual" ? { ...moment, assetRefIds: [] } : moment,
+    );
+    const responseMissingBody = base.moments.map((moment) =>
+      moment.type === "response" ? { ...moment, response: undefined } : moment,
+    );
+
+    expect(validate({ ...base, moments: transcriptMissingRevision })).toBe(false);
+    expect(validate({ ...base, moments: visualMissingAsset })).toBe(false);
+    expect(validate({ ...base, moments: responseMissingBody })).toBe(false);
+  });
+});
+
 describe("생성물", () => {
   it("src/generated/index.ts 가 import 된다", async () => {
     const generated = await import("../src/generated/index");

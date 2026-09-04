@@ -1,0 +1,52 @@
+[
+  {
+    "id": "activity-recall-001",
+    "slot": "RECALL",
+    "kind": "question",
+    "prompt": "핵심을 회상해 보세요.",
+    "evidenceRefIds": ["moment-001"],
+    "hints": [],
+    "answer": "핵심을 확인합니다.",
+    "attempts": []
+  },
+  {
+    "id": "activity-explain-001",
+    "slot": "EXPLAIN",
+    "kind": "question",
+    "prompt": "이유를 설명해 보세요.",
+    "evidenceRefIds": ["moment-001"],
+    "hints": [],
+    "answer": "근거와 조건을 설명합니다.",
+    "attempts": []
+  },
+  {
+    "id": "activity-inspect-001",
+    "slot": "INSPECT",
+    "kind": "worked-example",
+    "prompt": "경계를 찾아보세요.",
+    "evidenceRefIds": ["moment-001"],
+    "hints": [],
+    "answer": "원칙과 예외를 구분합니다.",
+    "attempts": []
+  },
+  {
+    "id": "activity-apply-001",
+    "slot": "APPLY",
+    "kind": "worked-example",
+    "prompt": "비슷한 사례에 적용해 보세요.",
+    "evidenceRefIds": ["moment-001"],
+    "hints": [],
+    "answer": "같은 확인 순서를 적용합니다.",
+    "attempts": []
+  },
+  {
+    "id": "activity-transfer-001",
+    "slot": "TRANSFER",
+    "kind": "simulation",
+    "prompt": "조건 변화에 대응해 보세요.",
+    "evidenceRefIds": ["moment-001"],
+    "hints": [],
+    "answer": "바뀐 조건의 영향을 다시 판단합니다.",
+    "attempts": []
+  }
+]

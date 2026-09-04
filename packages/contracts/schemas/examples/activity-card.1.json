@@ -1,0 +1,23 @@
+{
+  "id": "activity-recall-001",
+  "slot": "RECALL",
+  "kind": "question",
+  "prompt": "자료를 보지 않고 핵심 조건을 적어 보세요.",
+  "evidenceRefIds": ["moment-transcript-001"],
+  "hints": ["조건의 개수를 먼저 떠올려 보세요."],
+  "answer": "핵심 조건과 예외를 구분해 적습니다.",
+  "attempts": [
+    {
+      "id": "attempt-001",
+      "startedAt": "2026-09-04T20:35:00+09:00",
+      "submittedAt": "2026-09-04T20:35:30+09:00",
+      "response": "핵심 조건을 먼저 확인합니다.",
+      "confidence": 3,
+      "hintLevel": 0,
+      "revealedAt": "2026-09-04T20:35:35+09:00",
+      "selfCorrection": "예외 조건도 함께 확인합니다.",
+      "feedback": "핵심 조건은 맞고 예외 조건을 보충했습니다.",
+      "nextAttemptAt": "2026-09-05T20:35:00+09:00"
+    }
+  ]
+}

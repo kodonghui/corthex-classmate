@@ -1,0 +1,15 @@
+{
+  "id": "src-official-001",
+  "kind": "document",
+  "adapterId": "fixture-official-document",
+  "label": "공개 공식 자료",
+  "verification": {
+    "jurisdiction": "KR",
+    "effectiveDate": "2026-01-01",
+    "taxYear": 2026,
+    "standardVersion": "2026.1",
+    "verifiedAt": "2026-09-04T20:30:00+09:00",
+    "sourceUrl": "https://example.org/official/reference",
+    "verificationStatus": "official-confirmed"
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/asset-ref.schema.json",
+  "title": "AssetRef",
+  "description": "번들에 포함된 실제 파일을 가리키며 과거 논리 경로와 물리 경로를 구분합니다.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/definitions/Id" },
+    "kind": {
+      "description": "파일의 중립적인 역할입니다.",
+      "type": "string",
+      "enum": ["image", "audio", "document", "data", "html", "other"]
+    },
+    "mediaType": {
+      "description": "실제 파일 바이트의 미디어 타입입니다.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$"
+    },
+    "path": {
+      "description": "번들 디렉터리를 기준으로 실제 존재하는 파일의 슬래시 상대경로입니다. 드라이브 문자, 선행 슬래시, 역슬래시, .. 조각은 금지합니다.",
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?!/)(?!.*(?:^|/)\\.\\.(?:/|$))[^\\\\]+$"
+    },
+    "logicalPath": {
+      "description": "V1 저장소에 남은 과거 논리 경로입니다. 파일을 열 때 사용하지 않습니다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "byteLength": {
+      "description": "실제 파일 크기입니다.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "sha256": {
+      "description": "실제 파일 바이트의 SHA-256 소문자 16진 해시입니다.",
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "required": ["id", "kind", "mediaType", "path"],
+  "additionalProperties": false
+}

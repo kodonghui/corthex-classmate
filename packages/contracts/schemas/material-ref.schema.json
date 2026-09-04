@@ -1,0 +1,77 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/material-ref.schema.json",
+  "title": "MaterialRef",
+  "description": "세션이 사용한 자료를 특정 제품이나 어댑터 enum에 묶지 않고 가리키는 참조입니다.",
+  "type": "object",
+  "properties": {
+    "id": { "$ref": "common.schema.json#/definitions/Id" },
+    "kind": {
+      "description": "자료의 중립적인 역할입니다.",
+      "type": "string",
+      "enum": ["transcript", "visual", "document", "editor", "user-input", "other"]
+    },
+    "adapterId": {
+      "description": "자료를 가져온 어댑터 식별자입니다. Tiro나 로컬 STT 같은 제품명은 고정 enum으로 두지 않습니다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "label": {
+      "description": "사람에게 보여 줄 선택적 자료 이름입니다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "assetId": { "$ref": "common.schema.json#/definitions/Id" },
+    "verification": { "$ref": "#/definitions/VerificationMetadataV2" }
+  },
+  "required": ["id", "kind", "adapterId"],
+  "additionalProperties": false,
+  "definitions": {
+    "VerificationStatusV2": {
+      "title": "VerificationStatusV2",
+      "description": "강의 근거와 공식 자료의 확인 상태를 구분합니다.",
+      "type": "string",
+      "enum": [
+        "lecture-confirmed",
+        "official-confirmed",
+        "conflict",
+        "ai-simulation",
+        "official-check-required"
+      ]
+    },
+    "VerificationMetadataV2": {
+      "title": "VerificationMetadataV2",
+      "description": "법·세무·회계처럼 최신성이 필요한 자료의 선택적 확인 메타데이터입니다.",
+      "type": "object",
+      "properties": {
+        "jurisdiction": {
+          "description": "적용 관할이나 국가입니다.",
+          "type": "string",
+          "minLength": 1
+        },
+        "effectiveDate": {
+          "description": "규칙이나 자료가 효력을 갖는 날짜입니다.",
+          "type": "string",
+          "format": "date"
+        },
+        "taxYear": {
+          "description": "세무 자료에 적용되는 연도입니다.",
+          "type": ["integer", "string"]
+        },
+        "standardVersion": {
+          "description": "법령·회계기준·표준의 판본입니다.",
+          "type": "string",
+          "minLength": 1
+        },
+        "verifiedAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+        "sourceUrl": {
+          "description": "공개 공식 근거 URL입니다. 비밀값이 있는 URL이나 Tiro 공유 URL은 어댑터가 절대 넣지 않습니다.",
+          "type": "string",
+          "format": "uri"
+        },
+        "verificationStatus": { "$ref": "#/definitions/VerificationStatusV2" }
+      },
+      "additionalProperties": false
+    }
+  }
+}

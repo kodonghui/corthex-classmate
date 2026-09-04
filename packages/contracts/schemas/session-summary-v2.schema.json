@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/session-summary-v2.schema.json",
+  "title": "SessionSummaryV2",
+  "description": "과거 세션 목록과 상세 진입에 필요한 도메인 중립 요약입니다.",
+  "type": "object",
+  "properties": {
+    "sessionId": { "$ref": "common.schema.json#/definitions/Id" },
+    "legacyPeriodId": { "$ref": "common.schema.json#/definitions/PeriodId" },
+    "profile": { "$ref": "session-profile-v2.schema.json" },
+    "title": {
+      "description": "사람에게 보여 줄 선택적 세션 이름입니다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "startedAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "endedAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "lastAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "eventCount": { "type": "integer", "minimum": 0 },
+    "transcriptCount": { "type": "integer", "minimum": 0 },
+    "questionCount": { "type": "integer", "minimum": 0 },
+    "answerCount": { "type": "integer", "minimum": 0 },
+    "frameCount": { "type": "integer", "minimum": 0 }
+  },
+  "required": [
+    "sessionId",
+    "profile",
+    "eventCount",
+    "transcriptCount",
+    "questionCount",
+    "answerCount",
+    "frameCount"
+  ],
+  "additionalProperties": false
+}

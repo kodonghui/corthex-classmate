@@ -1,0 +1,14 @@
+{
+  "sessionId": "session-2026-09-04-001",
+  "legacyPeriodId": "2026-09-04-p1",
+  "profile": "class",
+  "title": "합성 수업 세션",
+  "startedAt": "2026-09-04T20:30:00+09:00",
+  "endedAt": "2026-09-04T20:40:00+09:00",
+  "lastAt": "2026-09-04T20:40:00+09:00",
+  "eventCount": 4,
+  "transcriptCount": 1,
+  "questionCount": 1,
+  "answerCount": 1,
+  "frameCount": 1
+}

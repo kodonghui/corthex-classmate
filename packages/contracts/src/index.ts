@@ -11,14 +11,22 @@ import Ajv from "ajv";
 import type { ErrorObject, ValidateFunction } from "ajv";
 import addFormats from "ajv-formats";
 
+import activityCardSchema from "../schemas/activity-card.schema.json";
+import activitySetV2Schema from "../schemas/activity-set-v2.schema.json";
 import answerSchema from "../schemas/answer.schema.json";
+import assetRefSchema from "../schemas/asset-ref.schema.json";
 import commonSchema from "../schemas/common.schema.json";
 import editorContextSchema from "../schemas/editor-context.schema.json";
 import evidenceLevelSchema from "../schemas/evidence-level.schema.json";
+import materialRefSchema from "../schemas/material-ref.schema.json";
 import questionSchema from "../schemas/question.schema.json";
 import screenFrameSchema from "../schemas/screen-frame.schema.json";
+import sessionBundleV2Schema from "../schemas/session-bundle-v2.schema.json";
 import sessionEventSchema from "../schemas/session-event.schema.json";
+import sessionProfileV2Schema from "../schemas/session-profile-v2.schema.json";
+import sessionSummaryV2Schema from "../schemas/session-summary-v2.schema.json";
 import transcriptSegmentSchema from "../schemas/transcript-segment.schema.json";
+import tutorResponseV2Schema from "../schemas/tutor-response-v2.schema.json";
 
 export type * from "./generated/index";
 
@@ -72,6 +80,14 @@ export const SCHEMA_NAMES = [
   "question",
   "answer",
   "session-event",
+  "session-profile-v2",
+  "material-ref",
+  "asset-ref",
+  "tutor-response-v2",
+  "activity-card",
+  "activity-set-v2",
+  "session-summary-v2",
+  "session-bundle-v2",
 ] as const;
 
 export type SchemaName = (typeof SCHEMA_NAMES)[number];
@@ -86,6 +102,14 @@ export const SCHEMAS: Record<SchemaName, object> = {
   question: questionSchema,
   answer: answerSchema,
   "session-event": sessionEventSchema,
+  "session-profile-v2": sessionProfileV2Schema,
+  "material-ref": materialRefSchema,
+  "asset-ref": assetRefSchema,
+  "tutor-response-v2": tutorResponseV2Schema,
+  "activity-card": activityCardSchema,
+  "activity-set-v2": activitySetV2Schema,
+  "session-summary-v2": sessionSummaryV2Schema,
+  "session-bundle-v2": sessionBundleV2Schema,
 };
 
 /** 스키마 이름 → $id 입니다. Ajv 는 $id 로 서로를 찾습니다. */

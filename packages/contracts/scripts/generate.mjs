@@ -27,6 +27,14 @@ const SCHEMA_NAMES = [
   "question",
   "answer",
   "session-event",
+  "session-profile-v2",
+  "material-ref",
+  "asset-ref",
+  "tutor-response-v2",
+  "activity-card",
+  "activity-set-v2",
+  "session-summary-v2",
+  "session-bundle-v2",
 ];
 
 const BANNER = [
@@ -38,6 +46,10 @@ const BANNER = [
   " * 타입을 바꾸려면 스키마를 고치고 `pnpm --filter @classmate/contracts generate` 를 다시 실행하세요.",
   " */",
 ].join("\n");
+
+// json-schema-to-typescript 가 allOf 제약을 풀 때 만드는 내부 구현 타입입니다.
+// 루트 공개 API에는 사람이 이름 붙인 계약 타입만 내보냅니다.
+const INTERNAL_TYPE_NAMES = new Set(["SessionMomentRecordV2"]);
 
 /** 생성된 코드에서 최상위 export 이름을 뽑습니다. 모두 타입이라 런타임 값은 없습니다. */
 function collectExportedTypeNames(source) {
@@ -100,6 +112,7 @@ async function main() {
 
     const exported = [];
     for (const typeName of collectExportedTypeNames(ts)) {
+      if (INTERNAL_TYPE_NAMES.has(typeName)) continue;
       if (seen.has(typeName)) continue;
       seen.add(typeName);
       exported.push(typeName);
