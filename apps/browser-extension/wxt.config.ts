@@ -1,4 +1,36 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { defineConfig } from 'wxt';
+
+import {
+  assertChromeVersion,
+  assertVersionName,
+  dirtyFromPorcelain,
+  makeVersionName,
+  VERSION_NAME_ENV,
+} from './scripts/release-identity.mjs';
+import { readGitReleaseState } from './scripts/release-git.mjs';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const repoRoot = resolve(here, '..', '..');
+const packageRecord = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as {
+  readonly version?: unknown;
+};
+const extensionVersion = assertChromeVersion(packageRecord.version);
+
+function releaseVersionName(): string {
+  const supplied = process.env[VERSION_NAME_ENV];
+  if (supplied !== undefined) return assertVersionName(extensionVersion, supplied);
+
+  const git = readGitReleaseState(repoRoot);
+  return makeVersionName({
+    version: extensionVersion,
+    commit: git.commit,
+    dirty: dirtyFromPorcelain(git.porcelain),
+  });
+}
 
 // WXT 설정 (공식 문서: https://wxt.dev/guide/essentials/config/manifest.html).
 //
@@ -15,7 +47,9 @@ export default defineConfig({
   manifest: {
     name: 'Corthex Classmate',
     description: '수업 중 막힌 순간을 한 번에 붙잡고 한 문장으로 수업에 돌아가요',
-    version: '0.0.2',
+    // `version` 은 적지 않습니다. WXT가 이 앱 package.json의 version을 정본으로 사용합니다.
+    // `version_name` 은 같은 숫자판에 commit과 dirty 여부를 더한 표시용 식별자입니다.
+    version_name: releaseVersionName(),
     // tabCapture: 수업 탭의 연속 화면을 잡는 실험용 권한입니다. 사용자 제스처(패널 버튼 클릭)
     //   뒤에만 chrome.tabCapture.getMediaStreamId 가 성공합니다.
     // offscreen: 서비스 워커에 DOM 이 없어서 getUserMedia·canvas 를 대신 할

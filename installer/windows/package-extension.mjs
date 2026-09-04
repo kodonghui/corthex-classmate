@@ -29,6 +29,15 @@ import { inflateRawSync } from 'node:zlib';
 import { spawnSync } from 'node:child_process';
 
 import {
+  assertChromeVersion,
+  dirtyFromPorcelain,
+  makeVersionName,
+  releaseIdentityVerdict,
+  VERSION_NAME_ENV,
+} from '../../apps/browser-extension/scripts/release-identity.mjs';
+import { readGitReleaseState } from '../../apps/browser-extension/scripts/release-git.mjs';
+
+import {
   DEV_ZIP_NAME,
   STORE_ZIP_NAME,
   distDir,
@@ -43,6 +52,9 @@ export const OUTPUT_DIR = join(repoRoot, 'apps', 'browser-extension', '.output')
 
 /** 확장 패키지 이름입니다. pnpm --filter 가 이 이름을 씁니다. */
 export const EXTENSION_PACKAGE = '@classmate/browser-extension';
+
+/** WXT가 manifest.version 정본으로 읽는 앱 package.json입니다. */
+export const EXTENSION_PACKAGE_JSON = join(repoRoot, 'apps', 'browser-extension', 'package.json');
 
 /** wxt.config.ts(단위 2)가 읽기로 한 환경 변수 이름입니다. 고정 계약 (바) 입니다. */
 export const KEY_ENV_NAME = 'CLASSMATE_EXTENSION_KEY';
@@ -150,6 +162,7 @@ export function inspectManifest(zipPath) {
     hasKey: typeof manifest.key === 'string' && manifest.key.length > 0,
     name: manifest.name,
     version: manifest.version,
+    versionName: manifest.version_name,
     permissions: Array.isArray(manifest.permissions) ? manifest.permissions : [],
   };
 }
@@ -258,6 +271,11 @@ export function zipKeyVerdict({ devHasKey, storeHasKey }) {
   return { code: 0, lines: ['확인       dev key=있음 · store key=없음 · 계획대로예요.'] };
 }
 
+/** package.json 정본과 dev/store 매니페스트의 숫자판·표시판을 함께 대조합니다. */
+export function zipReleaseVerdict({ expectedVersion, expectedVersionName, dev, store }) {
+  return releaseIdentityVerdict({ expectedVersion, expectedVersionName, dev, store });
+}
+
 function printUsage() {
   console.log(`사용법
   node installer/windows/package-extension.mjs [--help]
@@ -289,20 +307,42 @@ export function main(argv, env = process.env) {
   const record = JSON.parse(readFileSync(keyFilePath, 'utf8'));
   console.log(`확장 id    ${record.id} (개발용 고정 id)`);
 
+  const extensionPackage = JSON.parse(readFileSync(EXTENSION_PACKAGE_JSON, 'utf8'));
+  const expectedVersion = assertChromeVersion(extensionPackage.version);
+  const git = readGitReleaseState(repoRoot);
+  const expectedVersionName = makeVersionName({
+    version: expectedVersion,
+    commit: git.commit,
+    dirty: dirtyFromPorcelain(git.porcelain),
+  });
+  // 부모 셸에 낡은 값이 있어도 그대로 물려주지 않고 이번 저장소 상태로 덮습니다.
+  const releaseEnv = { ...env, [VERSION_NAME_ENV]: expectedVersionName };
+  console.log(`빌드 식별  ${expectedVersionName}`);
+
   ensureDist();
 
-  const dev = packageOnce('dev', record.key, env);
+  const dev = packageOnce('dev', record.key, releaseEnv);
   if (!dev) return 1;
-  const store = packageOnce('store', null, env);
+  const store = packageOnce('store', null, releaseEnv);
   if (!store) return 1;
 
   console.log('');
-  const verdict = zipKeyVerdict({ devHasKey: dev.manifest.hasKey, storeHasKey: store.manifest.hasKey });
-  for (const line of verdict.lines) {
-    if (verdict.code === 0) console.log(line);
-    else console.error(line);
+  const verdicts = [
+    zipKeyVerdict({ devHasKey: dev.manifest.hasKey, storeHasKey: store.manifest.hasKey }),
+    zipReleaseVerdict({
+      expectedVersion,
+      expectedVersionName,
+      dev: dev.manifest,
+      store: store.manifest,
+    }),
+  ];
+  for (const verdict of verdicts) {
+    for (const line of verdict.lines) {
+      if (verdict.code === 0) console.log(line);
+      else console.error(line);
+    }
   }
-  return verdict.code;
+  return verdicts.some((verdict) => verdict.code !== 0) ? 1 : 0;
 }
 
 // 진입점 가드입니다. `node package-extension.mjs` 로 직접 돌릴 때만 움직입니다.

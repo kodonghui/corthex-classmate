@@ -18,6 +18,7 @@ import {
   pnpmSpawn,
   readZipEntry,
   zipKeyVerdict,
+  zipReleaseVerdict,
 } from './package-extension.mjs';
 
 /**
@@ -194,5 +195,57 @@ describe('두 zip 의 key 판정', () => {
     assert.equal(verdict.code, 1);
     assert.ok(verdict.lines.some((line) => line.includes('dev zip')));
     assert.ok(verdict.lines.some((line) => line.includes('store zip')));
+  });
+});
+
+describe('두 zip 의 릴리스 식별 판정', () => {
+  const expectedVersion = '0.0.3';
+  const expectedVersionName = '0.0.3+gabcdef12';
+  const good = { version: expectedVersion, versionName: expectedVersionName };
+
+  it('dev/store가 package 숫자판과 표시판에 모두 맞으면 통과한다', () => {
+    assert.equal(zipReleaseVerdict({ expectedVersion, expectedVersionName, dev: good, store: good }).code, 0);
+  });
+
+  it('dev/store 중 하나라도 package version과 다르면 실패한다', () => {
+    assert.equal(
+      zipReleaseVerdict({
+        expectedVersion,
+        expectedVersionName,
+        dev: { ...good, version: '0.0.2' },
+        store: good,
+      }).code,
+      1,
+    );
+    assert.equal(
+      zipReleaseVerdict({
+        expectedVersion,
+        expectedVersionName,
+        dev: good,
+        store: { ...good, version: '0.0.2' },
+      }).code,
+      1,
+    );
+  });
+
+  it('dev/store 중 하나라도 version_name이 다르거나 없으면 실패한다', () => {
+    assert.equal(
+      zipReleaseVerdict({
+        expectedVersion,
+        expectedVersionName,
+        dev: { ...good, versionName: '0.0.3+g12345678' },
+        store: good,
+      }).code,
+      1,
+    );
+    assert.equal(
+      zipReleaseVerdict({
+        expectedVersion,
+        expectedVersionName,
+        dev: good,
+        store: { version: expectedVersion },
+      }).code,
+      1,
+    );
   });
 });
