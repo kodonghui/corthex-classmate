@@ -308,3 +308,10 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 - 검증: 제품 로컬·GitHub HEAD가 `654c2b9b61936c873b338fd6137462bbe844fe26`으로 같고 push-triggered GitHub Actions `test`가 성공했습니다. Workbench 로컬·GitHub·Sites 저장 버전의 원본 커밋이 `e02fadafe99e65f1b38c44386c68fca608508aef`으로 일치합니다. Workbench lint·TypeScript·프로덕션 빌드가 통과했고, Sites 배포는 `succeeded`입니다. 접근 정책은 소유자 1명, 외부 방문자 0명, workspace·tenant 그룹 0개입니다.
 - 위험: 실제 설치 Chrome에서 새 빌드로 영상 탭 화면 한 장을 저장하는 U-06′ 실측은 아직 하지 않았습니다. 이번 `npm audit --omit=dev` 재확인은 레지스트리 응답이 90초 넘게 없어 중단했으며, 의존성 파일 변경 전 직전 감사 결과는 0건입니다.
 - 다음 행동: 현재 빌드 해시를 고정한 뒤 사용자에게 설치 직전 확인을 받고 Chrome 확장을 교체해 U-06′ 실제 화면 캡처를 검증합니다.
+
+## 2026-09-04 19:47 — Chrome에서 새 설치판을 구분하도록 배포 버전 0.0.2로 올림
+
+- 변경: Chrome 확장 상세 화면에서 이전판과 새판이 모두 `0.0.1`로 보여 설치 확인이 불가능했던 문제를 막기 위해 루트 패키지, 확장 패키지, WXT 매니페스트의 배포 버전을 `0.0.2`로 일치시켰습니다. 기능·권한·고정 확장 id는 바꾸지 않았습니다.
+- 검증: `pnpm package:extension` 0(dev/store 모두 `version=0.0.2`, dev key 있음 · store key 없음) · 확장 Vitest 728/728 · 확장 TypeScript 검사 0 · 패키저 Node 시험 16/16 · `git diff --check` 0건. 개발자 ZIP은 3,318,204바이트이고 SHA-256은 `ce236d297100e6bc3879ddf3d4dd4a2854a812ba8148ab132675e1c14d744f6f`이며, 내부 매니페스트에 `activeTab` 1 · `<all_urls>` 0 · Meet 호스트 0을 확인했습니다.
+- 위험: 버전만 올렸으므로 실제 Chrome 상세 화면에서 `0.0.2`가 보인다는 실기기 증거는 새 개발자 ZIP을 설치·재로드하기 전까지 없습니다. 기존 `C:\CorthexClassmate\extension`은 이번 변경에서 건드리지 않습니다.
+- 다음 행동: 검증된 `0.0.2` 개발자 ZIP을 별도 staging 폴더에 풀고, 사용자 확인 뒤 Chrome 확장을 교체해 영상 탭 한 장 캡처를 실측합니다.

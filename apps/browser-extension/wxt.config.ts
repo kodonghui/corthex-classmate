@@ -15,7 +15,7 @@ export default defineConfig({
   manifest: {
     name: 'Corthex Classmate',
     description: '수업 중 막힌 순간을 한 번에 붙잡고 한 문장으로 수업에 돌아가요',
-    version: '0.0.1',
+    version: '0.0.2',
     // tabCapture: 수업 탭의 연속 화면을 잡는 실험용 권한입니다. 사용자 제스처(패널 버튼 클릭)
     //   뒤에만 chrome.tabCapture.getMediaStreamId 가 성공합니다.
     // offscreen: 서비스 워커에 DOM 이 없어서 getUserMedia·canvas 를 대신 할
