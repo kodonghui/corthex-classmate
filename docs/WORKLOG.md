@@ -329,3 +329,10 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 - 검증: 문서 변경 뒤 `git diff --check`와 정본 경로·V2 작업 ID 검색을 실행합니다. 구현 코드는 아직 바꾸지 않았습니다.
 - 위험: 범위를 한 번에 수평 확장하면 현재 작동하는 라이브 PoC가 깨질 수 있어, V1 DB와 계약을 보존한 읽기 어댑터부터 구현합니다. 공개 전환·push·배포·실제 제공자 호출은 자동 실행하지 않습니다.
 - 다음 행동: V2-001~V2-004의 최소 계약과 호스트 읽기 경계를 구현해 실제 SQLite를 `SessionBundleV2`로 만드는 종단 시험을 통과시킵니다.
+
+## 2026-09-04 21:10 — V2 세션·근거·활동 계약 고정
+
+- 변경: V1 여덟 계약과 기존 생성 타입은 그대로 보존하고 `class`·`exam`·`meeting` 프로필, `SessionBundleV2`, 실제 상대경로 `AssetRef`, 동적 `TutorResponseV2`, 최신 근거 예약 필드, 활동·시도 계약을 추가했습니다. 원본 저장소 번들은 활동 0~5개를 허용하고, 완성 `ActivitySetV2`만 `RECALL → EXPLAIN → INSPECT → APPLY → TRANSFER` 정확히 다섯 슬롯을 강제합니다. 로컬 체크포인트는 `3147dc1`입니다.
+- 검증: `pnpm --filter @classmate/contracts test`에서 4파일·82시험 통과, `pnpm --filter @classmate/contracts typecheck` 통과, `git diff --check -- packages/contracts` 통과. `frozen.sha256`은 새 계약을 포함한 16개 스키마를 고정하며 기존 8개 해시는 바뀌지 않았습니다.
+- 위험: V2 계약이 생겼다고 실제 SQLite·화면 파일·과거 기록 UI가 자동으로 연결되는 것은 아닙니다. 호스트와 확장·보고서 생성기가 같은 필드명과 안전 경계를 쓰는지 교차 시험이 아직 필요합니다.
+- 다음 행동: 호스트의 읽기 전용 세션 카탈로그를 V2 계약에 맞추고, 실제 JPG/PNG/WebP manifest와 확장 기록 화면·HTML 생성기를 종단으로 연결합니다.

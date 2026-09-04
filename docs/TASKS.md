@@ -190,7 +190,7 @@
 
 ### Slice 1 — Evidence replay
 
-- [ ] V2-001 `SessionBundleV2`와 V1 호환 읽기 모델을 계약 패키지에 추가
+- [x] V2-001 `SessionBundleV2`와 V1 호환 읽기 모델을 계약 패키지에 추가 — `3147dc1`
 - [ ] V2-002 호스트 `session.list`·`session.getSummary`·`session.bundle` 읽기 봉투와 시험 추가
 - [ ] V2-003 프레임 id로 실제 `.jpg/.png/.webp`를 해결하는 asset manifest 추가
 - [ ] V2-004 실제 SQLite 사건을 전사·질문·답·화면이 연결된 번들로 조립
@@ -202,7 +202,7 @@
 
 - [ ] V2-101 `class`·`exam`·`meeting` 프로필과 중립 레이블 추가
 - [ ] V2-102 `TutorResponseV2` 동적 섹션과 V1 답 어댑터 추가
-- [ ] V2-103 다섯 슬롯 `ActivityCard`·시도·힌트·피드백·지연 변형 계약 추가
+- [x] V2-103 다섯 슬롯 `ActivityCard`·시도·힌트·피드백·지연 변형 계약 추가 — `3147dc1`; 실제 생성 엔진은 V2-104에서 검증
 - [ ] V2-104 세 모드 비식별 합성 fixture와 결정적 다섯 활동 시험 추가
 - [ ] V2-105 화면 픽셀에만 답이 있는 Claude/Codex 시각 E2E 관문 추가
 
