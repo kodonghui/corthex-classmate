@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 
-import type { SessionBundleV2, SessionSummaryV2 } from '@classmate/contracts';
+import type { ActivitySetV2, SessionBundleV2, SessionSummaryV2 } from '@classmate/contracts';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -314,5 +314,207 @@ describe('PanelApp 과거 세션 라이브러리', () => {
     expect(document.body.textContent).toContain('지난 AOP 수업');
     expect(document.body.textContent).not.toContain('늦게 온 옛 요청');
     expect(document.body.textContent).not.toContain('늦은 응답이 화면을 덮었습니다.');
+  });
+
+  it('생성된 다섯 활동은 SQLite 저장 ACK 뒤에만 복습 화면으로 채택합니다', async () => {
+    const store = new ReplayStore(GOLDEN_BUNDLE);
+    const saving = deferred<SessionHistoryResult<ActivitySetV2>>();
+    let requested: ActivitySetV2 | undefined;
+    const history: SessionHistoryClient = {
+      ...client([]),
+      saveActivities: async (_sessionId, activities) => {
+        requested = activities;
+        return saving.promise;
+      },
+    };
+    mount(
+      <PanelApp
+        store={store}
+        autoClock={false}
+        settings={createMemorySettingsStorage()}
+        sessionHistory={history}
+      />,
+    );
+    await flush();
+    click(buttonNamed('기록'));
+    await flush();
+    click(buttonNamed('지난 AOP 수업'));
+    await flush();
+    click(buttonNamed('5단계 복습 만들기'));
+    await flush();
+
+    expect(requested).toHaveLength(5);
+    expect(document.body.textContent).toContain('복습을 로컬에 저장하는 중');
+    expect(document.body.textContent).not.toContain(requested![0].prompt);
+    expect(document.body.innerHTML).not.toContain(requested![0].answer);
+
+    saving.resolve({ status: 'ok', value: requested! });
+    await flush();
+    expect(document.body.textContent).toContain(requested![0].prompt);
+    // 카드 자체가 저장돼도 첫 시도 전에는 모범 답을 DOM에 넣지 않습니다.
+    expect(document.body.innerHTML).not.toContain(requested![0].answer);
+  });
+
+  it('읽기 전용 설치판과 1~4개 중간 묶음은 생성하거나 덮어쓰지 않습니다', async () => {
+    const store = new ReplayStore(GOLDEN_BUNDLE);
+    mount(
+      <PanelApp
+        store={store}
+        autoClock={false}
+        settings={createMemorySettingsStorage()}
+        sessionHistory={client([])}
+      />,
+    );
+    await flush();
+    click(buttonNamed('기록'));
+    await flush();
+    click(buttonNamed('지난 AOP 수업'));
+    await flush();
+    click(buttonNamed('5단계 복습 만들기'));
+    expect(document.body.textContent).toContain('현재 설치판은 복습 저장 기능이 없습니다.');
+
+    act(() => root?.unmount());
+    root = null;
+    host?.remove();
+    host = null;
+
+    let saveCalls = 0;
+    const partial = {
+      ...BUNDLE,
+      activities: [
+        {
+          id: 'partial-recall',
+          slot: 'RECALL' as const,
+          kind: 'question' as const,
+          prompt: '중간 저장',
+          evidenceRefIds: ['moment-transcript'],
+          hints: [],
+          answer: '덮어쓰면 안 됨',
+          attempts: [],
+        },
+      ],
+    };
+    const partialClient: SessionHistoryClient = {
+      list: async () => ({ status: 'ok', value: [SUMMARY] }),
+      getSummary: async () => ({ status: 'ok', value: SUMMARY }),
+      getBundle: async () => ({ status: 'ok', value: partial }),
+      saveActivities: async (_sessionId, activities) => {
+        saveCalls += 1;
+        return { status: 'ok', value: activities };
+      },
+    };
+    mount(
+      <PanelApp
+        store={new ReplayStore(GOLDEN_BUNDLE)}
+        autoClock={false}
+        settings={createMemorySettingsStorage()}
+        sessionHistory={partialClient}
+      />,
+    );
+    await flush();
+    click(buttonNamed('기록'));
+    await flush();
+    click(buttonNamed('지난 AOP 수업'));
+    await flush();
+    expect(document.body.textContent).toContain('복습 준비가 아직 끝나지 않아 열 수 없어요.');
+    expect(saveCalls).toBe(0);
+    expect([...document.querySelectorAll('button')].some((button) => button.textContent?.includes('복습 만들기'))).toBe(false);
+  });
+
+  it('실제 근거가 없는 빈 세션에서는 활동을 지어내거나 저장하지 않습니다', async () => {
+    let saveCalls = 0;
+    const emptyBundle: SessionBundleV2 = {
+      ...BUNDLE,
+      sources: [],
+      moments: [],
+      activities: [],
+      artifacts: [],
+    };
+    const history: SessionHistoryClient = {
+      list: async () => ({ status: 'ok', value: [SUMMARY] }),
+      getSummary: async () => ({ status: 'ok', value: SUMMARY }),
+      getBundle: async () => ({ status: 'ok', value: emptyBundle }),
+      saveActivities: async (_sessionId, activities) => {
+        saveCalls += 1;
+        return { status: 'ok', value: activities };
+      },
+    };
+    mount(
+      <PanelApp
+        store={new ReplayStore(GOLDEN_BUNDLE)}
+        autoClock={false}
+        settings={createMemorySettingsStorage()}
+        sessionHistory={history}
+      />,
+    );
+    await flush();
+    click(buttonNamed('기록'));
+    await flush();
+    click(buttonNamed('지난 AOP 수업'));
+    await flush();
+    click(buttonNamed('5단계 복습 만들기'));
+    expect(document.body.textContent).toContain('이 기록에는 5단계 복습을 만들 실제 근거가 없습니다.');
+    expect(saveCalls).toBe(0);
+  });
+
+  it('A 세션의 늦은 생성 ACK가 뒤에 연 B 세션이나 그 DOM을 덮지 못합니다', async () => {
+    const summaryB: SessionSummaryV2 = {
+      ...SUMMARY,
+      sessionId: 'session-2026-09-04-p1',
+      legacyPeriodId: '2026-09-04-p1',
+      title: 'B 세션',
+      startedAt: '2026-09-04T16:00:00+09:00',
+      lastAt: '2026-09-04T16:50:00+09:00',
+    };
+    const bundleB: SessionBundleV2 = {
+      ...BUNDLE,
+      sessionId: summaryB.sessionId,
+      legacyPeriodId: '2026-09-04-p1',
+      title: 'B 세션',
+      startedAt: '2026-09-04T16:00:00+09:00',
+      summary: summaryB,
+      moments: [{ ...BUNDLE.moments[0]!, id: 'moment-b', text: 'B 세션 전사만 보여야 합니다.' }],
+    };
+    const delayedA = deferred<SessionHistoryResult<ActivitySetV2>>();
+    let activitiesA: ActivitySetV2 | undefined;
+    const history: SessionHistoryClient = {
+      list: async () => ({ status: 'ok', value: [summaryB, SUMMARY] }),
+      getSummary: async (sessionId) => ({
+        status: 'ok',
+        value: sessionId === SUMMARY.sessionId ? SUMMARY : summaryB,
+      }),
+      getBundle: async (sessionId) => ({
+        status: 'ok',
+        value: sessionId === SUMMARY.sessionId ? BUNDLE : bundleB,
+      }),
+      saveActivities: async (_sessionId, activities) => {
+        activitiesA = activities;
+        return delayedA.promise;
+      },
+    };
+    mount(
+      <PanelApp
+        store={new ReplayStore(GOLDEN_BUNDLE)}
+        autoClock={false}
+        settings={createMemorySettingsStorage()}
+        sessionHistory={history}
+      />,
+    );
+    await flush();
+    click(buttonNamed('기록'));
+    await flush();
+    click(buttonNamed('지난 AOP 수업'));
+    await flush();
+    click(buttonNamed('5단계 복습 만들기'));
+    await flush();
+    click(buttonNamed('뒤로'));
+    click(buttonNamed('B 세션'));
+    await flush();
+    expect(document.body.textContent).toContain('B 세션 전사만 보여야 합니다.');
+
+    delayedA.resolve({ status: 'ok', value: activitiesA! });
+    await flush();
+    expect(document.body.textContent).toContain('B 세션 전사만 보여야 합니다.');
+    expect(document.body.textContent).not.toContain(activitiesA![0].prompt);
   });
 });

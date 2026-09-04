@@ -451,6 +451,363 @@ body {
   cursor: pointer;
 }
 
+/* 과거 기록 맨 위의 5단계 복습 입구. 저장 ACK 전에는 상태 문구만 바뀌고 카드 본문은 그리지 않습니다. */
+.cm-session-review {
+  min-width: 0;
+  padding: 14px 0 16px;
+  border-bottom: 1px solid var(--border-hairline);
+}
+
+.cm-session-review__heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.cm-session-review__heading h2,
+.cm-session-review__heading p {
+  margin: 0;
+}
+
+.cm-session-review__heading h2 {
+  font: var(--type-title);
+  color: var(--text-body);
+}
+
+.cm-session-review__heading p,
+.cm-session-review__heading > span {
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+}
+
+.cm-session-review > ol,
+.cm-activity__steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 4px;
+  margin: 14px 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cm-session-review > ol li,
+.cm-activity__steps li {
+  min-width: 0;
+  color: var(--text-tertiary);
+  font: var(--type-time);
+  text-align: center;
+}
+
+.cm-session-review > ol li > span:first-child,
+.cm-activity__steps li > span:first-child {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  margin: 0 auto 4px;
+  place-items: center;
+  border: 1px solid var(--border-hairline);
+  border-radius: 50%;
+  background: var(--surface-card);
+}
+
+.cm-session-review > ol li[data-complete="true"] > span:first-child,
+.cm-activity__steps li[data-complete="true"] > span:first-child,
+.cm-activity__steps li[aria-current="step"] > span:first-child {
+  border-color: var(--border-strong);
+  color: var(--text-body);
+}
+
+.cm-session-review > button,
+.cm-activity__primary,
+.cm-activity__secondary,
+.cm-activity__hint,
+.cm-activity__nav button {
+  min-height: 44px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  color: var(--text-body);
+  font: var(--type-body);
+  cursor: pointer;
+}
+
+.cm-session-review > button,
+.cm-activity__primary {
+  width: 100%;
+}
+
+.cm-session-review > button:focus-visible,
+.cm-activity button:focus-visible,
+.cm-activity textarea:focus-visible,
+.cm-activity input:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.cm-session-review > button:disabled,
+.cm-activity button:disabled,
+.cm-activity textarea:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.cm-session-review__error,
+.cm-activity__error {
+  margin: 10px 0 0;
+  color: var(--text-secondary);
+  font: var(--type-caption);
+  overflow-wrap: anywhere;
+}
+
+/* 한 화면을 다섯 번 재사용하는 복습 흐름. 320~520px에서 긴 코드·URL도 가로 스크롤을 만들지 않습니다. */
+.cm-activity {
+  min-width: 0;
+  gap: 14px;
+  overflow-wrap: anywhere;
+}
+
+.cm-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.cm-activity__steps {
+  margin: 0;
+}
+
+.cm-activity__card,
+.cm-activity__attempt,
+.cm-activity__result {
+  min-width: 0;
+}
+
+.cm-activity__eyebrow {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+}
+
+.cm-activity__card h2,
+.cm-activity__result h2,
+.cm-activity__result h3,
+.cm-activity__hints h2,
+.cm-activity__used-hints h3,
+.cm-activity__answer h3 {
+  margin: 0;
+  color: var(--text-body);
+}
+
+.cm-activity__card h2,
+.cm-activity__result h2 {
+  margin-top: 6px;
+  font: var(--type-title);
+}
+
+.cm-activity__result h3,
+.cm-activity__hints h2,
+.cm-activity__used-hints h3,
+.cm-activity__answer h3 {
+  font: var(--type-caption);
+}
+
+.cm-activity__description,
+.cm-activity__prompt,
+.cm-activity__variation,
+.cm-activity__answer p,
+.cm-activity__next-stage {
+  max-width: 100%;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cm-activity__description {
+  margin: 2px 0 0;
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+}
+
+.cm-activity__prompt {
+  margin: 12px 0 0;
+  color: var(--text-body);
+  font: var(--type-body);
+}
+
+.cm-activity__variation,
+.cm-activity__next-stage {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 10px 0 0;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-hairline);
+  color: var(--text-secondary);
+  font: var(--type-caption);
+}
+
+.cm-activity__attempt,
+.cm-activity__result {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.cm-activity__hints,
+.cm-activity__used-hints,
+.cm-activity__answer {
+  padding: 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+}
+
+.cm-activity__hints ol,
+.cm-activity__used-hints ol {
+  margin: 6px 0 0;
+  padding-left: 20px;
+  color: var(--text-secondary);
+  font: var(--type-body);
+}
+
+.cm-activity__hint,
+.cm-activity__secondary {
+  align-self: flex-start;
+  padding: 0 14px;
+}
+
+.cm-activity__label {
+  color: var(--text-secondary);
+  font: var(--type-caption);
+}
+
+.cm-activity textarea {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  resize: vertical;
+  padding: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--surface-card);
+  color: var(--text-body);
+  font: var(--type-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cm-activity__confidence {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.cm-activity__confidence legend {
+  margin-bottom: 6px;
+  color: var(--text-secondary);
+  font: var(--type-caption);
+}
+
+.cm-activity__confidence > div {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(44px, 1fr));
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.cm-activity__confidence label {
+  position: relative;
+  display: grid;
+  min-width: 44px;
+  min-height: 44px;
+  place-items: center;
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.cm-activity__confidence input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+}
+
+.cm-activity__confidence label:has(input:checked) {
+  border-color: var(--border-strong);
+  background: var(--surface-card);
+  color: var(--text-body);
+  font-weight: 600;
+}
+
+.cm-activity__primary {
+  padding: 0 14px;
+}
+
+.cm-activity__result dl {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.cm-activity__result dl > div {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.cm-activity__result dt {
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+}
+
+.cm-activity__result dd,
+.cm-activity__answer p {
+  min-width: 0;
+  margin: 0;
+  color: var(--text-body);
+  font: var(--type-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.cm-activity__answer p {
+  margin-top: 6px;
+}
+
+.cm-activity__nav {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.cm-activity__nav button {
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.cm-activity__nav span {
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+}
+
 .cm-session-timeline {
   display: flex;
   flex-direction: column;

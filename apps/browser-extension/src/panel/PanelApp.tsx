@@ -14,6 +14,10 @@
 // 1초 시계(autoClock)와 Alt+S(`e.code === "KeyS"`, 한글 IME 에서도 같음) 는 여기서만 듣습니다.
 
 import type { SessionEvent } from "@classmate/contracts";
+import {
+  generateFiveActivities,
+  type ActivitySetV2,
+} from "@classmate/learning-engine";
 import { formatIso } from "@classmate/tutor-core";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
@@ -28,11 +32,14 @@ import { ListeningScreen } from "./screens/ListeningScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
 import { PastSessionScreen } from "./screens/PastSessionScreen";
 import type { PastSessionScreenState } from "./screens/PastSessionScreen";
+import { ActivityScreen } from "./screens/ActivityScreen";
+import type { ActivitySaveOutcome } from "./screens/ActivityScreen";
 import type { SessionHistoryClient } from "../session-history/client";
 import { sessionHistoryErrorText } from "../session-history/client";
 import type { SessionLibraryView } from "../session-history/view";
 import { pastSessionDetailViewFromBundle, sessionLibraryView } from "../session-history/view";
 import type { SessionSummaryV2 } from "../session-history/types";
+import { isReviewableActivitySetV2 } from "./activity-review";
 import type { Settings, SettingsStorage } from "./settings-store";
 import {
   DEFAULT_SETTINGS,
@@ -99,6 +106,7 @@ export function PanelApp({
   const [sessionList, setSessionList] = useState<SessionListState>({ status: "idle" });
   const [openedPast, setOpenedPast] = useState<PastSessionScreenState | null>(null);
   const [openedPastTarget, setOpenedPastTarget] = useState<PastSessionTarget | null>(null);
+  const [activityReviewSessionId, setActivityReviewSessionId] = useState<string | null>(null);
   const sessionRequest = useRef(0);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
 
@@ -177,6 +185,7 @@ export function PanelApp({
     setOpenedMoment(null);
     setOpenedPast(null);
     setOpenedPastTarget(null);
+    setActivityReviewSessionId(null);
   }, []);
 
   useEffect(() => {
@@ -185,6 +194,7 @@ export function PanelApp({
     setSessionList({ status: "idle" });
     setOpenedPast(null);
     setOpenedPastTarget(null);
+    setActivityReviewSessionId(null);
   }, [sessionHistory]);
 
   const loadPastSessions = useCallback((): void => {
@@ -223,7 +233,12 @@ export function PanelApp({
             setOpenedPast({ status: "error", title, message: sessionHistoryErrorText(bundle.reason) });
             return;
           }
-          setOpenedPast({ status: "ready", view: pastSessionDetailViewFromBundle(bundle.value) });
+          setOpenedPast({
+            status: "ready",
+            view: pastSessionDetailViewFromBundle(bundle.value),
+            bundle: bundle.value,
+            review: { status: "idle" },
+          });
         })
         .catch(() => {
           if (sessionRequest.current !== request) return;
@@ -236,6 +251,7 @@ export function PanelApp({
   const openPastSession = useCallback(
     (sessionId: string, title: string): void => {
       setOpenedPastTarget({ sessionId, title });
+      setActivityReviewSessionId(null);
       loadPastSession(sessionId, title);
     },
     [loadPastSession],
@@ -245,6 +261,114 @@ export function PanelApp({
     if (openedPastTarget === null) return;
     loadPastSession(openedPastTarget.sessionId, openedPastTarget.title);
   }, [loadPastSession, openedPastTarget]);
+
+  const persistPastActivities = useCallback(
+    async (sessionId: string, activities: ActivitySetV2): Promise<ActivitySaveOutcome> => {
+      if (sessionHistory?.saveActivities === undefined) {
+        return { status: "error", message: "현재 설치판은 복습 저장 기능이 없습니다." };
+      }
+
+      const request = sessionRequest.current + 1;
+      sessionRequest.current = request;
+      try {
+        const result = await sessionHistory.saveActivities(sessionId, activities);
+        if (sessionRequest.current !== request) return { status: "stale" };
+        if (result.status === "error") {
+          return { status: "error", message: sessionHistoryErrorText(result.reason) };
+        }
+        if (!isReviewableActivitySetV2(result.value)) {
+          return { status: "error", message: "저장된 복습 형식이 완전하지 않아 열지 않았어요." };
+        }
+
+        setOpenedPast((current) => {
+          if (current?.status !== "ready" || current.bundle.sessionId !== sessionId) return current;
+          return {
+            ...current,
+            bundle: { ...current.bundle, activities: result.value },
+            review: { status: "idle" },
+          };
+        });
+        return { status: "ok", value: result.value };
+      } catch {
+        if (sessionRequest.current !== request) return { status: "stale" };
+        return {
+          status: "error",
+          message: "복습 기록을 로컬에 저장하지 못했어요. 작성한 답은 남겨 두었습니다.",
+        };
+      }
+    },
+    [sessionHistory],
+  );
+
+  const startPastReview = useCallback((): void => {
+    if (openedPast?.status !== "ready") return;
+    const { bundle } = openedPast;
+    if (isReviewableActivitySetV2(bundle.activities)) {
+      setActivityReviewSessionId(bundle.sessionId);
+      return;
+    }
+    if (bundle.activities.length > 0) {
+      setOpenedPast((current) =>
+        current?.status === "ready"
+          ? {
+              ...current,
+              review: {
+                status: "error",
+                message: "복습 준비가 아직 끝나지 않아 열 수 없어요.",
+              },
+            }
+          : current,
+      );
+      return;
+    }
+    if (sessionHistory?.saveActivities === undefined) {
+      setOpenedPast((current) =>
+        current?.status === "ready"
+          ? {
+              ...current,
+              review: { status: "error", message: "현재 설치판은 복습 저장 기능이 없습니다." },
+            }
+          : current,
+      );
+      return;
+    }
+
+    let generated: ActivitySetV2;
+    try {
+      generated = generateFiveActivities(bundle);
+    } catch {
+      setOpenedPast((current) =>
+        current?.status === "ready"
+          ? {
+              ...current,
+              review: {
+                status: "error",
+                message: "이 기록에는 5단계 복습을 만들 실제 근거가 없습니다.",
+              },
+            }
+          : current,
+      );
+      return;
+    }
+
+    // 생성된 카드에는 모범 답이 들어 있으므로, 이 시점에는 openedPast state에 넣지 않습니다.
+    // Native Host가 SQLite 저장을 확인해 준 뒤에만 persistPastActivities가 새 번들을 채택합니다.
+    setOpenedPast((current) =>
+      current?.status === "ready" ? { ...current, review: { status: "saving" } } : current,
+    );
+    void persistPastActivities(bundle.sessionId, generated).then((result) => {
+      if (result.status === "stale") return;
+      if (result.status === "error") {
+        setOpenedPast((current) =>
+          current?.status === "ready" && current.bundle.sessionId === bundle.sessionId
+            ? { ...current, review: { status: "error", message: result.message } }
+            : current,
+        );
+        return;
+      }
+      setActivityReviewSessionId(bundle.sessionId);
+    });
+  }, [openedPast, persistPastActivities, sessionHistory]);
 
   const library: SessionLibraryView | undefined =
     sessionHistory === undefined
@@ -290,14 +414,29 @@ export function PanelApp({
           }}
         />
       ) : overlay === "history" ? (
-        openedPast !== null ? (
+        openedPast?.status === "ready" &&
+        activityReviewSessionId === openedPast.bundle.sessionId &&
+        isReviewableActivitySetV2(openedPast.bundle.activities) ? (
+          <ActivityScreen
+            key={openedPast.bundle.sessionId}
+            title={openedPast.view.title}
+            activities={openedPast.bundle.activities}
+            onSave={(activities) => persistPastActivities(openedPast.bundle.sessionId, activities)}
+            onBack={() => {
+              sessionRequest.current += 1;
+              setActivityReviewSessionId(null);
+            }}
+          />
+        ) : openedPast !== null ? (
           <PastSessionScreen
             state={openedPast}
             onRetry={retryPastSession}
+            onStartReview={startPastReview}
             onBack={() => {
               sessionRequest.current += 1;
               setOpenedPast(null);
               setOpenedPastTarget(null);
+              setActivityReviewSessionId(null);
             }}
           />
         ) : opened === null ? (
@@ -344,6 +483,7 @@ export function PanelApp({
             setOpenedMoment(null);
             setOpenedPast(null);
             setOpenedPastTarget(null);
+            setActivityReviewSessionId(null);
             if (sessionHistory !== undefined) setSessionList({ status: "idle" });
             setOverlay("history");
           }}

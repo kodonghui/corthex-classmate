@@ -16,6 +16,9 @@ importers:
       '@classmate/design-tokens':
         specifier: workspace:*
         version: link:../../packages/design-tokens
+      '@classmate/learning-engine':
+        specifier: workspace:*
+        version: link:../../packages/learning-engine
       '@classmate/tutor-core':
         specifier: workspace:*
         version: link:../../packages/tutor-core

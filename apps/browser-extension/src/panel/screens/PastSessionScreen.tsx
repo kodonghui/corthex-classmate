@@ -1,19 +1,39 @@
 import { PanelHeader } from '@classmate/ui-base';
 
+import type { SessionBundleV2 } from '../../session-history/types';
+import { isReviewableActivitySetV2 } from '../activity-review';
 import type { PastSessionDetailView } from '../../session-history/view';
+
+export type ReviewPreparationState =
+  | { readonly status: 'idle' }
+  | { readonly status: 'saving' }
+  | { readonly status: 'error'; readonly message: string };
 
 export type PastSessionScreenState =
   | { readonly status: 'loading'; readonly title: string }
   | { readonly status: 'error'; readonly title: string; readonly message: string }
-  | { readonly status: 'ready'; readonly view: PastSessionDetailView };
+  | {
+      readonly status: 'ready';
+      readonly view: PastSessionDetailView;
+      readonly bundle: SessionBundleV2;
+      readonly review: ReviewPreparationState;
+    };
 
 export interface PastSessionScreenProps {
   readonly state: PastSessionScreenState;
   readonly onBack: () => void;
   readonly onRetry: () => void;
+  readonly onStartReview: () => void;
 }
 
-export function PastSessionScreen({ state, onBack, onRetry }: PastSessionScreenProps): React.JSX.Element {
+const REVIEW_STEPS = ['떠올리기', '설명하기', '살펴보기', '적용하기', '바꿔보기'] as const;
+
+export function PastSessionScreen({
+  state,
+  onBack,
+  onRetry,
+  onStartReview,
+}: PastSessionScreenProps): React.JSX.Element {
   if (state.status === 'loading') {
     return (
       <div className="cm-screen">
@@ -39,11 +59,68 @@ export function PastSessionScreen({ state, onBack, onRetry }: PastSessionScreenP
     );
   }
 
-  const { view } = state;
+  const { view, bundle, review } = state;
+  const completeSet = isReviewableActivitySetV2(bundle.activities);
+  const completed = completeSet
+    ? bundle.activities.filter((card) => card.attempts.at(-1)?.revealedAt !== undefined).length
+    : 0;
+  const malformed = bundle.activities.length > 0 && !completeSet;
   return (
     <div className="cm-screen">
       <PanelHeader onBack={onBack} strong title={view.title} subtitle={view.subtitle} />
       <div className="cm-screen__body cm-session-detail">
+        <section
+          className="cm-session-review"
+          aria-busy={review.status === 'saving'}
+          aria-labelledby="cm-session-review-title"
+        >
+          <div className="cm-session-review__heading">
+            <div>
+              <h2 id="cm-session-review-title">5단계 복습</h2>
+              <p>{completeSet ? `${completed}/5 단계 저장됨` : '아직 만들지 않았어요'}</p>
+            </div>
+            <span>{completeSet ? `${completed}/5` : '준비 전'}</span>
+          </div>
+          <ol aria-label="5단계 복습 상태">
+            {REVIEW_STEPS.map((label, index) => (
+              <li
+                key={label}
+                data-complete={
+                  completeSet && bundle.activities[index]?.attempts.at(-1)?.revealedAt !== undefined
+                    ? 'true'
+                    : 'false'
+                }
+              >
+                <span aria-hidden="true">{index + 1}</span>
+                <span>{label}</span>
+              </li>
+            ))}
+          </ol>
+          {malformed ? (
+            <p className="cm-session-review__error" role="alert">
+              복습 준비가 아직 끝나지 않아 열 수 없어요. 로컬 기록을 다시 불러와 주세요.
+            </p>
+          ) : (
+            <button
+              type="button"
+              disabled={review.status === 'saving'}
+              onClick={onStartReview}
+            >
+              {review.status === 'saving'
+                ? '복습을 로컬에 저장하는 중…'
+                : completeSet
+                  ? completed === 0
+                    ? '복습 시작'
+                    : completed === 5
+                      ? '복습 다시 보기'
+                      : '복습 이어하기'
+                  : '5단계 복습 만들기'}
+            </button>
+          )}
+          {review.status === 'error' ? (
+            <p className="cm-session-review__error" role="alert">{review.message}</p>
+          ) : null}
+        </section>
         <p className="cm-session-detail__counts">{view.counts}</p>
         {view.warnings.map((warning, index) => (
           <p key={`warning-${index}`} className="cm-session-detail__warning">{warning}</p>

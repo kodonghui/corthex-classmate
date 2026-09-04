@@ -17,6 +17,7 @@
   "dependencies": {
     "@classmate/contracts": "workspace:*",
     "@classmate/design-tokens": "workspace:*",
+    "@classmate/learning-engine": "workspace:*",
     "@classmate/tutor-core": "workspace:*",
     "@classmate/ui-base": "workspace:*",
     "@classmate/ui-classmate": "workspace:*",
