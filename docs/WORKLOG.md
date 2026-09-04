@@ -336,3 +336,17 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 - 검증: `pnpm --filter @classmate/contracts test`에서 4파일·82시험 통과, `pnpm --filter @classmate/contracts typecheck` 통과, `git diff --check -- packages/contracts` 통과. `frozen.sha256`은 새 계약을 포함한 16개 스키마를 고정하며 기존 8개 해시는 바뀌지 않았습니다.
 - 위험: V2 계약이 생겼다고 실제 SQLite·화면 파일·과거 기록 UI가 자동으로 연결되는 것은 아닙니다. 호스트와 확장·보고서 생성기가 같은 필드명과 안전 경계를 쓰는지 교차 시험이 아직 필요합니다.
 - 다음 행동: 호스트의 읽기 전용 세션 카탈로그를 V2 계약에 맞추고, 실제 JPG/PNG/WebP manifest와 확장 기록 화면·HTML 생성기를 종단으로 연결합니다.
+
+## 2026-09-05 00:12 — 시간별 체크포인트: V2 세션 이력·Codex 제공자 진행 상태 저장
+
+- 변경: 자동화는 구현 파일과 기존 작업자의 변경을 수정하지 않았습니다. 직전 WORKLOG 뒤 실제 작업 트리에는 V2 세션 이력·과거 세션 UI·Codex 제공자/전송/저장소 관련 수정 16개와 새 파일·디렉터리 8개가 있습니다. `kdh.session.v1` 스냅샷만 저장했습니다.
+- 검증: `python "C:\\Users\\elddl\\kodonghui_myWs\\Study-saltlux-ai-agent-service\\scripts\\kdh-save-session" --cwd "C:\\Users\\elddl\\kodonghui_myWs\\corthex-classmate" --next-action "Complete and verify the current V2 session-history and Codex provider work without modifying unrelated changes."` → `verify: VERIFIED`; `session_id: codex`; snapshot `C:\\Users\\elddl\\.kdh\\state\\sessions\\codex\\20260904T151253Z0000-7p67`. 이어서 `git diff --check` → 출력 없음(통과).
+- 위험: 기본 KDH-wiki 캡처는 `No module named 'scripts'`로 실패했습니다(`wiki_capture: failed`). 세션 스냅샷 자체는 검증되었지만 위키 보조 기록은 생성되지 않았습니다. 현재 구현 변경은 진행 중이므로 자동화가 테스트·커밋·수정하지 않았습니다.
+- 다음 행동: 현재 V2 세션 이력·Codex 제공자 작업을 완성하고, 관련 시험과 타입 검사를 실행해 검증합니다.
+
+## 2026-09-05 00:21 — V2 실제 SQLite를 안전한 세션 번들로 읽는 호스트 경계 완성
+
+- 변경: `session.list`·`session.getSummary`·`session.bundle` Native Messaging 봉투와 16개 V2 계약의 Rust 런타임 검사를 추가했습니다. V1 SQLite는 읽기 전용으로 열고, `period.started.profile`의 `class`·`exam`·`meeting`을 보존하며, 객체형/문자열형 질문과 전사·답·질문 시점 근거를 `SessionBundleV2`로 조립합니다. 프레임은 DB의 논리 `.webp` 문자열을 파일 경로로 믿지 않고 id로 실제 `.jpg/.png/.webp`를 찾습니다. 손상된 DB 하나는 목록에서만 건너뛰고, 잘못된 프레임 id·절대경로는 파일 접근과 응답 경고에서 모두 익명화했습니다. 로컬 커밋은 `5b0eb5b`입니다.
+- 검증: `cargo test -p classmate-transport` → 단위 59 + 문서 4 모두 통과. `cargo test -p classmate-host` → 수정 전 기준 단위 166 + 통합 32 + 문서 3 모두 통과. 추가 경계 뒤 `cargo test -p classmate-host store::sessions::tests -- --nocapture` → 세션 읽기 9/9 통과(손상 SQLite 건너뛰기 포함). `cargo clippy -p classmate-transport -p classmate-host --all-targets -- -D warnings`와 `cargo fmt --manifest-path apps/native-host/Cargo.toml --all -- --check`도 통과했습니다.
+- 위험: 이 커밋은 조회 API와 번들 조립까지만 완성합니다. Chrome 완전 재시작 뒤 목록·상세를 실제 설치판에서 여는 U/E2E, HTML을 사용자가 누르는 내보내기, 삭제·보존 UI는 아직 별도 관문입니다. Codex 제공자 변경은 안전 검토 중이라 이 커밋에 섞지 않았습니다.
+- 다음 행동: 확장의 과거 세션 목록·상세에서 시간대·경고 익명화·재시도 경계를 끝내고 자동시험과 빌드를 통과시킵니다.
