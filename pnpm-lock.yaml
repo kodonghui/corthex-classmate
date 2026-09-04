@@ -101,6 +101,22 @@ importers:
         specifier: ^4.1.11
         version: 4.1.11(@types/node@26.4.1)(happy-dom@20.12.0)(vite@8.2.2(@types/node@26.4.1)(jiti@2.7.0))
 
+  packages/learning-engine:
+    dependencies:
+      '@classmate/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+    devDependencies:
+      '@types/node':
+        specifier: ^26.4.1
+        version: 26.4.1
+      typescript:
+        specifier: ^7.0.2
+        version: 7.0.2
+      vitest:
+        specifier: ^4.1.11
+        version: 4.1.11(@types/node@26.4.1)(happy-dom@20.12.0)(vite@8.2.2(@types/node@26.4.1)(jiti@2.7.0))
+
   packages/report-ui:
     dependencies:
       '@classmate/contracts':

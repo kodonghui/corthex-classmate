@@ -1,0 +1,23 @@
+{
+  "name": "@classmate/learning-engine",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "description": "SessionBundleV2 근거를 정확히 다섯 학습 활동과 불변 시도 기록으로 바꿉니다",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@classmate/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  }
+}
