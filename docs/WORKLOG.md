@@ -230,3 +230,37 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
     `active !== true` 를 버리므로 (가)라면 고침과 무관하게 0장이 나옵니다. 재기 전에 사람이 정해야 합니다.
 - 다음 행동: **U-06 Meet 캡처 실측 — 사람이 합니다.** 절차는 바로 앞 항목에 있고 숫자 칸은
   비어 있습니다. 이 숫자가 나와야 U-14 를 만들 값어치가 있는지 판단할 수 있습니다.
+
+## 2026-09-04 13:14 — 9라운드를 Codex 에 인계 · 「0장」의 뿌리 원인 가설 · 「뒷 탭」 정의
+
+- 변경: `docs/plan/round-9-codex-handoff.md` 신설 — Codex 가 그대로 받는 지시서(맥락·가설·결정·단위 5+1·
+  집에서 재는 절차·불변 원칙·금지·검증 명령·보고 형식). 코드 변경 0줄.
+- 검증: Chrome 공식 문서(`developer.chrome.com` `tabs.captureVisibleTab` · `activeTab` · `permissions` ·
+  `desktopCapture`, 2026-09-04 확인)를 읽고 저장소의 가정과 대조했습니다. `git diff --check` 0건.
+- 발견(가설 · 실측으로 확정해야 함):
+  1. **`captureVisibleTab` 은 `<all_urls>` 또는 `activeTab` 을 요구합니다.** 문서 원문: "the extension must
+     have either the `<all_urls>` permission or the `activeTab` permission." `snapshot.ts:12-13` 과
+     `wxt.config.ts:29-42` 가 믿는 「그 탭의 호스트 권한(`https://meet.google.com/*`)으로 충분」은 이 목록에
+     없습니다. 맞다면 지금 판은 Meet 이 **앞 탭이어도** `capture-failed` 를 내고, 2026-09-03 실측 0장의
+     까닭이 「창을 좁게 봤다」가 아니라 **권한**이었다는 뜻입니다. `snapshot.ts:276` 의 `warn` 이 오류
+     문구를 콘솔에 남기므로 회의 없이 `meet.google.com` 랜딩 페이지로 2분이면 확정됩니다(인계서 §5-①).
+  2. **`activeTab` 이 주어지는 자리는 action 클릭·컨텍스트 메뉴·`commands`·omnibox 넷**(12:51 발견 1 과
+     같은 사실). 그래서 설계가 정해집니다 — 「수업 화면 탭 = 학습자가 확장 아이콘을 누른 탭」. Meet 인지
+     묻지 않으므로 학습자의 요구 「꼭 영상이 Google Meet 일 필요는 없게」와 같은 고침입니다(U-35).
+- 결정:
+  - **「뒷 탭」 = (나) 다른 창의 활성 탭.** (가) 같은 창의 비활성 탭은 `captureVisibleTab(windowId)` 가 그 창의
+    활성 탭만 찍는 API 한계라 결과가 정해져 있습니다 — 실험 항목이 아니라 바닥줄 **문구** 항목입니다.
+  - 커넥터 이름 `meet-tab` 과 `ScreenFrame.source: "meet-tab"` 은 선 위에 그대로 둡니다
+    (`screen-frame.schema.json:40` enum 고정 · fixtures 동결). 바꾸는 것은 고르는 규칙·권한·실패 낱말·문구·문서입니다.
+  - 9라운드 단위: U-36(뿌리 원인 확정 · 사람+Codex) · U-35(수업 화면 탭을 activeTab 으로 · M) · U-38(CI 에
+    typecheck·clippy·fmt) · U-39(문서 부채) · U-37(선택 · Alt+S 전역 단축키) · U-06′(집에서 재는 실측 · 사람).
+- 위험:
+  - 가설이 **기각**되면(호스트 권한으로도 찍힘) U-35 는 Meet 찾기를 폴백으로 남기는 갈래로 갑니다(인계서 §4-1 ⑤).
+    어느 쪽이든 activeTab 길은 필요합니다 — Meet 이 아닌 영상 탭에 호스트 권한을 미리 줄 방법이 `<all_urls>`
+    밖에 없기 때문입니다.
+  - `openPanelOnActionClick` 을 끄고 `sidePanel.open` 으로 바꾸면 Chrome 116 미만에서는 패널이 안 열립니다.
+    이 PC 는 `Tab.lastAccessed`(121+)를 이미 쓰고 있어 해당 없음. 친구 배포 때 다시 봅니다.
+  - 오늘은 학원이 아니라 집이라 Meet 도 실제 수업도 없습니다. 실측은 녹화 영상 + Tiro 녹음으로 대신하고,
+    그 결과는 「Meet 에서도 된다」의 증거가 **아닙니다** — 권한 모델이 같으므로 될 가능성이 높다는 것까지만.
+- 다음 행동: 학습자가 인계서 §5-① 을 먼저(2분), Codex 가 U-35·U-38·U-39, 학습자가 U-35 빌드로 §5-②(③ 선택).
+  숫자는 이 파일 검증 줄에 사람이 적습니다.
