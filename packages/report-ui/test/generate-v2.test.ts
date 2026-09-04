@@ -261,17 +261,27 @@ describe("generateSession", () => {
     expect(readFileSync(path.join(outside, "secret.jpg"), "utf8")).toBe("secret");
   });
 
-  it("다섯 활동을 고정 슬롯 순서로 그리고 정답은 닫힌 details 안에 둔다", () => {
+  it("다섯 활동을 고정 슬롯 순서로 그리고 시도 전 정답과 힌트 원문은 HTML에 넣지 않는다", () => {
     const root = scratch("classmate-v2-activity-assets-");
     const out = scratch("classmate-v2-activity-report-");
+    const secretRecallAnswer = "UNSEEN_RECALL_ANSWER_5d6f98";
+    const secretRecallHint = "UNSEEN_RECALL_HINT_40bdb5";
+    const revealedApplyAnswer = "<script>globalThis.activityAnswer = true</script>APPLY 모범 답";
+    const revealedResponse = "<img src=x onerror=globalThis.activityResponse=true>직접 낸 답";
+    const revealedCorrection = "<strong>직접 고친 답</strong>";
+    const revealedFeedback = "<iframe src=bad>근거를 한 줄 더 연결하세요</iframe>";
     const makeActivity = (slot: ActivityCard["slot"], position: number): ActivityCard => ({
       id: `activity-${slot.toLowerCase()}`,
       slot,
       kind: slot === "TRANSFER" ? "simulation" : slot === "INSPECT" ? "worked-example" : "question",
       prompt: `${slot} 질문을 먼저 풀어 보세요`,
       evidenceRefIds: [`evidence-${position}`],
-      hints: [`${slot} 첫 힌트`, `${slot} 둘째 힌트`],
-      answer: slot === "RECALL" ? "<script>globalThis.revealed = true</script>" : `${slot} 모범 답`,
+      hints:
+        slot === "RECALL"
+          ? [secretRecallHint, "UNSEEN_RECALL_HINT_2_833bba"]
+          : [`${slot} 첫 힌트`, `${slot} 둘째 힌트`],
+      answer:
+        slot === "RECALL" ? secretRecallAnswer : slot === "APPLY" ? revealedApplyAnswer : `${slot} 모범 답`,
       ...(slot === "TRANSFER" ? { variation: "조건 하나를 바꿔 다시 판단하세요" } : {}),
       attempts:
         slot === "APPLY"
@@ -280,9 +290,13 @@ describe("generateSession", () => {
                 id: "attempt-apply-1",
                 startedAt: "2026-09-04T09:10:00+09:00",
                 submittedAt: "2026-09-04T09:11:00+09:00",
-                response: "직접 낸 답",
+                response: revealedResponse,
                 confidence: 3,
                 hintLevel: 1,
+                revealedAt: "2026-09-04T09:11:05+09:00",
+                selfCorrection: revealedCorrection,
+                feedback: revealedFeedback,
+                nextAttemptAt: "2026-09-05T09:11:05+09:00",
               },
             ]
           : [],
@@ -310,13 +324,76 @@ describe("generateSession", () => {
     expect(html).toContain("풀이 예시");
     expect(html).toContain("상황 연습");
     expect(html).toContain("근거 evidence-1");
-    expect(html).toContain("RECALL 첫 힌트");
     expect(html).toContain("조건 하나를 바꿔 다시 판단하세요");
     expect(html).toContain("시도 1회");
-    expect(html).toContain('<details class="activity-answer"><summary>정답 보기</summary>');
-    expect(html).not.toContain('<details class="activity-answer" open');
-    expect(html).not.toContain("<script>globalThis.revealed");
-    expect(html).toContain("&lt;script&gt;globalThis.revealed = true&lt;/script&gt;");
+    expect(html).not.toContain(secretRecallAnswer);
+    expect(html).not.toContain(secretRecallHint);
+    expect(html).not.toContain("UNSEEN_RECALL_HINT_2_833bba");
+    expect(html).toContain("아직 시도 기록이 없어 정답과 힌트를 이 사후 보고서에 넣지 않았어요");
+    expect(html).toContain("직접 낸 답");
+    expect(html).toContain("확신</dt><dd>3/5");
+    expect(html).toContain("사용한 힌트 단계</dt><dd>1");
+    expect(html).toContain("APPLY 첫 힌트");
+    expect(html).not.toContain("APPLY 둘째 힌트");
+    expect(html).toContain("&lt;script&gt;globalThis.activityAnswer = true&lt;/script&gt;APPLY 모범 답");
+    expect(html).toContain("&lt;img src=x onerror=globalThis.activityResponse=true&gt;직접 낸 답");
+    expect(html).toContain("2026-09-04T09:11:05+09:00");
+    expect(html).toContain("&lt;strong&gt;직접 고친 답&lt;/strong&gt;");
+    expect(html).toContain("&lt;iframe src=bad&gt;근거를 한 줄 더 연결하세요&lt;/iframe&gt;");
+    expect(html).toContain("2026-09-05T09:11:05+09:00");
+    expect(html).not.toContain("<script");
+    expect(html).not.toContain("<img src=x onerror=globalThis.activityResponse");
+    expect(html).not.toContain("<strong>직접 고친 답</strong>");
+    expect(html).not.toContain("<iframe src=bad>");
+  });
+
+  it("최신 시도에 revealedAt이 없으면 이전 공개 여부와 무관하게 정답 원문을 넣지 않는다", () => {
+    const secretAnswer = "UNREVEALED_LATEST_ANSWER_2e7d73";
+    const hiddenHint = "UNOPENED_HINT_56c11a";
+    const openedHint = "<img src=x onerror=globalThis.activityHint=true>이미 연 첫 힌트";
+    const bundle = makeSessionBundleV2("class", {
+      activities: [
+        {
+          id: "activity-unrevealed-latest",
+          slot: "RECALL",
+          kind: "question",
+          prompt: "기억나는 내용을 적어 보세요",
+          evidenceRefIds: ["material-transcript"],
+          hints: [openedHint, hiddenHint],
+          answer: secretAnswer,
+          attempts: [
+            {
+              id: "attempt-latest-unrevealed",
+              startedAt: "2026-09-04T09:03:00+09:00",
+              submittedAt: "2026-09-04T09:04:00+09:00",
+              response: "최신 미공개 답",
+              confidence: 4,
+              hintLevel: 1,
+            },
+            {
+              id: "attempt-old-revealed",
+              startedAt: "2026-09-04T09:01:00+09:00",
+              submittedAt: "2026-09-04T09:02:00+09:00",
+              response: "이전 답",
+              confidence: 2,
+              hintLevel: 0,
+              revealedAt: "2026-09-04T09:02:05+09:00",
+            },
+          ],
+        },
+      ],
+    });
+
+    const html = renderSessionHtml(bundle, { tokenCss: STUB_TOKEN_CSS });
+
+    expect(html).toContain("최신 미공개 답");
+    expect(html).toContain("&lt;img src=x onerror=globalThis.activityHint=true&gt;이미 연 첫 힌트");
+    expect(html).not.toContain("<img src=x onerror=globalThis.activityHint");
+    expect(html).not.toContain(hiddenHint);
+    expect(html).not.toContain(secretAnswer);
+    expect(html).toContain("최신 시도에서 정답 공개가 기록되지 않아 모범 답을 이 보고서에 넣지 않았어요");
+    expect(html).not.toContain("이전 답");
+    expect(html).not.toContain("2026-09-04T09:02:05+09:00");
   });
 
   it("공개 렌더 함수도 번들과 응답 경고의 모든 로컬 절대경로를 숨긴다", () => {

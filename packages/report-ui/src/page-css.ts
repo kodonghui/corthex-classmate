@@ -163,8 +163,8 @@ export const PAGE_CSS = `
 .activity-hints { margin: 0 0 var(--space-5); padding-left: var(--space-8); color: var(--text-secondary); font: var(--type-body); }
 .activity-hints li + li { margin-top: var(--space-2); }
 .activity-variation { margin-top: var(--space-5); }
+.activity-attempt { margin-top: var(--space-5); padding-top: var(--space-5); border-top: var(--border-w) solid var(--border-hairline); }
 .activity-answer { margin-top: var(--space-5); padding-top: var(--space-5); border-top: var(--border-w) solid var(--border-hairline); }
-.activity-answer summary { cursor: pointer; font: var(--type-body-strong); color: var(--text-accent); }
 .activity-answer .detail-body { margin-top: var(--space-4); }
 
 /* 수업 화면은 읽으라고 넣는 그림입니다. 그림 칸을 max-content 로 두면 1280px 원본이 페이지를 밀어내므로

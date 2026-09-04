@@ -292,6 +292,7 @@ function QuestionAndAnswers(props: { readonly bundle: SessionBundleV2 }): ReactE
 
 function ActivityItem(props: { readonly activity: ActivityCard }): ReactElement {
   const activity = props.activity;
+  const latestAttempt = latestActivityAttempt(activity);
   return h(
     "article",
     { className: "card activity-card", "data-activity-slot": activity.slot },
@@ -311,14 +312,6 @@ function ActivityItem(props: { readonly activity: ActivityCard }): ReactElement 
     ),
     h("p", { className: "question-text" }, activity.prompt),
     h(EvidenceRefs, { materialRefIds: [], assetRefIds: [], extraRefIds: activity.evidenceRefIds }),
-    h("p", { className: "detail-title" }, "힌트"),
-    activity.hints.length === 0
-      ? h(EmptyNote, { text: "이 활동에는 단계별 힌트가 없어요" })
-      : h(
-          "ol",
-          { className: "activity-hints" },
-          activity.hints.map((hint, position) => h("li", { key: `hint-${position}` }, hint)),
-        ),
     activity.variation === undefined
       ? null
       : h(
@@ -327,12 +320,97 @@ function ActivityItem(props: { readonly activity: ActivityCard }): ReactElement 
           h("p", { className: "detail-title" }, "조건을 바꾼 문제"),
           h("p", { className: "detail-body" }, activity.variation),
         ),
+    latestAttempt === undefined
+      ? h(EmptyNote, {
+          text: "아직 시도 기록이 없어 정답과 힌트를 이 사후 보고서에 넣지 않았어요. 활동 화면에서 먼저 풀어 보세요.",
+        })
+      : h(ActivityAttemptRecord, { activity, attempt: latestAttempt }),
+  );
+}
+
+function latestActivityAttempt(activity: ActivityCard): ActivityCard["attempts"][number] | undefined {
+  return activity.attempts.reduce<ActivityCard["attempts"][number] | undefined>((latest, attempt) => {
+    if (latest === undefined) return attempt;
+    const latestTime = Date.parse(latest.submittedAt);
+    const attemptTime = Date.parse(attempt.submittedAt);
+    const latestRank = Number.isFinite(latestTime) ? latestTime : Number.NEGATIVE_INFINITY;
+    const attemptRank = Number.isFinite(attemptTime) ? attemptTime : Number.NEGATIVE_INFINITY;
+    return attemptRank >= latestRank ? attempt : latest;
+  }, undefined);
+}
+
+function visibleHints(activity: ActivityCard, hintLevel: number): readonly string[] {
+  const boundedLevel = Number.isFinite(hintLevel) ? Math.max(0, Math.floor(hintLevel)) : 0;
+  return activity.hints.slice(0, boundedLevel);
+}
+
+function ActivityAttemptRecord(props: {
+  readonly activity: ActivityCard;
+  readonly attempt: ActivityCard["attempts"][number];
+}): ReactElement {
+  const attempt = props.attempt;
+  const hints = visibleHints(props.activity, attempt.hintLevel);
+  const revealedAt = attempt.revealedAt;
+  const metaItems: MetaItem[] = [
+    { label: "제출 시각", value: attempt.submittedAt },
+    { label: "확신", value: `${attempt.confidence}/5` },
+    { label: "사용한 힌트 단계", value: `${attempt.hintLevel}` },
+  ];
+  if (revealedAt !== undefined) {
+    metaItems.push({ label: "정답 공개 시각", value: revealedAt });
+  }
+  if (revealedAt !== undefined && attempt.nextAttemptAt !== undefined) {
+    metaItems.push({ label: "다음 시도 예정", value: attempt.nextAttemptAt });
+  }
+  return h(
+    "div",
+    { className: "activity-attempt" },
+    h("p", { className: "detail-title" }, "최신 시도 기록"),
+    h(MetaList, { items: metaItems }),
     h(
-      "details",
-      { className: "activity-answer" },
-      h("summary", null, "정답 보기"),
-      h("p", { className: "detail-body" }, activity.answer),
+      "div",
+      { className: "detail" },
+      h("p", { className: "detail-title" }, "내가 낸 답"),
+      h("p", { className: "detail-body" }, attempt.response),
     ),
+    h("p", { className: "detail-title" }, "이 시도 전에 연 힌트"),
+    hints.length === 0
+      ? h(EmptyNote, { text: "이 시도에서는 힌트를 열지 않았어요" })
+      : h(
+          "ol",
+          { className: "activity-hints" },
+          hints.map((hint, position) => h("li", { key: `hint-${position}` }, hint)),
+        ),
+    revealedAt !== undefined
+      ? h(
+          Fragment,
+          null,
+          h(
+            "div",
+            { className: "detail activity-answer" },
+            h("p", { className: "detail-title" }, "공개된 모범 답"),
+            h("p", { className: "detail-body" }, props.activity.answer),
+          ),
+          attempt.selfCorrection === undefined
+            ? null
+            : h(
+                "div",
+                { className: "detail" },
+                h("p", { className: "detail-title" }, "자기 수정"),
+                h("p", { className: "detail-body" }, attempt.selfCorrection),
+              ),
+          attempt.feedback === undefined
+            ? null
+            : h(
+                "div",
+                { className: "detail" },
+                h("p", { className: "detail-title" }, "피드백"),
+                h("p", { className: "detail-body" }, attempt.feedback),
+              ),
+        )
+      : h(EmptyNote, {
+          text: "최신 시도에서 정답 공개가 기록되지 않아 모범 답을 이 보고서에 넣지 않았어요.",
+        }),
   );
 }
 
@@ -465,7 +543,7 @@ export function SessionPage(props: SessionPageProps): ReactElement {
         {
           id: "activities",
           title: "다섯 활동",
-          lead: "RECALL → EXPLAIN → INSPECT → APPLY → TRANSFER 순서로 직접 꺼내고 적용합니다.",
+          lead: "활동 수행은 앱에서 하고, 이 정적 페이지에는 RECALL → EXPLAIN → INSPECT → APPLY → TRANSFER의 사후 기록만 남깁니다.",
         },
         h(ActivitySection, { activities: bundle.activities }),
       ),
