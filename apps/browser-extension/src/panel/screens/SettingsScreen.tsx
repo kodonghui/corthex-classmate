@@ -20,6 +20,8 @@ export interface SettingsScreenProps {
   readonly values: Settings;
   /** 오늘 붙잡은 순간 수입니다. 지우기 확인 문구에 들어갑니다. */
   readonly count: number;
+  /** 현재 로드된 확장의 `version_name` 또는 숫자 `version`입니다. */
+  readonly releaseIdentity?: string | null | undefined;
   readonly onBack: () => void;
   readonly onChange: <K extends keyof Settings>(key: K, value: Settings[K]) => void;
   readonly onClearToday: () => void;
@@ -60,7 +62,14 @@ const PROVIDER_OPTIONS = [
 */
 const TEXT_SCALE_OPTIONS = TEXT_SCALE_STEPS.map((step) => ({ value: step.value, label: step.label }));
 
-export function SettingsScreen({ values, count, onBack, onChange, onClearToday }: SettingsScreenProps): React.JSX.Element {
+export function SettingsScreen({
+  values,
+  count,
+  releaseIdentity,
+  onBack,
+  onChange,
+  onClearToday,
+}: SettingsScreenProps): React.JSX.Element {
   const [confirm, setConfirm] = useState(false);
   const profile = sessionProfileCopy(values.profile);
 
@@ -189,6 +198,15 @@ export function SettingsScreen({ values, count, onBack, onChange, onClearToday }
             오늘 기록 지우기
           </Button>
           <p className="cm-set__note">아직 지울 수 없어요 — 도우미 삭제 기능은 {NEXT_ROUND_NOTE}</p>
+        </section>
+
+        <section className="cm-set" aria-labelledby="cm-app-info-title">
+          <div className="cm-set__h" id="cm-app-info-title">앱 정보</div>
+          <dl className="cm-set__meta">
+            <dt>설치 빌드</dt>
+            <dd><code>{releaseIdentity ?? '확인할 수 없음'}</code></dd>
+          </dl>
+          <p className="cm-set__note">문제가 생기면 이 값을 함께 알려 주세요.</p>
         </section>
       </div>
       <Dialog

@@ -226,6 +226,21 @@ describe("사용 목적", () => {
 });
 
 describe("PanelApp — 설정과 스토어", () => {
+  it("주입된 현재 빌드 식별자를 설정 화면까지 그대로 전달합니다", async () => {
+    const store = new ReplayStore(GOLDEN_BUNDLE);
+    mount(
+      <PanelApp
+        store={store}
+        autoClock={false}
+        settings={createMemorySettingsStorage()}
+        releaseIdentity="0.0.3+gabcdef12"
+      />,
+    );
+    await flush();
+    click(buttonNamed("설정"));
+    expect(document.querySelector('.cm-set__meta code')?.textContent).toBe('0.0.3+gabcdef12');
+  });
+
   it("수업 중에 자동 접기를 끄면 굴러가는 스토어의 접힘 시계가 그 자리에서 풀린다", async () => {
     const store = new ReplayStore(GOLDEN_BUNDLE);
     store.goto("answer");

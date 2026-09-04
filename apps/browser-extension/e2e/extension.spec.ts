@@ -255,6 +255,11 @@ test('11 설정 — 네 절과 개인정보 세 칸', async () => {
   await expect(page.getByText('Corthex 서버 기본 전송 없음', { exact: true })).toBeVisible();
   await expect(page.getByText('단축키 Alt+S', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /오늘 기록 지우기/ })).toBeVisible();
+  const manifestIdentity = await page.evaluate(() => {
+    const manifest = chrome.runtime.getManifest();
+    return manifest.version_name ?? manifest.version;
+  });
+  await expect(page.locator('.cm-set__meta code')).toHaveText(manifestIdentity);
   await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'golden-11-settings.png'), fullPage: false, animations: 'disabled' });
 });
 

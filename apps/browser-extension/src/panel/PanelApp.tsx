@@ -79,6 +79,8 @@ export interface PanelAppProps {
   readonly onClearToday?: () => void;
   /** Native Host의 과거 세션 읽기 전용 API입니다. fixture에는 넣지 않습니다. */
   readonly sessionHistory?: SessionHistoryClient;
+  /** 현재 실행 중인 manifest에서 읽은 표시용 빌드 식별자입니다. */
+  readonly releaseIdentity?: string | null;
 }
 
 type SessionListState =
@@ -98,6 +100,7 @@ export function PanelApp({
   onReconnect,
   onClearToday,
   sessionHistory,
+  releaseIdentity,
 }: PanelAppProps): React.JSX.Element {
   const state = useSyncExternalStore(store.subscribe, store.getState, store.getState);
   const [overlay, setOverlay] = useState<Overlay>("none");
@@ -406,6 +409,7 @@ export function PanelApp({
         <SettingsScreen
           values={settings}
           count={state.moments.length}
+          releaseIdentity={releaseIdentity}
           onBack={goLesson}
           onChange={changeSetting}
           onClearToday={() => {

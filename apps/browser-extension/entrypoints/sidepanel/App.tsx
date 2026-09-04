@@ -10,6 +10,7 @@ import type { Settings } from '../../src/panel/settings-store';
 import { detectSettingsStorage, readSettings, withTextScaleApplied } from '../../src/panel/settings-store';
 import { makePeriodId } from '../../src/tiro/period';
 import { createSessionHistoryClient } from '../../src/session-history/client';
+import { detectInstalledReleaseIdentity } from '../../src/release-identity';
 
 /**
  * 사이드패널의 뿌리. 데이터 소스는 주소의 `?replay=` 로 고릅니다.
@@ -89,12 +90,18 @@ export function openLive(
   return { store, live: handle };
 }
 
-function FixtureApp({ mode }: { readonly mode: 'auto' | 'manual' }): React.JSX.Element {
+function FixtureApp({
+  mode,
+  releaseIdentity,
+}: {
+  readonly mode: 'auto' | 'manual';
+  readonly releaseIdentity: string | null;
+}): React.JSX.Element {
   const store = useMemo(() => new ReplayStore(GOLDEN_BUNDLE), []);
-  return <PanelApp store={store} autoClock={mode === 'auto'} />;
+  return <PanelApp store={store} autoClock={mode === 'auto'} releaseIdentity={releaseIdentity} />;
 }
 
-function LiveApp(): React.JSX.Element | null {
+function LiveApp({ releaseIdentity }: { readonly releaseIdentity: string | null }): React.JSX.Element | null {
   const [setup, setSetup] = useState<LiveSetup | null>(null);
   const sessionHistory = useMemo(
     () =>
@@ -136,11 +143,15 @@ function LiveApp(): React.JSX.Element | null {
       settings={storage}
       onReconnect={(connector) => setup.live.reconnect(connector)}
       sessionHistory={sessionHistory}
+      releaseIdentity={releaseIdentity}
     />
   );
 }
 
 export function App(): React.JSX.Element {
   const mode = useMemo(() => replayModeFromSearch(window.location.search), []);
-  return mode === 'live' ? <LiveApp /> : <FixtureApp mode={mode} />;
+  const releaseIdentity = useMemo(() => detectInstalledReleaseIdentity(), []);
+  return mode === 'live'
+    ? <LiveApp releaseIdentity={releaseIdentity} />
+    : <FixtureApp mode={mode} releaseIdentity={releaseIdentity} />;
 }

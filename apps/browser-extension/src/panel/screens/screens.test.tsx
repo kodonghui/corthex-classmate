@@ -150,9 +150,16 @@ function historyHtml(checkpoint: Checkpoint): string {
   return renderToStaticMarkup(<HistoryScreen view={view} onBack={noop} onOpen={noop} />);
 }
 
-function settingsHtml(): string {
+function settingsHtml(releaseIdentity?: string | null): string {
   return renderToStaticMarkup(
-    <SettingsScreen values={DEFAULT_SETTINGS} count={2} onBack={noop} onChange={noop} onClearToday={noop} />,
+    <SettingsScreen
+      values={DEFAULT_SETTINGS}
+      count={2}
+      releaseIdentity={releaseIdentity}
+      onBack={noop}
+      onChange={noop}
+      onClearToday={noop}
+    />,
   );
 }
 
@@ -502,5 +509,17 @@ describe("설정 화면", () => {
     // 확인 창은 누르기 전까지 그리지 않습니다.
     expect(html).not.toContain("오늘 기록을 지울까요");
     expect(html).not.toContain("dangerouslySetInnerHTML");
+  });
+
+  it("현재 설치 빌드를 앱 정보에 텍스트로만 표시합니다", () => {
+    const html = settingsHtml('0.0.3+gabcdef12.dirty');
+    expect(html).toContain('앱 정보');
+    expect(html).toContain('설치 빌드');
+    expect(html).toContain('0.0.3+gabcdef12.dirty');
+
+    const escaped = settingsHtml('<img src=x onerror="PRIVATE_CANARY">');
+    expect(escaped).toContain('&lt;img src=x onerror=&quot;PRIVATE_CANARY&quot;&gt;');
+    expect(escaped).not.toContain('<img src=x');
+    expect(settingsHtml()).toContain('확인할 수 없음');
   });
 });
