@@ -364,3 +364,10 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 - 검증: 확장 전체 Vitest `52 files / 859 tests` 통과, TypeScript 검사 통과, WXT Chrome MV3 빌드 통과(`3.72 MB`), Playwright 확장 E2E `18/18` 통과했습니다. E2E에서 설정 화면의 빌드 문자열이 실제 `chrome.runtime.getManifest()` 값과 정확히 같은지, 콘솔·페이지 오류가 없는지도 확인했습니다. 학습 엔진은 `3 files / 21 tests`와 타입 검사를 통과했고 `git diff --check`도 출력 없이 통과했습니다.
 - 위험: 자동시험은 빌드된 임시 확장을 새 Chromium에 올린 증거이며 사용 중인 `C:\\CorthexClassmate\\extension`을 교체하거나 실제 학습 SQLite를 수정하지 않았습니다. 동일 세션을 여러 패널이 동시에 저장할 때의 CAS/revision, 자기 수정·AI 피드백·다음 복습 시각 UX, 설치판 Chrome 완전 재시작은 남아 있습니다. 현재 작업 트리에 다른 문서 체크포인트가 함께 있었으며 그대로 보존했습니다.
 - 다음 행동: 브라우저에 큰 세션·JPG를 왕복시키지 않는 호스트 전용 정적 보고서 생성 경로를 구현하고, 다섯 활동 뒤 자기 수정·피드백·다음 회상 시각을 작은 후속 슬라이스로 연결합니다.
+
+## 2026-09-05 02:10 — Chrome 설치 확장을 0.0.3으로 교체
+
+- 변경: 사용자의 명시적 요청에 따라 `C:\CorthexClassmate\extension`의 0.0.1 설치본을 삭제하지 않고 같은 설치 루트에 백업한 뒤, 기존과 같은 개발용 공개키를 넣어 빌드한 0.0.3으로 교체했습니다. 보고서 개발 변경과 1시간 자동 작업은 재개하지 않았습니다.
+- 검증: 확장 TypeScript 검사 통과, Vitest `53 files / 865 tests` 통과, WXT Chrome MV3 빌드 통과(`3.72 MB`). 설치된 manifest는 `version=0.0.3`, `version_name=0.0.3+g0aaaef5eb59c`, 121개 파일·3,716,178바이트이며 공개키에서 다시 계산한 확장 id가 Native Messaging 등록의 허용 id와 일치합니다. 등록된 호스트 실행 파일도 존재합니다.
+- 위험: Chrome 프로세스 안의 0.0.1 서비스 워커는 확장 상세 화면의 새로고침 또는 Chrome 재시작 전까지 계속 살아 있을 수 있습니다. 실제 Chrome 화면에서 버전·패널 재연결을 확인하는 마지막 사람 관문은 남아 있습니다.
+- 다음 행동: Chrome 확장 상세 화면의 새로고침 아이콘을 한 번 누르고 버전 0.0.3과 사이드패널 연결을 확인합니다.
