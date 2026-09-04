@@ -327,13 +327,13 @@ function nativeHostOff(state: ReplayState): boolean {
 }
 
 /**
- * 수업 화면(Meet)이 안 찍히고 있는지와 그 까닭입니다. 멀쩡하면 null 입니다.
+ * 사용자가 고른 수업 화면이 안 찍히고 있는지와 그 까닭입니다. 멀쩡하면 null 입니다.
  *
  * 상태 낱말은 상태기계가 들고 있지만(`connectors`) **까닭**은 들고 있지 않아서, 마지막
  * `connector.status {meet-tab}` 사건에서 직접 꺼냅니다. 이 한 낱말이 있어야 바닥줄이
  * "왜" 를 말할 수 있습니다 — 2026-09-03 에는 하루 종일 0장이었는데 화면에 `—` 만 떴습니다.
  */
-function meetTrouble(state: ReplayState): { state: string; reason: string | null } | null {
+function screenTrouble(state: ReplayState): { state: string; reason: string | null } | null {
   const status = state.machine.connectors["meet-tab"];
   if (status === undefined || status === "connected") return null;
   let reason: string | null = null;
@@ -349,12 +349,13 @@ function meetTrouble(state: ReplayState): { state: string; reason: string | null
 /**
  * 화면을 못 찍는 까닭 낱말 → 학습자가 읽을 한 줄입니다.
  *
- * 낱말은 `src/capture/snapshot.ts` 의 `SnapshotFailure` 다섯 가지입니다. 모르는 낱말이
+ * 낱말은 `src/capture/snapshot.ts` 의 `SnapshotFailure` 여섯 가지입니다. 모르는 낱말이
  * 오면 지어내지 않고 일반 문장을 씁니다.
  */
-const MEET_TROUBLE_LINE: Readonly<Record<string, string>> = {
-  "no-meet-tab": "Meet 탭이 열려 있지 않아요.",
-  "not-active": "Meet 이 그 창에서 뒤에 있어요. 앞으로 꺼내 주세요.",
+const SCREEN_TROUBLE_LINE: Readonly<Record<string, string>> = {
+  "no-lesson-tab": "수업 화면 탭을 아직 안 골랐어요. 영상 탭에서 확장 아이콘을 눌러 주세요.",
+  "no-permission": "이 탭은 찍을 권한이 없어요. 영상 탭에서 확장 아이콘을 한 번 눌러 주세요.",
+  "not-active": "수업 화면 탭이 그 창에서 뒤에 있어요. 앞으로 꺼내 주세요.",
   "capture-failed": "화면을 찍는 데 실패했어요.",
   "too-large": "화면이 너무 커서 담지 못했어요.",
   "host-offline": "로컬 도우미가 화면을 담지 못했어요.",
@@ -424,11 +425,11 @@ function preparingSources(bundle: GoldenBundle, moment: Moment | null, paused: b
   const ages = moment?.ages;
   const file = basename(bundle.editor.filePath);
   const tiroAge = ages?.transcriptSec ?? null;
-  const meetAge = ages?.screenSec ?? null;
+  const screenAge = ages?.screenSec ?? null;
   const editorAge = ages?.editorSec ?? null;
   return [
     { key: "tiro", state: paused ? "paused" : "live", label: paused ? "전사 멈춤" : `전사 ${formatAgo(tiroAge)}` },
-    { key: "meet", state: "live", label: `Meet ${formatAgo(meetAge)}` },
+    { key: "meet", state: "live", label: `화면 ${formatAgo(screenAge)}` },
     { key: "intellij", state: "live", label: `${file} ${formatAgo(editorAge)}` },
   ];
 }
@@ -517,11 +518,11 @@ function footerOf(bundle: GoldenBundle, state: ReplayState): FooterView {
     { key: "meet", state: "live", ago: formatAgo(ages.meet) },
     { key: "intellij", state: "live", ago: formatAgo(ages.intellij) },
   ];
-  const meet = meetTrouble(state);
-  if (meet !== null) {
+  const screen = screenTrouble(state);
+  if (screen !== null) {
     // 점 하나로도 "지금 안 찍히고 있다" 가 보이게 합니다. 아래 안내가 다른 것에 밀려도
     // 이 자리는 남습니다.
-    sources[1] = { key: "meet", state: meet.state === "off" ? "off" : "paused", ago: formatAgo(ages.meet) };
+    sources[1] = { key: "meet", state: screen.state === "off" ? "off" : "paused", ago: formatAgo(ages.meet) };
   }
   const providerDown = state.machine.provider === "failed" || state.machine.provider === "queued";
   let warn: FooterWarnView | null = null;
@@ -546,13 +547,13 @@ function footerOf(bundle: GoldenBundle, state: ReplayState): FooterView {
       action: RECONNECT_LABEL,
       reconnect: "native-host",
     };
-  } else if (meet !== null) {
+  } else if (screen !== null) {
     // 화면이 안 찍혀도 질문·전사·기록은 그대로 돕니다. 그래서 가장 낮은 자리에 둡니다 —
     // 위의 셋(제공자·전사·도우미)이 멀쩡할 때만 이 줄이 보입니다.
     warn = {
       tone: "paused",
       title: "수업 화면을 못 찍고 있어요.",
-      description: `${meet.reason === null ? "" : `${MEET_TROUBLE_LINE[meet.reason] ?? "까닭을 알 수 없어요."} `}질문과 전사는 그대로 기록해요.`,
+      description: `${screen.reason === null ? "" : `${SCREEN_TROUBLE_LINE[screen.reason] ?? "까닭을 알 수 없어요."} `}질문과 전사는 그대로 기록해요.`,
       action: RECONNECT_LABEL,
       reconnect: "meet-tab",
     };
@@ -646,7 +647,7 @@ export function sectionsOf(bundle: GoldenBundle, answer: Answer, line: Transcrip
       icon: "monitor",
       type: "code",
       code: bundle.editor.excerpt,
-      caption: `Meet · ${file}`,
+      caption: `화면 · ${file}`,
       source: clockOfIso(bundle.editor.capturedAt),
       highlightLines: highlightLinesOf(bundle.editor.excerpt, "= new "),
       lineNumbers: true,

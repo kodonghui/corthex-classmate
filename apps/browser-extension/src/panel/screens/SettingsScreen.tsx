@@ -110,8 +110,8 @@ export function SettingsScreen({ values, count, onBack, onChange, onClearToday }
             onChange={(event) => onChange("captureTranscript", event.target.checked)}
           />
           <Checkbox
-            label="Meet 화면"
-            description="선생님 공유 화면 한 장"
+            label="수업 화면"
+            description="영상 탭에서 고른 화면 한 장"
             checked={values.captureScreen}
             disabled
             onChange={(event) => onChange("captureScreen", event.target.checked)}

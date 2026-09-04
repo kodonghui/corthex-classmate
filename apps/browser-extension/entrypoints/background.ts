@@ -15,13 +15,15 @@ import { NativeHostFrameSink } from '../src/capture/frame-sink';
 import { fromBase64 } from '../src/capture/host-messages';
 import type { CaptureFrameMessage } from '../src/capture/messages';
 import type { SnapshotChromeLike, SnapshotFailure } from '../src/capture/snapshot';
-import { buildSnapshotFrame, captureMeetTab } from '../src/capture/snapshot';
+import { buildSnapshotFrame, captureLessonTab } from '../src/capture/snapshot';
 
 import { EventIdFactory, makeWorkerToken } from '../src/background/ids';
 import { createFrameStorePort } from '../src/background/frame-port';
 import { NativeHostClient } from '../src/background/host-client';
 import type { NativePortLike } from '../src/background/host-client';
 import { NATIVE_HOST_NAME } from '../src/background/host-messages';
+import type { LessonTab } from '../src/background/lesson-tab';
+import { forgetLessonTab, readLessonTab, rememberLessonTab } from '../src/background/lesson-tab';
 import { PeriodLog } from '../src/background/period-log';
 import { Router } from '../src/background/router';
 import type { PanelPortLike, ScreenSnapshotSource } from '../src/background/router';
@@ -67,10 +69,10 @@ const ROUTER_STATE_KEY = 'classmate.routerState';
 //   chrome.runtime.connectNative ─▶ NativeHostClient ─▶ Router.handleHostPush / handleHostStatus
 //   chrome.alarms              ─▶ keepalive · 교시 30분 종료
 export default defineBackground(() => {
-  // 확장 아이콘을 누르면 사이드패널이 열리도록 합니다.
-  // chrome.sidePanel 은 'sidePanel' 권한이 있어야 하고 Chrome 114 이상에서만 있습니다.
+  // 아이콘 클릭을 Chrome 기본 토글에 넘기지 않습니다. 아래 `chrome.action.onClicked` 한 곳에서
+  // (1) activeTab 권한을 받고 (2) 수업 탭을 기억하고 (3) 패널을 엽니다.
   chrome.sidePanel
-    .setPanelBehavior({ openPanelOnActionClick: true })
+    .setPanelBehavior({ openPanelOnActionClick: false })
     .catch((error: unknown) => {
       console.error('[classmate] 사이드패널 동작을 설정하지 못했어요', error);
     });
@@ -83,6 +85,41 @@ export default defineBackground(() => {
 
   const log = new PeriodLog();
   const ids = new EventIdFactory(makeWorkerToken());
+  const sessionArea = pickSessionArea(chrome.storage as unknown as StorageNamespaceLike);
+
+  // 같은 서비스 워커 안에서는 메모리 값을 먼저 쓰고, 워커가 다시 뜬 때에만 세션 저장소에서
+  // 되살립니다. 아이콘 클릭과 비동기 복원이 엇갈려 새 선택을 옛 값으로 덮지 않습니다.
+  let lessonTab: LessonTab | null = null;
+  let lessonTabLoaded = false;
+  const restoredLessonTab = readLessonTab(sessionArea).catch(() => null);
+
+  async function currentLessonTab(): Promise<LessonTab | null> {
+    if (lessonTabLoaded) return lessonTab;
+    const restored = await restoredLessonTab;
+    if (!lessonTabLoaded) {
+      lessonTab = restored;
+      lessonTabLoaded = true;
+    }
+    return lessonTab;
+  }
+
+  async function saveLessonTab(tab: LessonTab): Promise<void> {
+    lessonTab = tab;
+    lessonTabLoaded = true;
+    await rememberLessonTab(sessionArea, tab);
+  }
+
+  /** 패널의 「다시 연결」이 고를, 가장 최근 Chrome 창의 앞 탭입니다. 권한은 주지 못합니다. */
+  async function selectActiveLessonTab(): Promise<void> {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id === undefined || tab.windowId === undefined) {
+      lessonTab = null;
+      lessonTabLoaded = true;
+      await forgetLessonTab(sessionArea);
+      return;
+    }
+    await saveLessonTab({ tabId: tab.id, windowId: tab.windowId, at: Date.now() });
+  }
 
   /**
    * 로컬 도우미 연결입니다.
@@ -144,10 +181,8 @@ export default defineBackground(() => {
   // 감싸 넘깁니다. 전역을 통째로 넘기지 않는 까닭은 그 파일이 무엇을 만질 수 있는지가
   // 이 몇 줄로 눈에 보이게 하기 위해서입니다.
   const snapshotChrome: SnapshotChromeLike = {
-    // `url` 무늬로 **모든 창**에서 찾습니다. `tabs` 권한이 늘지 않습니다 — 이 필터는 그 탭의
-    // 호스트 권한이 있으면 듣고, 우리는 `https://meet.google.com/*` 하나를 이미 받았습니다.
     tabs: {
-      query: (info) => chrome.tabs.query(info),
+      get: (tabId) => chrome.tabs.get(tabId),
       captureVisibleTab: (windowId, options) => chrome.tabs.captureVisibleTab(windowId, options),
     },
   };
@@ -164,7 +199,7 @@ export default defineBackground(() => {
    * 질문 한 건에 붙일 화면 한 장을 찍어 도우미에 담고 이름표를 돌려줍니다.
    *
    * ```text
-   *   captureMeetTab ──null──▶ null                (Meet 탭이 아니거나 못 찍었습니다)
+   *   captureLessonTab ──null──▶ null              (수업 탭이 없거나 못 찍었습니다)
    *        │
    *   buildSnapshotFrame ──throw──▶ null           (교시 이름표가 계약 모양이 아닙니다)
    *        │
@@ -181,12 +216,20 @@ export default defineBackground(() => {
       // 못 얻은 까닭을 라우터로 넘겨 바닥줄의 `meet` 자리에 드러나게 합니다. 넘어가는 것은
       // **낱말 하나**뿐입니다 — dataURL·화면 내용·탭 주소는 어디에도 싣지 않습니다.
       let failure: SnapshotFailure | null = null;
-      const shot = await captureMeetTab(snapshotChrome, {
+      const selected = await currentLessonTab();
+      const shot = await captureLessonTab(snapshotChrome, selected, {
         onFail: (reason) => {
           failure = reason;
         },
       });
       if (shot === null) {
+        if (failure === 'no-lesson-tab') {
+          lessonTab = null;
+          lessonTabLoaded = true;
+          void forgetLessonTab(sessionArea).catch(() => {
+            // 세션 저장소가 실패해도 메모리 선택은 이미 비웠습니다.
+          });
+        }
         void router.noteScreenMissing(failure ?? 'capture-failed');
         return null;
       }
@@ -235,8 +278,12 @@ export default defineBackground(() => {
       restartTiro: () => {
         void restartTiroShare();
       },
-      restartCapture: () => {
-        void restartCapture();
+      reselectLessonTab: () => {
+        // 패널 안 클릭은 `activeTab` 권한을 새로 주지 못합니다. 지금 앞 탭을 후보로만 다시
+        // 잡고, 권한이 없으면 다음 붙잡기에서 아이콘 클릭 방법을 정확히 안내합니다.
+        void selectActiveLessonTab().catch(() => {
+          void router.noteScreenMissing('no-lesson-tab');
+        });
       },
     },
     log,
@@ -260,7 +307,6 @@ export default defineBackground(() => {
   // 자리는 `storage.session` **하나뿐** 입니다. 없다고 `storage.local` 로 물러서면 전사 본문이
   // 디스크에 남아 불변 원칙 §4-1 과 어긋납니다(`src/background/session-area.ts`).
 
-  const sessionArea = pickSessionArea(chrome.storage as unknown as StorageNamespaceLike);
   let logSaveTimer: number | null = null;
   let logRestored = false;
 
@@ -378,9 +424,6 @@ export default defineBackground(() => {
     }
   }
 
-  /** 마지막으로 캡처하던 탭입니다. `classmate.reconnect {meet-tab}` 이 이 탭으로 다시 켭니다. */
-  let lastCaptureTabId: number | null = null;
-
   /**
    * 캡처를 시작합니다.
    *
@@ -391,8 +434,6 @@ export default defineBackground(() => {
   async function startCapture(message: CaptureStartMessage): Promise<void> {
     const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: message.tabId });
     await ensureOffscreenDocument();
-    lastCaptureTabId = message.tabId;
-
     // 새 교시가 시작되면 앞 교시의 바이트는 들고 있지 않습니다.
     frameSink.clear();
 
@@ -431,28 +472,6 @@ export default defineBackground(() => {
         // 이미 닫혔으면 그만입니다.
       });
     }
-  }
-
-  /**
-   * 캡처를 다시 켭니다. `classmate.reconnect {meet-tab}` 이 부릅니다.
-   *
-   * `getMediaStreamId` 는 사용자 제스처를 요구하므로 **패널 버튼 클릭 직후**에만 성공합니다.
-   * 실패하면 조용히 넘어가고, 상태는 `capture.error` 를 통해 화면에 남습니다.
-   */
-  async function restartCapture(): Promise<void> {
-    const tabId = lastCaptureTabId;
-    await stopCapture();
-    if (tabId === null) {
-      console.warn('[classmate] 다시 켤 Meet 탭을 몰라요 · 탭에서 캡처를 다시 시작해 주세요');
-      return;
-    }
-    const periodId = await currentPeriodId();
-    await startCapture({ type: CAPTURE_START, tabId, periodId }).catch((error: unknown) => {
-      console.warn(
-        '[classmate] 캡처를 다시 켜지 못했어요',
-        error instanceof Error ? error.message : String(error),
-      );
-    });
   }
 
   // ── Tiro 공유 페이지 ────────────────────────────────────────────────────
@@ -523,9 +542,18 @@ export default defineBackground(() => {
         });
     });
 
-    // 저장소에서 로그를 되살린 **뒤에** 되풀이해야 닫았다 연 화면이 복원됩니다.
-    void restoreLog
-      .then(() => router.openPanel(panel))
+    // 저장소에서 로그를 되살린 **뒤에** 되풀이해야 닫았다 연 화면이 복원됩니다. 수업 탭 선택이
+    // 없다면 마지막으로 본 Chrome 창의 앞 탭을 후보로만 기록합니다. 이 길은 `activeTab` 권한을
+    // 만들지 못하므로 실제 촬영 전에는 영상 탭에서 아이콘을 한 번 눌러야 합니다.
+    void Promise.all([restoreLog, currentLessonTab()])
+      .then(async ([, selected]) => {
+        if (selected === null) {
+          await selectActiveLessonTab().catch(() => {
+            // 탭 후보를 못 골라도 패널과 질문·전사는 정상적으로 열어야 합니다.
+          });
+        }
+        await router.openPanel(panel);
+      })
       .then(scheduleLogSave)
       .catch((error: unknown) => {
         console.warn(
@@ -576,24 +604,25 @@ export default defineBackground(() => {
       });
   });
 
-  // ── 손 시험 갈래 (제거 조건은 README 「서비스 워커 구조」 절에 있습니다) ──
+  // ── 수업 화면 선택 + 패널 열기 ─────────────────────────────────────────
   //
-  // 지울 때: **사이드패널에 캡처 시작/중지 버튼이 생긴 뒤** 아래 두 덩어리를 함께 지웁니다.
-  // 버튼 클릭 자체가 `tabCapture` 가 요구하는 사용자 제스처가 되므로 그때는 필요 없습니다.
+  // 이 클릭 한 번이 두 가지를 함께 증명합니다.
+  //   1. 학습자가 **이 탭**을 수업 화면으로 골랐습니다.
+  //   2. Chrome 이 이 탭에 `activeTab` 임시 권한을 줬습니다.
   //
-  // 위에서 `openPanelOnActionClick: true` 를 켜 두었기 때문에 아이콘 클릭은 사이드패널을
-  // 열고 이 리스너는 **불리지 않습니다**(Chrome 규칙: 둘 중 하나만 동작). 그래도 등록해 두는
-  // 이유는, `tabCapture` 가 요구하는 "사용자 제스처" 를 확실히 만들 수 있는 자리가 지금은
-  // 아이콘 클릭뿐이기 때문입니다(docs/spikes/gate-b-meet.md §사람이 할 일 1).
+  // `sidePanel.open` 은 사용자 동작 안에서만 허용되므로 약속을 기다리기 전에 바로 부릅니다.
   chrome.action.onClicked.addListener((tab) => {
-    if (tab.id === undefined) return;
-    void currentPeriodId().then((periodId) =>
-      startCapture({ type: CAPTURE_START, tabId: tab.id as number, periodId }).catch(
-        (error: unknown) => {
-          console.error('[classmate] 아이콘 클릭으로 캡처를 시작하지 못했어요', error);
-        },
-      ),
-    );
+    if (tab.id !== undefined) {
+      void saveLessonTab({ tabId: tab.id, windowId: tab.windowId, at: Date.now() }).catch(() => {
+        // 저장소가 잠깐 실패해도 같은 워커의 메모리 선택과 activeTab 권한은 살아 있습니다.
+      });
+    }
+    void chrome.sidePanel.open({ windowId: tab.windowId }).catch((error: unknown) => {
+      console.warn(
+        '[classmate] 사이드패널을 열지 못했어요',
+        error instanceof Error ? error.message : String(error),
+      );
+    });
   });
 
   // 손 시험용 콘솔 손잡이.
@@ -607,7 +636,7 @@ export default defineBackground(() => {
   // 스크립트는 이 전역에 닿을 수 없고, 화면·전사에서 읽은 문장을 실행하는 길도 아닙니다
   // (불변 원칙 §4-7).
   (globalThis as unknown as { classmateCapture?: unknown }).classmateCapture = {
-    /** 캡처 시작. 사용자 제스처가 없으면 `tabCapture` 가 실패합니다(그래서 보통은 아이콘 클릭을 씁니다). */
+    /** 연속 캡처 손시험 시작. 사용자 제스처가 없으면 `tabCapture` 가 실패할 수 있습니다. */
     start: async (tabId: number, periodId?: string) =>
       startCapture({ type: CAPTURE_START, tabId, periodId: periodId ?? (await currentPeriodId()) }),
     /** 캡처 정지. Offscreen 문서는 다른 컨텍스트라 여기서 보내는 메시지가 제대로 갑니다. */

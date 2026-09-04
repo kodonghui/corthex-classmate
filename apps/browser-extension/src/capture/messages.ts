@@ -33,7 +33,7 @@ export type CaptureState = 'idle' | 'starting' | 'capturing' | 'stopped' | 'erro
 
 export interface CaptureStartMessage {
   type: typeof CAPTURE_START;
-  /** 캡처할 탭. 보통 지금 보고 있는 Meet 탭입니다. */
+  /** 연속 캡처할 탭. 보통 학습자가 고른 수업 화면 탭입니다. */
   tabId: number;
   periodId: string;
   /**

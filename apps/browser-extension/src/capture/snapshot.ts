@@ -1,84 +1,31 @@
 /**
- * 지금 보이는 Meet 탭 화면을 **한 장** 찍습니다.
+ * 학습자가 확장 아이콘을 눌러 고른 수업 화면 탭을 **한 장** 찍습니다.
  *
- * 왜 새 길이 필요한가:
- *   이 확장에는 이미 연속 캡처 파이프라인이 있습니다(`pipeline.ts` · `sampling-loop.ts` ·
- *   offscreen 문서). 그런데 그 길의 입구인 `chrome.tabCapture.getMediaStreamId` 는
- *   **사용자 제스처**(확장 아이콘 클릭 등) 바로 뒤에만 성공합니다. 사이드패널 안의 클릭은
- *   크롬이 제스처로 세어 주지 않고, 아이콘 클릭은 `setPanelBehavior({openPanelOnActionClick:true})`
- *   가 먼저 가져가 `chrome.action.onClicked` 가 아예 불리지 않습니다. 그래서 실제로는
- *   캡처가 한 번도 시작되지 못했고, 질문에 붙는 화면이 계속 0장이었습니다.
- *
- *   `chrome.tabs.captureVisibleTab` 은 제스처를 요구하지 않습니다. 대신 **그 탭의 호스트
- *   권한**이 필요하고(그래서 `wxt.config.ts` 에 `https://meet.google.com/*` 만 넣었습니다),
- *   연속 스트림이 아니라 한 장입니다. 수업 화면은 대부분 정지해 있어서 질문에 붙일
- *   "지금 칠판" 한 장으로는 이것으로 충분합니다.
- *
- *   ```text
- *     tabCapture (기존 · 그대로 둡니다)      captureVisibleTab (이 파일)
- *     ─────────────────────────────────      ────────────────────────────
- *     연속 스트림                             한 장
- *     사용자 제스처 필요 (지금 막힌 곳)        제스처 불필요
- *     `tabCapture` 권한                       대상 탭의 host_permissions
- *   ```
- *
- * ## 2026-09-03 고침 · "지금 창" 이라는 것이 서비스 워커에는 없습니다
- *
- * 예전에는 `tabs.query({active:true, currentWindow:true})` 로 **한 창**만 봤습니다. 학습자는
- * Meet 창 · Tiro 창 · IntelliJ 를 함께 쓰는데, 그 "지금 창" 이 Meet 창이 아니면 `isMeetUrl` 이
- * 거짓이라 셔터를 아예 안 누르고 조용히 `null` 을 냈습니다. 그날 화면은 **0장**이었고 오류
- * 기록도 0건이라 무엇이 잘못됐는지 알 길이 없었습니다.
- *
- * 이제 **모든 창에서** Meet 탭을 찾고, 못 찍었으면 **까닭을 낱말 하나로** 알립니다.
+ * `captureVisibleTab(windowId)` 는 그 창에서 지금 앞에 있는 탭만 찍습니다. 그래서 주소나
+ * 서비스 이름으로 탭을 추측하지 않고, 아이콘 클릭이라는 명시적 선택과 `activeTab` 임시
+ * 권한을 함께 씁니다. Meet·Drive·LMS·로컬 개발 서버처럼 수업 영상이 어디에 있어도 같은
+ * 흐름이고, `<all_urls>` 영구 권한은 받지 않습니다.
  *
  * ```text
- *   tabs.query({url: "https://meet.google.com/*"})   ← 창을 가리지 않습니다
- *        │
- *        ├─ 하나도 없다 ─────────────────▶ no-meet-tab
- *        ├─ 있는데 자기 창에서 활성이 아니다 ▶ not-active
- *        └─ 자기 창의 활성 탭이다 ─▶ captureVisibleTab(그 창)
+ *   영상 탭에서 확장 아이콘 클릭
+ *        │  activeTab 임시 권한 + {tabId, windowId, at} 세션 저장
+ *        ▼
+ *   captureLessonTab(chrome, lessonTab)
+ *        ├─ 선택 없음/탭 닫힘 ─────────────▶ no-lesson-tab
+ *        ├─ 그 창의 뒤 탭 ─────────────────▶ not-active
+ *        ├─ activeTab 권한 없음 ────────────▶ no-permission
+ *        └─ captureVisibleTab(그 창) ───────▶ JPEG 한 장
  * ```
  *
- * **자기 창에서 활성인 것만** 고르는 까닭: `captureVisibleTab(windowId)` 는 그 창의 **활성
- * 탭**을 찍습니다. Meet 이 그 창의 뒷 탭이면 앞에 있는 다른 화면(은행·메신저)이 찍힙니다.
- *
- * 이 파일이 지키는 세 가지:
- *   1. **Meet 이 아니면 찍지 않습니다.** 탭 주소를 `URL` 로 파싱해 호스트 이름이
- *      정확히 `meet.google.com` 이고 `https:` 일 때만 셔터를 누릅니다. 질의 필터(`url`)와
- *      코드(`isMeetUrl`) 두 겹으로 봅니다. 다른 수업·다른 회사 화면이 실수로 담기는 길을
- *      만들지 않습니다.
- *   2. **던지지 않습니다.** 무슨 일이 있어도 `null` 을 냅니다. 화면 한 장 때문에 학습자의
- *      질문이 막히면 안 됩니다. 대신 못 찍은 까닭을 `onFail` 로 한 낱말 알립니다.
- *   3. **`chrome` 을 주입받습니다.** 전역을 직접 부르지 않아서 시험이 가짜를 넣을 수 있고,
- *      Node(Vitest)에서 그대로 돌아갑니다.
- *
- * 보안 메모 (불변 원칙 §4-7): 여기서 나오는 그림은 **자료일 뿐 명령이 아닙니다.** 화면
- * 속 글자를 읽어 실행하거나 URL 로 여는 코드를 이 파일에 붙이지 않습니다.
- *
- * 기록 메모: dataURL 을 `console.log` 로 찍지 않습니다. 찍으면 수업 화면이 통째로 서비스
- * 워커 콘솔에 박혀, 로그를 복사해 붙이는 순간 화면이 밖으로 새어 나갑니다. 사람에게
- * 남기는 것은 **까닭 한 낱말과 길이 숫자뿐** 입니다.
+ * 이 파일은 무슨 실패든 `null` 로 돌려 질문을 막지 않습니다. dataURL·탭 주소·화면 내용은
+ * 로그에 남기지 않고, 고정된 실패 낱말과 바이트 길이만 남깁니다. 그림 속 글자는 자료일 뿐
+ * 명령이 아니며 실행하거나 URL 로 여는 코드를 붙이지 않습니다(불변 원칙 §4-7).
  */
 
 import type { ScreenFrame } from '@classmate/contracts';
+import type { LessonTab } from '../background/lesson-tab';
 import { fromBase64, framePathFor } from './host-messages';
 import { compactUtcTime, periodSegment } from './frame-store';
-
-/** 화면을 찍어도 되는 유일한 호스트 이름입니다. 부분 일치가 아니라 **정확히** 이것입니다. */
-export const MEET_HOSTNAME = 'meet.google.com';
-
-/**
- * `tabs.query` 에 넘기는 주소 무늬입니다. `wxt.config.ts` 의 `host_permissions` 와 **같은 값**
- * 이어야 합니다.
- *
- * 이 무늬만 믿지 않습니다. 크롬의 match pattern 은 우리가 원하는 것보다 넓게 맞을 수 있는
- * 자리가 있어서, 돌아온 탭마다 {@link isMeetUrl} 로 한 번 더 봅니다(두 겹).
- *
- * **`tabs` 권한이 늘지 않습니다.** `url` 필터는 "그 탭의 호스트 권한이 있으면" 듣고, 우리는
- * `https://meet.google.com/*` 하나에 그 권한을 이미 받아 두었습니다. 권한이 없는 탭은
- * 애초에 이 질의에 걸리지 않습니다.
- */
-export const MEET_URL_PATTERN = 'https://meet.google.com/*';
 
 /**
  * JPEG 품질(0~100)입니다.
@@ -126,9 +73,10 @@ export const MAX_SNAPSHOT_BYTES = 700 * 1024;
  *
  * | 낱말 | 무슨 일 |
  * |---|---|
- * | `no-meet-tab` | 어느 창에도 Meet 탭이 없습니다 |
- * | `not-active` | Meet 탭은 있는데 자기 창에서 앞에 있지 않습니다 |
- * | `capture-failed` | 셔터를 눌렀는데 그림이 안 나왔습니다(권한·탭 닫힘·모양 깨짐) |
+ * | `no-lesson-tab` | 아직 고른 탭이 없거나 고른 탭이 닫혔습니다 |
+ * | `not-active` | 고른 탭이 자기 창에서 앞에 있지 않습니다 |
+ * | `no-permission` | 그 탭에서 아이콘을 누르지 않아 `activeTab` 권한이 없습니다 |
+ * | `capture-failed` | 셔터를 눌렀는데 그림이 안 나왔습니다(탭 이동·모양 깨짐) |
  * | `too-large` | 품질을 낮춰 다시 찍어도 봉투 상한을 넘습니다 |
  * | `host-offline` | 찍기는 했는데 로컬 도우미가 파일로 남기지 못했습니다 |
  *
@@ -136,8 +84,9 @@ export const MAX_SNAPSHOT_BYTES = 700 * 1024;
  * 두려고 여기 함께 적습니다.
  */
 export type SnapshotFailure =
-  | 'no-meet-tab'
+  | 'no-lesson-tab'
   | 'not-active'
+  | 'no-permission'
   | 'capture-failed'
   | 'too-large'
   | 'host-offline';
@@ -152,31 +101,22 @@ export interface ScreenSnapshot {
 
 /** 우리가 탭에서 읽는 칸만입니다. `chrome.tabs.Tab` 이 이 모양을 만족합니다. */
 export interface SnapshotTabLike {
-  readonly url?: string | undefined;
   readonly windowId?: number | undefined;
   /** 자기 창에서 앞에 있는 탭인지입니다. `captureVisibleTab` 이 찍는 것이 이 탭입니다. */
   readonly active?: boolean | undefined;
-  /**
-   * 마지막으로 이 탭을 본 시각(ms)입니다. Chrome 121+ 에만 있습니다.
-   * 없는 크롬에서는 `undefined` 라, 고르는 규칙이 목록 순서로 물러섭니다.
-   */
-  readonly lastAccessed?: number | undefined;
 }
 
 /**
  * 이 파일이 `chrome` 에게 바라는 얼굴 전부입니다.
  *
- * `chrome` 전역을 직접 부르지 않는 까닭: 시험에서 가짜를 넣어 "Meet 이 아니면 안 찍는다"
- * 같은 성질을 표 하나로 확인할 수 있게 하기 위해서입니다. 실제 배선은
+ * `chrome` 전역을 직접 부르지 않는 까닭: 시험에서 가짜를 넣어 "고른 탭이 뒤에 있으면
+ * 안 찍는다" 같은 성질을 확인할 수 있게 하기 위해서입니다. 실제 배선은
  * `entrypoints/background.ts` 가 `chrome.tabs` 를 이 모양으로 감싸 넘깁니다.
  */
 export interface SnapshotChromeLike {
   tabs: {
-    /**
-     * **창을 가리지 않고** 주소 무늬로 찾습니다. `active`·`currentWindow` 를 넘기지 않는 것이
-     * 2026-09-03 고침의 핵심입니다 — 서비스 워커에는 "지금 창" 이라는 것이 없습니다.
-     */
-    query(info: { url: string }): Promise<readonly SnapshotTabLike[]>;
+    /** 고른 탭이 아직 열려 있고 자기 창에서 앞에 있는지 확인합니다. */
+    get(tabId: number): Promise<SnapshotTabLike>;
     captureVisibleTab(
       windowId: number,
       options: { format: 'jpeg'; quality: number },
@@ -184,7 +124,7 @@ export interface SnapshotChromeLike {
   };
 }
 
-export interface CaptureMeetTabOptions {
+export interface CaptureLessonTabOptions {
   /**
    * 사람이 읽을 한 줄입니다. 기본은 `console.warn`.
    * **그림은 절대 넘기지 않습니다.** 까닭 낱말과 숫자만 넘어갑니다.
@@ -204,20 +144,20 @@ export interface CaptureMeetTabOptions {
 const JPEG_DATA_URL_PREFIX = 'data:image/jpeg;base64,';
 
 /**
- * 열려 있는 어느 창에서든 Meet 탭을 찾아 화면 한 장을 찍어 돌려줍니다.
+ * 사용자가 고른 수업 화면 탭을 확인하고 화면 한 장을 찍어 돌려줍니다.
  *
  * ```text
- *   tabs.query({url: "https://meet.google.com/*"})     창을 가리지 않습니다
- *        │
- *        ├─ 하나도 없다 ─────────────────────────▶ null · onFail("no-meet-tab")
- *        ├─ 있는데 자기 창에서 활성이 아니다 ─────▶ null · onFail("not-active")
- *        │
- *        └─ 자기 창의 활성 탭이다
- *              │  (여럿이면 가장 최근에 본 것 — pickMeetTab)
+ *   lessonTab
+ *        ├─ 없다 ─────────────────────────────────▶ null · onFail("no-lesson-tab")
+ *        └─ tabs.get(tabId)
+ *              ├─ 닫혔다 ─────────────────────────▶ null · onFail("no-lesson-tab")
+ *              ├─ 자기 창에서 활성이 아니다 ──────▶ null · onFail("not-active")
+ *              └─ 자기 창의 활성 탭이다
  *              ▼
  *           captureVisibleTab(windowId, {jpeg, 품질 60})
  *              │
- *              ├─ 던졌다 · dataURL 이 아니다 · 크기를 못 읽었다 ─▶ null · onFail("capture-failed")
+ *              ├─ activeTab 권한이 없다 ───────────▶ null · onFail("no-permission")
+ *              ├─ 그 밖 실패 · dataURL 오류 ───────▶ null · onFail("capture-failed")
  *              │
  *              ├─ 700 KiB 를 넘는다 ─▶ 품질 30 으로 한 번 더
  *              │                          └─ 그래도 넘는다 ─▶ null · onFail("too-large")
@@ -226,17 +166,14 @@ const JPEG_DATA_URL_PREFIX = 'data:image/jpeg;base64,';
  * ```
  *
  * **자기 창에서 활성인 탭만 찍습니다.** `captureVisibleTab(windowId)` 가 찍는 것은 그 창에서
- * 앞에 있는 탭이라, Meet 이 뒷 탭이면 앞의 다른 화면이 찍힙니다.
- *
- * `url` 이 비어 있으면(호스트 권한이 없는 탭) 그것도 "Meet 이 아니다" 로 봅니다. 우리는
- * Meet 하나에만 호스트 권한을 받았으므로, 주소가 안 보인다는 것은 곧 다른 사이트라는
- * 뜻입니다.
+ * 앞에 있는 탭이라, 고른 탭이 뒤에 있으면 앞의 다른 화면이 담길 수 있기 때문입니다.
  *
  * @returns 찍었으면 한 장, 찍지 않았거나 실패했으면 `null`. **던지지 않습니다.**
  */
-export async function captureMeetTab(
+export async function captureLessonTab(
   chromeLike: SnapshotChromeLike,
-  options: CaptureMeetTabOptions = {},
+  lessonTab: LessonTab | null,
+  options: CaptureLessonTabOptions = {},
 ): Promise<ScreenSnapshot | null> {
   const warn = options.warn ?? ((message: string) => console.warn(`[classmate] ${message}`));
   const onFail = options.onFail ?? (() => {});
@@ -245,22 +182,18 @@ export async function captureMeetTab(
     return null;
   };
 
-  let candidates: readonly SnapshotTabLike[];
+  if (lessonTab === null) return fail('no-lesson-tab');
+
+  let tab: SnapshotTabLike;
   try {
-    candidates = await chromeLike.tabs.query({ url: MEET_URL_PATTERN });
-  } catch (error: unknown) {
-    // 질의 자체가 실패했습니다(문맥이 내려가는 중). 탭을 못 본 것이므로 "없다" 로 셉니다.
-    warn(`Meet 탭을 찾지 못했어요 · ${errorText(error)}`);
-    return fail('no-meet-tab');
+    tab = await chromeLike.tabs.get(lessonTab.tabId);
+  } catch {
+    // 닫힌 탭의 오류 원문에는 URL 이 섞일 수 있어 로그에 다시 적지 않습니다.
+    warn('고른 수업 화면 탭이 닫혔어요');
+    return fail('no-lesson-tab');
   }
 
-  // 무늬로 한 번, 주소를 파싱해 한 번 — 두 겹으로 봅니다. `https://evil.example/?next=…` 같은
-  // 주소가 무늬를 어떻게든 빠져나와도 여기서 걸립니다.
-  const meets = candidates.filter((tab) => isMeetUrl(tab.url));
-  if (meets.length === 0) return fail('no-meet-tab');
-
-  const tab = pickMeetTab(meets);
-  if (tab === null) return fail('not-active');
+  if (tab.active !== true) return fail('not-active');
   const windowId = tab.windowId;
   if (typeof windowId !== 'number') return fail('not-active');
 
@@ -270,10 +203,13 @@ export async function captureMeetTab(
     try {
       dataUrl = await chromeLike.tabs.captureVisibleTab(windowId, { format: 'jpeg', quality });
     } catch (error: unknown) {
-      // 탭이 그 사이에 닫혔거나(`No tab with id`), 권한이 없거나, 크롬이 아직 화면을 그리지
-      // 못했습니다. 두 번째 셔터라면 초당 두 번 할당량일 수도 있습니다 — 그때는 이미 한 번
-      // "너무 큼" 을 봤으므로 그 까닭을 그대로 씁니다.
-      warn(`화면 한 장을 찍지 못했어요 · 품질 ${quality} · ${errorText(error)}`);
+      // Chrome 오류 원문에는 페이지 정보가 섞일 수 있어 다시 기록하지 않습니다. 판정에 필요한
+      // `activeTab` 한 낱말만 보고, 사람에게는 고정 문장만 남깁니다.
+      if (errorText(error).includes('activeTab')) {
+        warn('수업 화면 탭을 찍을 임시 권한이 없어요');
+        return fail('no-permission');
+      }
+      warn(`화면 한 장을 찍지 못했어요 · 품질 ${quality}`);
       return fail(tooLarge ? 'too-large' : 'capture-failed');
     }
 
@@ -288,50 +224,6 @@ export async function captureMeetTab(
     );
   }
   return fail('too-large');
-}
-
-/**
- * Meet 탭 여럿 가운데 **찍어도 되는 하나**를 고릅니다. 없으면 `null` 입니다.
- *
- * 고르는 규칙은 둘입니다.
- *   1. **자기 창에서 활성인 것만** 후보입니다(`active === true`). `captureVisibleTab` 이
- *      찍는 것이 그 창의 활성 탭이라, 이 조건을 빼면 앞에 있는 다른 화면이 찍힙니다.
- *   2. 여럿이면 **가장 최근에 본 것**입니다. 기준은 `Tab.lastAccessed`(Chrome 121+)이고,
- *      그 칸이 없는 크롬에서는 `tabs.query` 가 준 **순서의 첫 번째**를 씁니다(크롬은 창 번호
- *      다음 탭 자리 순으로 줍니다 — 어느 쪽이든 한 가지로 정해지는 것이 중요합니다).
- *
- * `active` 칸 자체가 없는 값(옛 시험의 가짜 탭)은 후보로 세지 않습니다. 모르는 것을 "앞에
- * 있다" 로 보면 다른 화면이 찍히는 길이 열립니다.
- */
-export function pickMeetTab(tabs: readonly SnapshotTabLike[]): SnapshotTabLike | null {
-  let best: SnapshotTabLike | null = null;
-  for (const tab of tabs) {
-    if (tab.active !== true) continue;
-    if (typeof tab.windowId !== 'number') continue;
-    if (best === null) {
-      best = tab;
-      continue;
-    }
-    const bestSeen = best.lastAccessed;
-    const seen = tab.lastAccessed;
-    if (typeof seen === 'number' && (typeof bestSeen !== 'number' || seen > bestSeen)) best = tab;
-  }
-  return best;
-}
-
-/** 주소가 정확히 `https://meet.google.com/…` 인지 봅니다. 부분 일치를 쓰지 않는 자리입니다. */
-export function isMeetUrl(url: string | undefined): boolean {
-  if (url === undefined || url.length === 0) return false;
-  let parsed: URL;
-  try {
-    parsed = new URL(url);
-  } catch {
-    // `chrome://newtab` 처럼 파싱은 되지만, 아예 주소가 아닌 값도 여기로 옵니다.
-    return false;
-  }
-  // `https://evil.example/?next=https://meet.google.com/abc` 를 문자열 포함으로 통과시키지
-  // 않으려고 호스트 이름을 **따로 꺼내** 견줍니다.
-  return parsed.protocol === 'https:' && parsed.hostname === MEET_HOSTNAME;
 }
 
 /**
@@ -524,6 +416,7 @@ export function buildSnapshotFrame(input: SnapshotFrameInput): ScreenFrame {
     hash: contentFingerprint(input.snapshot.bytes),
     // 한 장 찍기라 견줄 앞 장이 없습니다. 계약상 빠질 수 없는 칸이라 "새 장면" 으로 둡니다.
     changedFromPrev: true,
+    // 계약과 fixtures 에 고정된 선 위의 낱말이라 유지합니다. 제품 뜻은 이제 "고른 수업 탭"입니다.
     source: 'meet-tab',
   };
 }

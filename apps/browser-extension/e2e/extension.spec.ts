@@ -229,7 +229,7 @@ test('10 G 기록 — 바닥줄 "기록 1" 로 들어가 교시 묶음과 붙잡
   await expect(page.locator('.cm-mo__time')).toHaveText('10:32:18');
   await expect(page.getByText('new 자체는 괜찮지만 바꾸기 어려워서 생성 책임을 나눠요', { exact: true })).toBeVisible();
   await expect(page.getByText('붙잡은 순간은 수업이 끝나도 남아요. 지우기는 설정에서.', { exact: true })).toBeVisible();
-  await expect(page.getByText('전사 기록 중 · Meet 기록 중 · IntelliJ 기록 중', { exact: true })).toBeVisible();
+  await expect(page.getByText('전사 기록 중 · 화면 기록 중 · IntelliJ 기록 중', { exact: true })).toBeVisible();
   await page.screenshot({ path: path.join(SCREENSHOT_DIR, 'golden-10-history.png'), fullPage: false, animations: 'disabled' });
 
   // 줄을 누르면 그 순간의 자세히로 가고, "수업으로 돌아가기" 는 기록이 아니라 듣는 중으로 돌아갑니다(정본 goHome).

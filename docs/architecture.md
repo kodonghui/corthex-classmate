@@ -1,7 +1,7 @@
-# Corthex Classmate — 구조 (7라운드 병합 뒤, 2026-09-03)
+# Corthex Classmate — 구조 (9라운드 수업 탭 경로, 2026-09-04)
 
 Phase 2 2라운드(사이드패널 4화면 · 서비스 워커 · 튜터 파이프라인 · 설치 묶음) 위에
-3~7라운드(질문 경로 · 라이브 품질 · 대화 칸 · 조각 스트리밍 · Meet 화면 한 장)를 얹은 시점의 구조입니다.
+3~9라운드(질문 경로 · 라이브 품질 · 대화 칸 · 조각 스트리밍 · 고른 수업 화면 한 장)를 얹은 시점의 구조입니다.
 "지금 있는 것" 과 "남은 것(사람 확인 · 다음 라운드)" 을 구분해 적습니다.
 정본 결정은 `docs/DECISIONS.md`, 계약은 `packages/contracts`(고정) 입니다.
 
@@ -20,9 +20,10 @@ Phase 2 2라운드(사이드패널 4화면 · 서비스 워커 · 튜터 파이�
 │ service worker  background.ts                 │  ≤1MiB │             <data_dir>/<periodId>.sqlite · …/frames/*.webp │
 │   라우터 · 도우미 연결(FIFO·재연결) · 교시 로그 · 알람 │        │ tutor       TutorPipeline(봉인→자료→CLI→검사→사건) │
 │   패널 포트 classmate-panel · 프레임 싱크        │        │ providers   TutorProvider trait · FIFO 큐  │
-├──────────────────────────────────────────────┤        │             provider-claude(claude -p)     │
-│ tiro-share.content.ts  Tiro 공유 페이지 관찰    │        │             provider-codex(스텁)           │
-│ offscreen/             Meet 탭 캡처 · dHash · WebP│        └──────────────────────────────────────────┘
+├──────────────────────────────────────────────┤        │                                          │
+│ tiro-share.content.ts  Tiro 공유 페이지 관찰    │        │             provider-claude(claude -p)     │
+│ action+activeTab       고른 수업 탭 질문 시 한 장  │        │             provider-codex(스텁)           │
+│ offscreen/             연속 캡처 실험 · dHash · WebP│        └──────────────────────────────────────────┘
 └──────────────────────────────────────────────┘                          │ 세션 번들(JSON)
                                                                           ▼
                                                      report-ui  정적 HTML(교시 상세 + 하루 허브) → out/
@@ -41,7 +42,7 @@ Phase 2 2라운드(사이드패널 4화면 · 서비스 워커 · 튜터 파이�
 | `packages/ui-classmate` | 수업 부품(TranscriptFlow · MarginNote · GuessList · NowLine · SourceFooter · AnswerCard …). 기본 요소는 `@classmate/ui-base` barrel(2라운드에 `internal/base` 복제 삭제) |
 | `packages/tutor-core` | 순수 TS 상태기계 · 봉인 · 접힘 타이머 · 오류→대기→복구 |
 | `packages/report-ui` | 세션 번들 → `period-<n>.html` + `hub.html` 정적 생성(React 템플릿, `dangerouslySetInnerHTML` 0) |
-| `apps/browser-extension` | 사이드패널 4화면(`src/panel`) · 서비스 워커 판단(`src/background`) · 패널 어댑터(`src/live`) · Tiro 커넥터(`src/tiro`) · Meet 캡처(`src/capture`) · E2E · 정본 비교 스크립트 |
+| `apps/browser-extension` | 사이드패널 4화면(`src/panel`) · 서비스 워커 판단(`src/background`) · 패널 어댑터(`src/live`) · Tiro 커넥터(`src/tiro`) · 고른 수업 탭 캡처(`src/capture`) · E2E · 정본 비교 스크립트 |
 | `apps/native-host` | 루트 `classmate-host`(Router · `src/store` · `src/tutor` 파이프라인) + `crates/transport` + `crates/providers` |
 | `installer/windows` | `cargo build --release` → `dist/classmate-host.exe` · 확장 zip(dev/store) · 고정 확장 id(공개키만) · 레지스트리 등록 계획(dry-run) · 스모크 · `docs/first-class.md` |
 
@@ -108,5 +109,5 @@ DELAYED_CHECK 는 골격입니다(`docs/TASKS.md` 보류 항목). 전이표는 `
 ## 6. 남은 것
 
 - 사람 확인이 끝난 것: 레지스트리 등록 `install.mjs --apply` · Chrome 안 실제 확장 ↔ 도우미 왕복 · 실제 `claude` 첫 호출 · 원격 저장소와 첫 push(`git ls-remote origin refs/heads/main` 이 로컬 `main` 과 같음).
-- 아직 사람이 해야 하는 것('대기'): 깨끗한 Windows VM 설치 1회 · 65분 리허설 · Tiro 공유 링크로 Gate A 실측 · Meet 화면 실측(몇 장 담기는가) · IntelliJ MCP 실측 · Chrome Web Store.
-- 코드에 남은 것(`docs/TASKS.md` 의 「4~7라운드에서 남은 일」과 `docs/plan/round-8-units.md` §0): 설정 값 배선(answerLength · periodNumber 즉시 반영 · capture 3칸) · 캡처 시작/중지 버튼(지금은 `chrome.action.onClicked` 손시험 갈래) · 전역 단축키(`chrome.commands`) · "오늘 기록 지우기" 호스트 봉투 · 교시 종료 시 파이프라인 정리 · IntelliJ MCP 배선 · 교시 뒤 4상태로 들어가는 문(`kind:"next"` 를 내는 코드가 0곳) · Tiro 최종본 교정 · report-ui 회상 기록.
+- 아직 사람이 해야 하는 것('대기'): 깨끗한 Windows VM 설치 1회 · 65분 리허설 · Tiro 공유 링크로 Gate A 실측 · 고른 수업 화면 실측(몇 장 담기는가) · IntelliJ MCP 실측 · Chrome Web Store.
+- 코드에 남은 것(`docs/TASKS.md`와 `docs/plan/round-9-codex-handoff.md`): 설정 값 배선(answerLength · periodNumber 즉시 반영 · capture 3칸) · 연속 캡처 시작/중지 버튼 · 전역 단축키(`chrome.commands`) · "오늘 기록 지우기" 호스트 봉투 · 교시 종료 시 파이프라인 정리 · IntelliJ MCP 배선 · 교시 뒤 4상태로 들어가는 문(`kind:"next"` 를 내는 코드가 0곳) · Tiro 최종본 교정 · report-ui 회상 기록.

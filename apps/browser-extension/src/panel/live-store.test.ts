@@ -1305,28 +1305,34 @@ describe("답을 기다리는 중에 다음 문단 붙잡기", () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("바닥줄 · 수업 화면이 안 찍힐 때", () => {
-  function withMeet(state: string, reason: string) {
+  function withScreen(state: string, reason: string) {
     const { store } = rig();
     store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
     store.pushEvent(event("ev-x-940", 6, "connector.status", { connector: "meet-tab", state, reason }));
     return home(store).footer;
   }
 
-  it("Meet 탭이 없으면 까닭까지 적어 알린다", () => {
-    const footer = withMeet("off", "no-meet-tab");
+  it("고른 수업 탭이 없으면 아이콘을 누르라고 알린다", () => {
+    const footer = withScreen("off", "no-lesson-tab");
     expect(footer.warn?.title).toBe("수업 화면을 못 찍고 있어요.");
-    expect(footer.warn?.description).toContain("Meet 탭이 열려 있지 않아요.");
+    expect(footer.warn?.description).toContain("영상 탭에서 확장 아이콘을 눌러 주세요.");
     // 화면이 없어도 질문·전사는 계속 돕니다. 그 말을 함께 둡니다.
     expect(footer.warn?.description).toContain("질문과 전사는 그대로 기록해요.");
     expect(footer.warn?.reconnect).toBe("meet-tab");
   });
 
-  it("Meet 이 뒤에 있으면 앞으로 꺼내라고 말한다", () => {
-    expect(withMeet("paused", "not-active").warn?.description).toContain("앞으로 꺼내 주세요");
+  it("수업 화면 탭이 뒤에 있으면 앞으로 꺼내라고 말한다", () => {
+    expect(withScreen("paused", "not-active").warn?.description).toContain("앞으로 꺼내 주세요");
+  });
+
+  it("activeTab 권한이 없으면 영상 탭에서 아이콘을 누르라고 말한다", () => {
+    expect(withScreen("paused", "no-permission").warn?.description).toContain(
+      "확장 아이콘을 한 번 눌러 주세요",
+    );
   });
 
   it("모르는 까닭에는 글을 지어내지 않는다", () => {
-    expect(withMeet("paused", "낯선-까닭").warn?.description).toContain("까닭을 알 수 없어요.");
+    expect(withScreen("paused", "낯선-까닭").warn?.description).toContain("까닭을 알 수 없어요.");
   });
 
   it("멀쩡하면 아무 말도 하지 않는다", () => {
@@ -1347,7 +1353,7 @@ describe("바닥줄 · 수업 화면이 안 찍힐 때", () => {
   it("전사 멈춤처럼 더 급한 것이 있으면 그쪽을 먼저 보이되 점은 남긴다", () => {
     const { store } = rig();
     store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
-    store.pushEvent(event("ev-x-942", 6, "connector.status", { connector: "meet-tab", state: "off", reason: "no-meet-tab" }));
+    store.pushEvent(event("ev-x-942", 6, "connector.status", { connector: "meet-tab", state: "off", reason: "no-lesson-tab" }));
     store.pushEvent(event("ev-x-943", 7, "connector.status", { connector: "tiro-share", state: "paused", reason: "selector-broken" }));
 
     const footer = home(store).footer;

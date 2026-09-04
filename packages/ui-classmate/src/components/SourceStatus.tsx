@@ -17,7 +17,7 @@ export interface SourceItem {
   action?: string;
 }
 /**
- * 세 자료(Tiro 전사 · Meet 화면 · IntelliJ 코드)의 지금 상태를 목록으로, 또는 compact 한 줄로 보여 줍니다.
+ * 세 자료(Tiro 전사 · 수업 화면 · IntelliJ 코드)의 지금 상태를 목록으로, 또는 compact 한 줄로 보여 줍니다.
  */
 export interface SourceStatusProps {
   sources?: SourceItem[];
@@ -30,7 +30,7 @@ export interface SourceStatusProps {
 
 const META: Record<string, { label: string; icon: string }> = {
   tiro: { label: "Tiro 전사", icon: "mic" },
-  meet: { label: "Meet 화면", icon: "monitor" },
+  meet: { label: "수업 화면", icon: "monitor" },
   intellij: { label: "IntelliJ 코드", icon: "code-xml" },
 };
 const STATE_LABEL: Record<string, string> = { live: "기록 중", paused: "멈춤", off: "연결 안 됨", idle: "대기" };

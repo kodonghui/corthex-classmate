@@ -224,6 +224,9 @@ describe("feedback", () => {
     expect(chip?.textContent).toContain("전사 10:32");
     expect(chip?.getAttribute("title")).toBe("자료에서 직접 확인한 내용");
 
+    rerender(<Evidence type="verified" source="meet" time="10:33" />);
+    expect(container.querySelector(".cm-ev")?.textContent).toContain("수업 화면 10:33");
+
     rerender(<Evidence type="inferred" reason="테스트 이야기" block />);
     const inferred = container.querySelector(".cm-ev");
     expect(inferred?.className).toContain("cm-ev--block");

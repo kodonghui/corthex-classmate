@@ -10,7 +10,7 @@ Java·Spring 부트캠프 수업 중 학습자가 막힌 순간을 **한 번의 
 
 ```
 iPhone Tiro (Real-time) ──공유 페이지/MCP──▶ ┐
-Google Meet 탭 ──tabCapture(변화 시 프레임만)─▶ │ Chrome 확장 (MV3 · Side Panel 380px)
+고른 수업 영상 탭 ──activeTab(질문 때 한 장)──▶ │ Chrome 확장 (MV3 · Side Panel 380px)
 IntelliJ 공식 MCP (읽기 전용) ─────────────▶ │        │ Native Messaging
                                              └────────▼──────────────
                                               Windows 로컬 도우미 (Rust Host)

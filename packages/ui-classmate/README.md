@@ -19,7 +19,7 @@ Classmate 전용 컴포넌트 10개를 정본 디자인(`design/claude-design-ex
 | `CodeCompare` | 선생님 줄과 내 줄을 나란히 |
 | `MomentRow` | 기록 목록의 한 줄(시각 · 낱말 · 한 줄 결론) |
 | `AnswerCard` | 결론 먼저, 근거, 접힌 절, 후속 칩 |
-| `SourceStatus` | 세 자료(Tiro 전사 · Meet 화면 · IntelliJ 코드)의 상태. 리스트형과 `compact` |
+| `SourceStatus` | 세 자료(Tiro 전사 · 수업 화면 · IntelliJ 코드)의 상태. 리스트형과 `compact` |
 | `StuckButton` | 56px 히어로 "지금 막혔어요" |
 
 ```tsx

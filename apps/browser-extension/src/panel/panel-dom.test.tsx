@@ -145,7 +145,7 @@ function settingsScreen(values: Settings = DEFAULT_SETTINGS): { changes: Change[
 describe("아직 배선되지 않은 설정 칸", () => {
   it("캡처 세 칸은 잠겨 있고 눌러도 값이 바뀌지 않는다", () => {
     const { changes } = settingsScreen();
-    for (const label of ["전사", "Meet 화면", "IntelliJ 코드"]) {
+    for (const label of ["전사", "수업 화면", "IntelliJ 코드"]) {
       const box = inputLabelled(label);
       expect(box.disabled).toBe(true);
       click(box);

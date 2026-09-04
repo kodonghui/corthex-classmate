@@ -38,7 +38,7 @@
  * 안 들어간 것이라 `connector.status {native-host, paused, reason}` 을 내고, 다음 줄이
  * `event.ack` 로 붙으면 도로 `connected` 로 풉니다(`reportAppendResult`).
  *
- * `panel.ask` 한 줄에는 **화면 한 장이 더 붙습니다.** 질문이 오면 먼저 지금 Meet 화면을
+ * `panel.ask` 한 줄에는 **화면 한 장이 더 붙습니다.** 질문이 오면 먼저 고른 수업 화면을
  * 찍어 도우미에 담고, 그 이름표를 `snapshot.screenFrameId` 에 넣은 뒤 `tutor.ask` 를
  * 보냅니다. 못 찍었거나 {@link SCREEN_SNAPSHOT_TIMEOUT_MS} 를 넘기면 **화면 없이 그냥
  * 보냅니다** (`attachScreen`). 찍는 일 자체는 `entrypoints/background.ts` 가
@@ -139,8 +139,8 @@ export const SCREEN_SNAPSHOT_TIMEOUT_MS = 1500;
 export interface ConnectorControls {
   /** 공유 페이지 content script 에 `tiro.stop` 을 보낸 뒤 `tiro.start` 로 다시 시작시킵니다. */
   restartTiro(): void;
-  /** 캡처를 멈췄다 다시 시작합니다. 탭을 못 찾으면 조용히 넘어갑니다. */
-  restartCapture(): void;
+  /** 지금 앞에 있는 탭을 수업 화면 후보로 다시 고릅니다. `activeTab` 권한은 주지 못합니다. */
+  reselectLessonTab(): void;
 }
 
 export interface RouterOptions {
@@ -658,7 +658,7 @@ export class Router {
    * 찍는 자리가 조용히 `null` 만 냈기 때문입니다. 이제 까닭이 `connector.status` 로 흘러
    * 바닥줄의 `meet` 자리에 드러납니다.
    *
-   * `no-meet-tab` 만 `off` 입니다 — 찍을 대상 자체가 없다는 뜻이라 "잠시 멈춤" 이 아닙니다.
+   * `no-lesson-tab` 만 `off` 입니다 — 찍을 대상 자체가 없다는 뜻이라 "잠시 멈춤" 이 아닙니다.
    * 나머지는 다음 질문에 다시 될 수 있으므로 호박색(`paused`)입니다.
    *
    * 낱말은 `src/capture/snapshot.ts` 의 `SnapshotFailure` 다섯 가지입니다. 여기서는 문자열로
@@ -666,7 +666,7 @@ export class Router {
    * 문자열 한 칸이기 때문입니다.
    */
   async noteScreenMissing(reason: string): Promise<void> {
-    await this.setConnector('meet-tab', reason === 'no-meet-tab' ? 'off' : 'paused', reason);
+    await this.setConnector('meet-tab', reason === 'no-lesson-tab' ? 'off' : 'paused', reason);
   }
 
   /** 질문에 붙일 화면 한 장이 도우미에 들어갔습니다. 화면 커넥터를 초록으로 되돌립니다. */
@@ -857,7 +857,7 @@ export class Router {
    *
    * 못 붙이는 길이 셋입니다. **셋 다 질문은 그대로 나갑니다.**
    *   1. 화면 출구가 없다 — 배선되지 않은 자리(시험·1라운드)입니다.
-   *   2. `capture` 가 `null` 이거나 던졌다 — Meet 탭이 아니거나, 도우미가 꺼져 있어
+   *   2. `capture` 가 `null` 이거나 던졌다 — 수업 탭이 없거나, 도우미가 꺼져 있어
    *      담기지 못했습니다.
    *   3. {@link SCREEN_SNAPSHOT_TIMEOUT_MS} 를 넘겼다 — 사람이 기다리고 있으므로 포기합니다.
    *
@@ -932,7 +932,7 @@ export class Router {
         return;
 
       case 'meet-tab':
-        this.controls.restartCapture();
+        this.controls.reselectLessonTab();
         return;
 
       case 'provider': {

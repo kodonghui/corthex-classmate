@@ -90,7 +90,7 @@ describe("MarginNote", () => {
           compact
           sources={[
             { key: "tiro", state: "live", label: "전사 4초 전" },
-            { key: "meet", state: "live", label: "Meet 2초 전" },
+            { key: "meet", state: "live", label: "화면 2초 전" },
             { key: "intellij", state: "live", label: "OrderService.java 1초 전" },
           ]}
         />
@@ -216,7 +216,7 @@ describe("SourceFooter", () => {
   it("점 3개와 라벨맵으로 한 줄을 만든다", () => {
     const r = render(<SourceFooter sources={[...SOURCES]} />);
     expect(r.all(".cm-sf__d")).toHaveLength(3);
-    expect(r.get(".cm-sf__t").textContent).toBe("전사 4초 전 · Meet 2초 전 · IntelliJ 1초 전");
+    expect(r.get(".cm-sf__t").textContent).toBe("전사 4초 전 · 화면 2초 전 · IntelliJ 1초 전");
     expect(r.get(".cm-sf").getAttribute("role")).toBe("status");
   });
 
@@ -432,7 +432,7 @@ describe("SourceStatus", () => {
     expect(r.find("button")).toBeNull();
     expect(r.text()).not.toContain("보이면 안 되는");
     // label 이 없으면 기본 이름의 첫 낱말만
-    expect(r.all(".cm-src__c").map((e) => e.textContent)).toEqual(["Tiro", "Meet"]);
+    expect(r.all(".cm-src__c").map((e) => e.textContent)).toEqual(["Tiro", "수업"]);
     expect(r.get(".cm-src__c").getAttribute("title")).toBe("Tiro 전사 · 기록 중");
   });
 
@@ -449,7 +449,7 @@ describe("StuckButton", () => {
     const idle = render(<StuckButton shortcut="Alt+S" onClick={onClick} />);
     expect(idle.get(".cm-stuck__btn").textContent).toContain("지금 막혔어요");
     expect(idle.get("kbd.cm-stuck__kbd").textContent).toBe("Alt+S");
-    expect(idle.get(".cm-stuck__sub").textContent).toBe("최근 30초 전사 · Meet 화면 · IntelliJ 코드를 함께 저장해요");
+    expect(idle.get(".cm-stuck__sub").textContent).toBe("최근 30초 전사 · 수업 화면 · IntelliJ 코드를 함께 저장해요");
     click(idle.get(".cm-stuck__btn"));
     expect(onClick).toHaveBeenCalledTimes(1);
 

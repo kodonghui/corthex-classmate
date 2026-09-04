@@ -1,6 +1,6 @@
 # src/capture — 수업 화면에서 "바뀐 장면" 만 남기는 길
 
-이 폴더는 Meet 탭 화면을 1초에 한 번 들여다보고 **화면이 바뀐 순간만** WebP 한 장으로
+이 폴더의 연속 캡처 실험은 고른 수업 탭을 1초에 한 번 들여다보고 **화면이 바뀐 순간만** WebP 한 장으로
 남기는 파이프라인입니다. 화면 전체 영상은 만들지도 저장하지도 않습니다(불변 원칙 §4-4).
 `chrome.tabCapture` 로 얻은 스트림을 Offscreen 문서가 열고(서비스 워커에는 DOM 이 없어
 `getUserMedia` 도 `canvas` 도 쓸 수 없습니다), `SamplingLoop` 이 잡은 회차마다 한 장을 떠서
@@ -48,11 +48,9 @@ CapturePipeline (pipeline.ts)
 
 ## 두 번째 길 — 질문 한 건에 붙이는 화면 한 장 (`snapshot.ts`)
 
-위 파이프라인은 **아직 한 번도 시작되지 못했습니다.** 입구인
-`chrome.tabCapture.getMediaStreamId` 가 사용자 제스처를 요구하는데, 사이드패널 안의 클릭은
-크롬이 제스처로 세어 주지 않고, 아이콘 클릭은 `setPanelBehavior({openPanelOnActionClick:true})`
-가 먼저 가져가 `chrome.action.onClicked` 가 불리지 않습니다. 그래서 `screen.frame` 이 0건이고
-`frames/` 폴더가 만들어진 적이 없습니다.
+위 연속 파이프라인은 **실수업에서 시작됐다는 근거가 아직 없습니다.** 입구인
+`chrome.tabCapture.getMediaStreamId`는 사용자 제스처가 필요하고, 제품에는 연속 캡처 시작 버튼이
+아직 없습니다. 과거 실수업의 `screen.frame`은 0건이었고 `frames/` 폴더도 없었습니다.
 
 `snapshot.ts` 는 그 사이 학습자가 화면을 볼 수 있게 하는 **다른 길**입니다. 위 스트림 길은
 나중에 켤 것이라 **지우지 않고 그대로 둡니다.**
@@ -60,8 +58,8 @@ CapturePipeline (pipeline.ts)
 | | `tabCapture` (스트림) | `captureVisibleTab` (한 장) |
 |---|---|---|
 | 무엇 | 연속 스트림 | 질문 한 건에 한 장 |
-| 제스처 | 필요 (지금 막힌 곳) | 불필요 |
-| 권한 | `tabCapture` | 대상 탭의 `host_permissions` |
+| 제스처 | 시작 버튼이 필요(아직 제품 UI 없음) | **영상 탭에서 아이콘 클릭 1회** |
+| 권한 | `tabCapture` | 그 탭의 임시 `activeTab` (`<all_urls>` 없음) |
 | 언제 | 캡처를 켜 둔 동안 계속 | `panel.ask` 가 올 때만 |
 | 형식 | WebP 폭 1280 · 품질 0.8 | JPEG 품질 60 (`SNAPSHOT_JPEG_QUALITY`) |
 | 해시 | 진짜 dHash | 바이트 내용 지문 (`contentFingerprint`) |
@@ -69,8 +67,10 @@ CapturePipeline (pipeline.ts)
 ```
 panel.ask
    │
-   ├─▶ captureMeetTab(chrome)          src/capture/snapshot.ts
-   │      ├─ 활성 탭 주소가 meet.google.com 이 아니다 ─▶ null (셔터를 안 누릅니다)
+   ├─▶ captureLessonTab(chrome, lessonTab)    src/capture/snapshot.ts
+   │      ├─ 선택 없음/탭 닫힘 ───────────────▶ no-lesson-tab
+   │      ├─ 고른 탭이 그 창의 뒤 탭 ─────────▶ not-active
+   │      ├─ activeTab 권한 없음 ─────────────▶ no-permission
    │      └─ captureVisibleTab(windowId, {jpeg, 60}) ─▶ dataURL
    │             └─ fromBase64 → readJpegSize → { bytes, width, height }
    │
@@ -84,9 +84,9 @@ panel.ask
 
 지키는 것 넷입니다.
 
-1. **Meet 이 아니면 안 찍습니다.** `host_permissions` 는 `https://meet.google.com/*` 하나뿐이고
-   (`<all_urls>` 를 넣지 않습니다), 코드도 활성 탭 주소를 `URL` 로 파싱해 호스트 이름이 정확히
-   `meet.google.com` 일 때만 셔터를 누릅니다. 권한과 코드 두 겹입니다.
+1. **학습자가 고른 탭만 찍습니다.** 영상 탭에서 확장 아이콘을 누른 순간 `{tabId, windowId,
+   at}`만 `storage.session`에 기억하고 `activeTab` 임시 권한을 받습니다. 주소·제목은 보거나
+   저장하지 않고 `<all_urls>`와 지속 `host_permissions`도 받지 않습니다.
 2. **화면 한 장이 질문을 막지 않습니다.** 못 찍어도, 도우미가 꺼져 있어도, 1500ms 를 넘겨도
    질문은 그대로 나갑니다. 답이 늦어지는 것이 화면이 없는 것보다 나쁩니다.
 3. **담긴 것만 가리킵니다.** `storeAndReport` 가 true(호스트가 파일로 남김)일 때만
@@ -206,7 +206,8 @@ sf-p3-103210-001
 교시와 시작 시각을 붙이는 까닭은 호스트가 교시마다 `frames.id` 를 기본 키로 두고 같은 id 를
 `duplicate-frame` 으로 거절하기 때문입니다(`apps/native-host/src/store/frames.rs`). 예전처럼
 `sf-001` 부터 다시 붙이면, 같은 교시에서 캡처를 껐다 켠 순간부터 모든 장이 거절됩니다.
-`docs/spikes/gate-d-recovery.md` 는 "Meet 탭에서 다시 시작" 을 정상 복구 경로로 못 박아 두어
+`docs/spikes/gate-d-recovery.md` 의 과거 "Meet 탭에서 다시 시작"은 이제 "수업 탭에서 아이콘을
+다시 누르기"로 읽습니다. 재시작이 정상 복구 경로라는 원칙은 같아서
 예외가 아니라 설계된 흐름입니다.
 
 가르는 단위는 **1초**입니다. 같은 교시에서 같은 초에 두 번 시작하면 겹치지만, 캡처 시작은
@@ -219,7 +220,7 @@ fixtures 와 계약 보기의 `sf-p3-001` · `sf-p3-042`(`packages/contracts/sch
 
 ## 시험
 
-Node(Vitest)에는 `OffscreenCanvas` 도 `ImageData` 도 없고 실제 Meet 탭도 열 수 없습니다
+Node(Vitest)에는 `OffscreenCanvas`도 `ImageData`도 없고 실제 수업 탭도 열 수 없습니다
 (`tabCapture` 는 사용자 제스처가 필요합니다). 그래서 두 가지로 대신합니다.
 
 - **가짜 그림판 주입.** 전역을 덮어쓰지 않고 `OffscreenWebpEncoder` 생성자의

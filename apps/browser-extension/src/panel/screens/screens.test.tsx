@@ -440,7 +440,7 @@ describe("기록 화면", () => {
     expect(html).toContain("new 자체는 괜찮지만 바꾸기 어려워서 생성 책임을 나눠요");
     expect(html).toContain("cm-foot-note");
     expect(html).toContain("붙잡은 순간은 수업이 끝나도 남아요. 지우기는 설정에서.");
-    expect(html).toContain("전사 기록 중 · Meet 기록 중 · IntelliJ 기록 중");
+    expect(html).toContain("전사 기록 중 · 화면 기록 중 · IntelliJ 기록 중");
     // 정본 G: 카드도 화살표도 없습니다.
     expect(html).not.toContain("cm-card");
   });
@@ -478,7 +478,7 @@ describe("설정 화면", () => {
     // (b) 붙잡을 때 함께 저장 + 개인정보 세 칸(불변 원칙 §5 정본 문구)
     expect(html).toContain("붙잡을 때 함께 저장");
     expect(html).toContain("막힌 시점의 최근 30초");
-    expect(html).toContain("선생님 공유 화면 한 장");
+    expect(html).toContain("영상 탭에서 고른 화면 한 장");
     expect(html).toContain("지금 보고 있는 파일");
     expect(html).toContain("cm-set__privacy");
     expect(html).toContain("로컬 보관");

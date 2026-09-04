@@ -8,7 +8,7 @@ import { Icon } from "../core/Icon";
 /** How the tutor knows a claim: 확인됨 (read in a source) · 일부 확인 · 추론 (guessed) · 자료 지연 (source not seen yet). Every claim carries one. */
 export interface EvidenceProps {
   type?: "verified" | "partial" | "inferred" | "delayed";
-  /** tiro → 전사, meet → Meet 화면, intellij → IntelliJ */
+  /** tiro → 전사, meet → 수업 화면(계약 키는 유지), intellij → IntelliJ */
   source?: "tiro" | "meet" | "intellij" | string;
   /** "10:32" */
   time?: string;
@@ -23,7 +23,7 @@ export interface EvidenceProps {
   style?: React.CSSProperties;
 }
 
-const SOURCE: Record<string, string> = { tiro: "전사", meet: "Meet 화면", intellij: "IntelliJ" };
+const SOURCE: Record<string, string> = { tiro: "전사", meet: "수업 화면", intellij: "IntelliJ" };
 const META: Record<"verified" | "partial" | "inferred" | "delayed", { head: string; icon: string; title: string }> = {
   verified: { head: "확인됨", icon: "circle-check", title: "자료에서 직접 확인한 내용" },
   partial: { head: "일부 확인", icon: "circle-dot", title: "자료에서 일부만 확인한 내용" },

@@ -110,7 +110,7 @@ describe("문구 결정", () => {
 
     const stuck = read(join(srcRoot, "components/StuckButton.tsx"));
     expect(stuck).toContain("지금 막혔어요");
-    expect(stuck).toContain("최근 30초 전사 · Meet 화면 · IntelliJ 코드를 함께 저장해요");
+    expect(stuck).toContain("최근 30초 전사 · 수업 화면 · IntelliJ 코드를 함께 저장해요");
 
     const guess = read(join(srcRoot, "components/GuessList.tsx"));
     expect(guess).toContain("혹시 이게 막혔나요?");

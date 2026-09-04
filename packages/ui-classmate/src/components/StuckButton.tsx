@@ -4,7 +4,7 @@ import { cx } from "../cx";
 import { Icon } from "../internal/base";
 
 /**
- * 화면에 하나뿐인 큰 동작(56px)입니다: "지금 막혔어요". 한 번 누르면 최근 전사 · Meet 화면 · IntelliJ 코드를 함께 저장합니다.
+ * 화면에 하나뿐인 큰 동작(56px)입니다: "지금 막혔어요". 한 번 누르면 최근 전사 · 수업 화면 · IntelliJ 코드를 함께 저장합니다.
  *
  * `shortcut` 은 오른쪽에 보여 주는 안내(<kbd>)일 뿐이고 키를 잡지는 않습니다. 정본도 그렇고,
  * Alt+S 를 실제로 듣는 자리는 사이드패널 화면입니다(docs/DECISIONS.md: `e.code === "KeyS"` 로 판정).
@@ -32,7 +32,7 @@ const ICON: Record<string, string> = { idle: "hand", saving: "bookmark", saved: 
 export function StuckButton({
   state = "idle",
   label,
-  sublabel = "최근 30초 전사 · Meet 화면 · IntelliJ 코드를 함께 저장해요",
+  sublabel = "최근 30초 전사 · 수업 화면 · IntelliJ 코드를 함께 저장해요",
   shortcut,
   quiet = false,
   disabled = false,

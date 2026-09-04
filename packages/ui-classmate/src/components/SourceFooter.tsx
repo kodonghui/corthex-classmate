@@ -17,7 +17,7 @@ export interface FooterWarn {
   onAction?: () => void;
 }
 /**
- * 모든 화면 맨 아래에 조용히 놓이는 한 줄입니다. 신선도 점 3개 + "전사 4초 전 · Meet 2초 전 · IntelliJ 1초 전" + 기록 개수.
+ * 모든 화면 맨 아래에 조용히 놓이는 한 줄입니다. 신선도 점 3개 + "전사 4초 전 · 화면 2초 전 · IntelliJ 1초 전" + 기록 개수.
  * `warn` 을 넘기면 그 자리가 "무엇이 멈췄고 무엇이 계속되는지"로 바뀝니다(호박색, 아무것도 안 되면 빨간색).
  *
  * `count` 는 넘긴 그대로 그립니다. "붙잡은 순간 중 term 이 있는 것만 센다"는 규칙(docs/DECISIONS.md)은
@@ -34,7 +34,7 @@ export interface SourceFooterProps {
   style?: React.CSSProperties;
 }
 
-const LABEL: Record<string, string> = { tiro: "전사", meet: "Meet", intellij: "IntelliJ" };
+const LABEL: Record<string, string> = { tiro: "전사", meet: "화면", intellij: "IntelliJ" };
 
 // 맨 아래 조용한 한 줄입니다. 자료마다 얼마나 새것인지와 순간을 몇 개 담아 두었는지 보여 줍니다. warn 이 오면 멈춘 것 + 계속되는 것으로 바뀝니다.
 export function SourceFooter({

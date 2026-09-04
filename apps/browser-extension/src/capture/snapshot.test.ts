@@ -2,29 +2,26 @@
  * 한 장 찍기(`captureVisibleTab` 갈래)의 시험입니다.
  *
  * 이 파일은 브라우저 없이 돕니다. `chrome` 을 주입식으로 받게 만들어 두었기 때문에
- * 가짜 탭 하나만 있으면 "Meet 이 아니면 안 찍는다" 같은 성질을 표로 확인할 수 있습니다.
+ * 가짜 탭 하나만 있으면 "고른 탭이 뒤에 있으면 안 찍는다" 같은 성질을 확인할 수 있습니다.
  */
 
 import { describe, expect, it } from 'vitest';
 
+import type { LessonTab } from '../background/lesson-tab';
 import { toBase64 } from './host-messages';
 import type { SnapshotChromeLike, SnapshotFailure, SnapshotTabLike } from './snapshot';
 import {
   MAX_SNAPSHOT_BYTES,
-  MEET_URL_PATTERN,
   SNAPSHOT_JPEG_QUALITY,
   SNAPSHOT_QUALITY_LADDER,
   buildSnapshotFrame,
-  captureMeetTab,
+  captureLessonTab,
   contentFingerprint,
   decodeJpegDataUrl,
-  isMeetUrl,
-  pickMeetTab,
   readJpegSize,
 } from './snapshot';
 
 const PERIOD = '2026-09-02-p3';
-const MEET_URL = 'https://meet.google.com/abc-defg-hij';
 
 /**
  * 시험용 JPEG 한 장입니다. **진짜 그림은 아니고 표지만 제대로 놓은 껍데기**입니다.
@@ -65,47 +62,46 @@ function jpegDataUrlOfSize(total: number): string {
 interface FakeChrome extends SnapshotChromeLike {
   /** `captureVisibleTab` 이 받은 인자들입니다. 한 번도 안 불렸으면 빈 배열입니다. */
   readonly shots: { windowId: number; format: string; quality: number }[];
-  /** `tabs.query` 가 받은 인자들입니다. 창을 가리지 않고 물었는지 봅니다. */
-  readonly queries: { url: string }[];
+  /** `tabs.get` 이 받은 수업 탭 id 입니다. */
+  readonly gets: number[];
 }
 
 interface FakeChromeOptions {
-  /** 질의에 걸리는 탭들입니다. 기본은 Meet 탭 하나(7번 창의 활성 탭). */
-  tabs?: readonly SnapshotTabLike[];
-  /** `tabs.query` 가 던지게 합니다. */
-  queryThrows?: boolean;
+  /** 고른 탭의 현재 상태입니다. 기본은 7번 창의 활성 탭입니다. */
+  tab?: SnapshotTabLike;
+  /** `tabs.get` 이 던지게 합니다(탭이 닫힌 경우). */
+  getThrows?: boolean;
   /** `captureVisibleTab` 이 던지게 합니다. 숫자면 그 번째(1부터) 부름만 던집니다. */
   captureThrows?: boolean | number;
+  /** 셔터가 던질 오류 문구입니다. */
+  captureError?: string;
   dataUrl?: string;
   /** 품질마다 다른 그림을 돌려줍니다. 사다리 시험이 씁니다. */
   dataUrlFor?: (quality: number) => string;
 }
 
-/** 7번 창에서 앞에 있는 Meet 탭 하나입니다. */
-function meetTab(over: Partial<SnapshotTabLike> = {}): SnapshotTabLike {
-  return { url: MEET_URL, windowId: 7, active: true, ...over };
+function selectedTab(over: Partial<LessonTab> = {}): LessonTab {
+  return { tabId: 17, windowId: 7, at: 1_788_477_600_000, ...over };
 }
 
 function fakeChrome(options: FakeChromeOptions = {}): FakeChrome {
   const shots: { windowId: number; format: string; quality: number }[] = [];
-  const queries: { url: string }[] = [];
-  const tabs = options.tabs ?? [meetTab()];
+  const gets: number[] = [];
 
   return {
     shots,
-    queries,
+    gets,
     tabs: {
-      query: async (info) => {
-        queries.push(info);
-        if (options.queryThrows === true) throw new Error('탭을 읽지 못했어요');
-        // 진짜 `chrome.tabs.query` 처럼 무늬에 맞는 것만 돌려줍니다.
-        return tabs.filter((tab) => (tab.url ?? '').startsWith('https://meet.google.com/'));
+      get: async (tabId) => {
+        gets.push(tabId);
+        if (options.getThrows === true) throw new Error('No tab with id');
+        return options.tab ?? { windowId: 7, active: true };
       },
       captureVisibleTab: async (windowId, imageOptions) => {
         shots.push({ windowId, format: imageOptions.format, quality: imageOptions.quality });
         const throwsOn = options.captureThrows;
         if (throwsOn === true || (typeof throwsOn === 'number' && throwsOn === shots.length)) {
-          throw new Error('activeTab 권한이 없어요');
+          throw new Error(options.captureError ?? '화면 장치를 쓸 수 없어요');
         }
         if (options.dataUrlFor !== undefined) return options.dataUrlFor(imageOptions.quality);
         return options.dataUrl ?? jpegDataUrl(1280, 720);
@@ -117,10 +113,11 @@ function fakeChrome(options: FakeChromeOptions = {}): FakeChrome {
 /** 못 찍은 까닭을 모으며 한 장 찍기를 돌립니다. */
 async function capture(
   chromeLike: FakeChrome,
-): Promise<{ shot: Awaited<ReturnType<typeof captureMeetTab>>; reasons: SnapshotFailure[]; warnings: string[] }> {
+  lessonTab: LessonTab | null = selectedTab(),
+): Promise<{ shot: Awaited<ReturnType<typeof captureLessonTab>>; reasons: SnapshotFailure[]; warnings: string[] }> {
   const reasons: SnapshotFailure[] = [];
   const warnings: string[] = [];
-  const shot = await captureMeetTab(chromeLike, {
+  const shot = await captureLessonTab(chromeLike, lessonTab, {
     warn: (message) => warnings.push(message),
     onFail: (reason) => reasons.push(reason),
   });
@@ -146,29 +143,6 @@ describe('readJpegSize', () => {
 
   it('가로나 세로가 0 이면 null 입니다 (계약은 1 이상만 받습니다)', () => {
     expect(readJpegSize(jpegBytes(0, 720))).toBeNull();
-  });
-});
-
-describe('isMeetUrl', () => {
-  const cases: [string | undefined, boolean][] = [
-    ['https://meet.google.com/abc-defg-hij', true],
-    ['https://meet.google.com/', true],
-    // 주소가 아예 없는 탭(호스트 권한이 없어 url 이 비어 옵니다)
-    [undefined, false],
-    ['', false],
-    // http 는 안 됩니다. host_permissions 도 https 만 적어 두었습니다.
-    ['http://meet.google.com/abc', false],
-    // 이름이 닮았을 뿐인 다른 호스트
-    ['https://meet.google.com.evil.example/abc', false],
-    ['https://notmeet.google.com/abc', false],
-    // 문자열 포함으로 속이려는 주소 — 호스트 이름을 따로 꺼내 견주므로 걸리지 않습니다
-    ['https://evil.example/?next=https://meet.google.com/abc', false],
-    ['chrome://newtab', false],
-    ['그냥 글자', false],
-  ];
-
-  it.each(cases)('%s → %s', (url, expected) => {
-    expect(isMeetUrl(url)).toBe(expected);
   });
 });
 
@@ -237,90 +211,67 @@ describe('buildSnapshotFrame', () => {
   });
 });
 
-// ── captureMeetTab ────────────────────────────────────────────────────────
+// ── captureLessonTab ──────────────────────────────────────────────────────
 
-describe('pickMeetTab', () => {
-  it('자기 창에서 앞에 있는 탭만 고릅니다', () => {
-    const back = meetTab({ windowId: 3, active: false });
-    const front = meetTab({ windowId: 9, active: true });
-
-    expect(pickMeetTab([back, front])).toBe(front);
-  });
-
-  it('앞에 있는 것이 하나도 없으면 null 입니다', () => {
-    expect(pickMeetTab([meetTab({ active: false }), meetTab({ windowId: 8, active: false })])).toBeNull();
-  });
-
-  it('`active` 칸이 아예 없으면 후보로 세지 않습니다', () => {
-    // 모르는 것을 "앞에 있다" 로 보면 다른 화면이 찍히는 길이 열립니다.
-    expect(pickMeetTab([{ url: MEET_URL, windowId: 7 }])).toBeNull();
-  });
-
-  it('여럿이면 가장 최근에 본 것입니다 (lastAccessed)', () => {
-    const older = meetTab({ windowId: 3, lastAccessed: 1_000 });
-    const newer = meetTab({ windowId: 9, lastAccessed: 2_000 });
-
-    expect(pickMeetTab([older, newer])).toBe(newer);
-    expect(pickMeetTab([newer, older])).toBe(newer);
-  });
-
-  it('lastAccessed 가 없는 크롬에서는 목록의 첫 번째입니다', () => {
-    const first = meetTab({ windowId: 3 });
-    const second = meetTab({ windowId: 9 });
-
-    expect(pickMeetTab([first, second])).toBe(first);
-  });
-
-  it('창 번호가 없으면 찍을 창을 몰라 세지 않습니다', () => {
-    expect(pickMeetTab([{ url: MEET_URL, active: true }])).toBeNull();
-  });
-});
-
-describe('captureMeetTab', () => {
-  it('창을 가리지 않고 Meet 주소 무늬로 찾습니다', async () => {
+describe('captureLessonTab', () => {
+  it('고른 탭이 없으면 no-lesson-tab 이고 Chrome 을 부르지 않습니다', async () => {
     const chromeLike = fakeChrome();
 
-    await capture(chromeLike);
+    const { shot, reasons } = await capture(chromeLike, null);
 
-    // `active`·`currentWindow` 를 묻지 않습니다 — 서비스 워커에는 "지금 창" 이 없습니다.
-    expect(chromeLike.queries).toEqual([{ url: MEET_URL_PATTERN }]);
+    expect(shot).toBeNull();
+    expect(reasons).toEqual(['no-lesson-tab']);
+    expect(chromeLike.gets).toEqual([]);
+    expect(chromeLike.shots).toEqual([]);
   });
 
-  it('Meet 탭이 다른 창에 있어도 찾아서 찍습니다', async () => {
-    // 학습자 실제 배치: Tiro 창이 앞에 있고 Meet 은 다른 창에서 앞에 있습니다.
+  it('고른 탭이 닫혔으면 no-lesson-tab 이고 주소를 로그에 남기지 않습니다', async () => {
+    const chromeLike = fakeChrome({ getThrows: true });
+
+    const { shot, reasons, warnings } = await capture(chromeLike);
+
+    expect(shot).toBeNull();
+    expect(reasons).toEqual(['no-lesson-tab']);
+    expect(chromeLike.gets).toEqual([17]);
+    expect(chromeLike.shots).toEqual([]);
+    expect(warnings).toEqual(['고른 수업 화면 탭이 닫혔어요']);
+  });
+
+  it('고른 탭의 현재 창을 읽어 그 창에서 찍습니다', async () => {
     const chromeLike = fakeChrome({
-      tabs: [
-        { url: 'https://tiro.example/share/abc', windowId: 1, active: true },
-        meetTab({ windowId: 42, active: true }),
-      ],
+      tab: { windowId: 42, active: true },
       dataUrl: jpegDataUrl(1920, 1080),
     });
 
-    const { shot, reasons } = await capture(chromeLike);
+    const { shot, reasons } = await capture(chromeLike, selectedTab({ windowId: 7 }));
 
     expect(shot?.width).toBe(1920);
     expect(reasons).toEqual([]);
+    expect(chromeLike.gets).toEqual([17]);
     expect(chromeLike.shots).toEqual([
       { windowId: 42, format: 'jpeg', quality: SNAPSHOT_JPEG_QUALITY },
     ]);
   });
 
-  it('Meet 탭이 하나도 없으면 no-meet-tab 으로 남기고 찍지 않습니다', async () => {
-    const chromeLike = fakeChrome({
-      tabs: [{ url: 'https://www.notion.so/secret', windowId: 7, active: true }],
-    });
+  it('탭 주소를 읽지 않고 tabId·windowId·active 상태만 쓸 때 찍습니다', async () => {
+    const tab = {
+      windowId: 7,
+      active: true,
+      get url(): never {
+        throw new Error('주소에 접근하면 안 됩니다');
+      },
+    };
+    const chromeLike = fakeChrome({ tab });
 
     const { shot, reasons } = await capture(chromeLike);
 
-    expect(shot).toBeNull();
-    expect(reasons).toEqual(['no-meet-tab']);
-    // 셔터 자체를 누르지 않았습니다. 다른 사이트가 한 장도 남지 않는 자리입니다.
-    expect(chromeLike.shots).toEqual([]);
+    expect(shot?.width).toBe(1280);
+    expect(reasons).toEqual([]);
+    expect(chromeLike.shots).toHaveLength(1);
   });
 
-  it('Meet 이 그 창에서 뒤에 있으면 not-active 로 남기고 찍지 않습니다', async () => {
-    // 찍으면 그 창에서 **앞에 있는 다른 화면**(은행·메신저)이 담깁니다.
-    const chromeLike = fakeChrome({ tabs: [meetTab({ active: false })] });
+  it('고른 탭이 그 창에서 뒤에 있으면 not-active 로 남기고 찍지 않습니다', async () => {
+    const chromeLike = fakeChrome({ tab: { windowId: 7, active: false } });
 
     const { shot, reasons } = await capture(chromeLike);
 
@@ -329,41 +280,26 @@ describe('captureMeetTab', () => {
     expect(chromeLike.shots).toEqual([]);
   });
 
-  it('Meet 을 사칭하는 주소는 전부 거절합니다', async () => {
-    const liars: SnapshotTabLike[] = [
-      { url: 'https://evil.example/?next=https://meet.google.com/x', windowId: 1, active: true },
-      { url: 'https://meet.google.com.evil.example/x', windowId: 2, active: true },
-      { url: 'http://meet.google.com/x', windowId: 3, active: true },
-    ];
-
-    for (const tab of liars) {
-      const chromeLike = fakeChrome({ tabs: [tab] });
-      const { shot, reasons } = await capture(chromeLike);
-
-      expect(shot).toBeNull();
-      expect(reasons).toEqual(['no-meet-tab']);
-      expect(chromeLike.shots).toEqual([]);
-    }
-  });
-
-  it('탭 주소가 안 보이면(호스트 권한 없음) 찍지 않습니다', async () => {
-    const chromeLike = fakeChrome({ tabs: [{ windowId: 7, active: true }] });
+  it('현재 창 번호를 읽지 못해도 not-active 로 남기고 찍지 않습니다', async () => {
+    const chromeLike = fakeChrome({ tab: { active: true } });
 
     const { shot, reasons } = await capture(chromeLike);
 
     expect(shot).toBeNull();
-    expect(reasons).toEqual(['no-meet-tab']);
+    expect(reasons).toEqual(['not-active']);
     expect(chromeLike.shots).toEqual([]);
   });
 
-  it('탭을 읽다 실패해도 던지지 않고 no-meet-tab 입니다', async () => {
-    const chromeLike = fakeChrome({ queryThrows: true });
+  it('activeTab 권한 오류는 no-permission 이고 오류 원문을 로그에 복사하지 않습니다', async () => {
+    const secret = 'Either the <all_urls> or activeTab permission is required for https://private.example';
+    const chromeLike = fakeChrome({ captureThrows: true, captureError: secret });
 
     const { shot, reasons, warnings } = await capture(chromeLike);
 
     expect(shot).toBeNull();
-    expect(reasons).toEqual(['no-meet-tab']);
-    expect(warnings).toHaveLength(1);
+    expect(reasons).toEqual(['no-permission']);
+    expect(warnings).toEqual(['수업 화면 탭을 찍을 임시 권한이 없어요']);
+    expect(warnings.join(' ')).not.toContain('private.example');
   });
 
   it('찍다 실패해도 던지지 않고 capture-failed 입니다', async () => {
@@ -436,8 +372,7 @@ describe('captureMeetTab', () => {
     }
   });
 
-  it('두 번째 셔터가 할당량에 걸려도 까닭은 too-large 입니다', async () => {
-    // 첫 장이 이미 너무 컸으므로 "못 찍음" 이 아니라 "너무 큼" 이 사람이 고칠 거리입니다.
+  it('두 번째 셔터가 할당량에 걸려도 이미 확인한 too-large 를 유지합니다', async () => {
     const chromeLike = fakeChrome({
       captureThrows: 2,
       dataUrlFor: () => jpegDataUrlOfSize(MAX_SNAPSHOT_BYTES + 1),

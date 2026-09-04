@@ -16,7 +16,7 @@ export default defineConfig({
     name: 'Corthex Classmate',
     description: '수업 중 막힌 순간을 한 번에 붙잡고 한 문장으로 수업에 돌아가요',
     version: '0.0.1',
-    // tabCapture: Meet 탭 화면을 잡는 권한입니다. 사용자 제스처(아이콘·패널 버튼 클릭)
+    // tabCapture: 수업 탭의 연속 화면을 잡는 실험용 권한입니다. 사용자 제스처(패널 버튼 클릭)
     //   뒤에만 chrome.tabCapture.getMediaStreamId 가 성공합니다.
     // offscreen: 서비스 워커에 DOM 이 없어서 getUserMedia·canvas 를 대신 할
     //   Offscreen 문서(entrypoints/offscreen/index.html → offscreen.html)를 여는 권한입니다.
@@ -25,21 +25,21 @@ export default defineConfig({
     //   나가지 않게 하는 통로라(불변 원칙 §4-1) 네트워크 권한 대신 이것을 씁니다.
     // alarms: MV3 서비스 워커는 30초를 놀면 내려갑니다. 1분 keepalive 와 "패널이 30분째
     //   닫혀 있으면 교시를 끝낸다" 두 가지를 알람으로 겁니다(setInterval 은 워커와 함께 죽습니다).
-    permissions: ['sidePanel', 'storage', 'tabCapture', 'offscreen', 'nativeMessaging', 'alarms'],
-    // host_permissions: 질문 한 건에 화면 한 장을 붙이는 길(`src/capture/snapshot.ts`)이
-    //   `chrome.tabs.captureVisibleTab` 을 씁니다. 이 API 는 **사용자 제스처를 요구하지
-    //   않는 대신** 찍으려는 탭의 호스트 권한을 요구합니다. 위 `tabCapture` 쪽 연속 스트림은
-    //   제스처를 요구하는데 사이드패널 클릭이 제스처로 세어지지 않아 지금 막혀 있고, 그래서
-    //   화면이 한 장도 남지 않았습니다.
+    // activeTab: 학습자가 **영상 탭에서 확장 아이콘을 누른 때에만** 그 탭을 한 장 찍을 임시
+    //   권한을 얻습니다. 탭을 닫거나 다른 사이트로 이동하면 권한이 사라지고, 설치 경고도
+    //   늘지 않습니다. Meet·Drive·LMS 중 어디인지 주소로 보지 않습니다.
     //
-    //   **`<all_urls>` 를 쓰지 않습니다.** 그것을 넣으면 확장이 사용자가 보는 모든 사이트
-    //   (은행·메일·사내 문서)를 찍을 수 있게 됩니다. 우리가 찍어야 하는 것은 수업 화면
-    //   하나뿐이라 딱 그 호스트만 적습니다. 코드 쪽에서도 활성 탭 주소가 정확히
-    //   `meet.google.com` 일 때만 셔터를 누릅니다(권한과 코드 두 겹으로 막습니다).
-    //
-    //   곁들여지는 효과: 이 권한이 있어야 `chrome.tabs.query` 가 Meet 탭의 `url` 을 보여
-    //   줍니다. 권한 없는 탭은 `url` 이 비어 오고, 코드는 그것을 "Meet 이 아니다" 로 봅니다.
-    host_permissions: ['https://meet.google.com/*'],
+    // **`<all_urls>` 와 host_permissions 를 쓰지 않습니다.** 모든 사이트를 계속 읽는 권한 대신
+    // 사용자의 명시적 탭 선택 한 번을 받는 것이 불변 원칙 §4-1의 최소 권한에 맞습니다.
+    permissions: [
+      'sidePanel',
+      'storage',
+      'activeTab',
+      'tabCapture',
+      'offscreen',
+      'nativeMessaging',
+      'alarms',
+    ],
     action: {
       default_title: 'Corthex Classmate',
     },

@@ -2,7 +2,7 @@
 
 Corthex Classmate 의 Chrome 확장입니다. WXT · React 19 · TypeScript · Manifest V3 · Side Panel API 를 씁니다.
 지금 단계(Phase 2 · 2라운드)에는 **듣는 중 · 자세히 · 기록 · 설정 네 화면**이 있고, 데이터는 두 갈래 중 하나가
-채웁니다 — 주소에 `?replay=` 가 없으면 **라이브**(서비스 워커 → Tiro 공유 페이지 · Meet 캡처 · 로컬 도우미),
+채웁니다 — 주소에 `?replay=` 가 없으면 **라이브**(서비스 워커 → Tiro 공유 페이지 · 고른 수업 탭 캡처 · 로컬 도우미),
 있으면 **fixtures 재생기**(E2E · 스크린샷 · 손으로 얹어 보기). 조립은 `entrypoints/sidepanel/App.tsx` 한 곳입니다.
 
 경로·명령은 모두 **Windows 로컬 · Git Bash · 저장소 루트 기준**입니다.
@@ -16,7 +16,7 @@ apps/browser-extension/
 ├─ wxt.config.ts                  매니페스트(name·permissions·side_panel·content_scripts) · React 모듈
 ├─ entrypoints/
 │  ├─ background.ts               MV3 서비스 워커 — **배선만** (판단은 `src/background/**`)
-│  ├─ offscreen/                  Meet 탭 캡처용 Offscreen Document
+│  ├─ offscreen/                  연속 수업 화면 캡처 실험용 Offscreen Document
 │  ├─ tiro-share.content.ts       Tiro 공유 페이지 관찰 content script
 │  └─ sidepanel/
 │     ├─ index.html               사이드패널 진입 문서
@@ -27,7 +27,7 @@ apps/browser-extension/
 ├─ src/background/                서비스 워커의 판단 — 라우터 · 도우미 연결 · 교시 로그 (아래 절)
 ├─ src/live/                      패널 ↔ 서비스 워커 메시지 타입과 패널 쪽 어댑터 (아래 절)
 ├─ src/tiro/                      Tiro 공유 페이지 커넥터 (README 있음)
-├─ src/capture/                   Meet 캡처 파이프라인 (README 있음)
+├─ src/capture/                   고른 수업 탭 한 장 + 연속 캡처 파이프라인 (README 있음)
 ├─ src/lib/format-time.ts         10:32:18 형식 · "4초 전" 문구
 ├─ src/types/assets.d.ts          `*.jsonl?raw` 모듈 선언
 ├─ e2e/extension.spec.ts          확장 로드 E2E — 골든 시나리오 15장면(수업 흐름 9 + 얹는 화면·폭·이어 묻기 6) + 스크린샷
@@ -139,7 +139,7 @@ PanelApp.tsx         useSyncExternalStore · 1초 tick · Alt+S(e.code === "KeyS
 | `panel.ask {request}` | `tutor.ask {periodId, questionId, kind, word?, question?, provider, snapshot}` | 답이 `error` 면 `connector.status {provider, …}` |
 | `classmate.reconnect {native-host}` | 백오프를 기다리지 않고 지금 다시 붙습니다 | — |
 | `classmate.reconnect {tiro-share}` | 전사를 보내 온 탭에 `chrome.tabs.sendMessage` 로 `tiro.stop` → `tiro.start` | — |
-| `classmate.reconnect {meet-tab}` | 캡처 정지 → 마지막 탭으로 다시 시작 | — |
+| `classmate.reconnect {meet-tab}` | 마지막으로 본 Chrome 창의 앞 탭을 수업 화면 후보로 다시 기록(권한은 다음 아이콘 클릭) | — |
 | `classmate.reconnect {provider}` | 마지막 미완 질문으로 `tutor.retry` | 답이 `error` 면 `connector.status {provider, …}` |
 | 도우미 push `tutor.event {event}` | — (이미 도우미 안에 있습니다) | `live.event` |
 
@@ -181,19 +181,14 @@ MV3 워커는 30초를 놀면 내려갔다 다시 뜨는데, 그때마다 토큰
 주고 곧바로 끊습니다. **개발·E2E 에서는 그것이 정상 상태**라 백오프가 조용히 돌고
 `console.error` 를 쓰지 않습니다(첫 끊김에만 `console.warn` 한 줄).
 
-### 손 시험 갈래를 언제 지우나
+### 한 장 경로와 연속 캡처 실험을 구분합니다
 
-**실제 설치본에는 Meet 캡처를 시작하는 버튼이 아직 없습니다.** 사이드패널에도 오프스크린 문서에도
-`capture.start` 를 보내는 코드가 없고, 지금 캡처를 켜는 길은 서비스 워커 콘솔의
-`classmateCapture.start(tabId)` 하나뿐입니다(검토 2라운드에서 확인 · `docs/TASKS.md` 캡처 버튼 항목).
+제품의 기본 화면 경로는 **영상 탭에서 확장 아이콘 한 번**입니다. `chrome.action.onClicked`가
+그 탭을 `storage.session`에 기억하고 `activeTab` 임시 권한을 받은 채 사이드패널을 엽니다. 이후
+붙잡기마다 `captureVisibleTab`으로 한 장만 찍습니다. 주소는 읽지 않고 `<all_urls>`도 받지 않습니다.
 
-`background.ts` 의 `chrome.action.onClicked` 리스너와 `globalThis.classmateCapture` 손잡이는
-**사이드패널에 캡처 시작/중지 버튼이 생기면 함께 지웁니다.** 지금 남겨 둔 이유는 하나뿐입니다 —
-`chrome.tabCapture.getMediaStreamId` 가 요구하는 "사용자 제스처" 를 만들 수 있는 자리가 지금은
-아이콘 클릭뿐입니다. 버튼 클릭 자체가 그 제스처가 되므로 그때는 두 갈래가 필요 없습니다.
-(`chrome.sidePanel.setPanelBehavior({openPanelOnActionClick: true})` 때문에 아이콘 클릭은 실제로
-사이드패널만 열고 이 리스너는 불리지 않습니다. 손 시험 때 그 한 덩어리를 잠시 주석 처리하고
-다시 빌드하면 살아납니다 — `docs/spikes/gate-b-meet.md` §사람이 할 일 1.)
+`tabCapture` 연속 스트림과 `globalThis.classmateCapture` 손잡이는 실험 자산으로 남아 있습니다.
+연속 캡처를 켜는 제품 버튼은 아직 없으므로, 이 경로가 실제 설치본의 기본 캡처라고 말하지 않습니다.
 
 ### 확장 id 고정 (`CLASSMATE_EXTENSION_KEY`)
 
@@ -254,8 +249,8 @@ pnpm --filter @classmate/browser-extension build
 ## 사이드패널 열기
 
 1. Chrome 도구모음의 퍼즐 아이콘을 눌러 **Corthex Classmate** 를 **고정**합니다.
-2. 고정한 아이콘을 한 번 누릅니다. 오른쪽에 사이드패널이 열립니다.
-   (`background.ts` 의 `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })` 가 이 동작을 켭니다.)
+2. **수업 영상이 보이는 탭에서** 고정한 아이콘을 한 번 누릅니다. 그 탭이 수업 화면으로
+   지정되고 오른쪽에 사이드패널이 열립니다. 다른 영상 탭으로 바꾸면 그 탭에서 다시 누릅니다.
 3. 아이콘을 눌러도 안 열리면 `chrome://extensions` → Corthex Classmate → **서비스 워커** 를 눌러
    콘솔에 `[classmate] 확장이 설치됐어요` 가 찍혔는지 봅니다.
 4. 열리면 fixture 가 실시간처럼 흐릅니다. 점선 낱말(`new`·`생성자`)을 누르거나 문장을 누르거나 **Alt+S** 를 칩니다.

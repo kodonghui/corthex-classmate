@@ -80,7 +80,7 @@ export const ICON_MAP = {
   mic: Mic, // 전사(Tiro)
   "minimize-2": Minimize2, // 답 접기
   minus: Minus, // 체크박스 중간 상태
-  monitor: Monitor, // Meet 화면
+  monitor: Monitor, // 수업 화면
   "pause-circle": PauseCircle, // 잠시 멈춤 배너
   "refresh-cw": RefreshCw, // 다시 시도
   "settings-2": Settings2, // 설정

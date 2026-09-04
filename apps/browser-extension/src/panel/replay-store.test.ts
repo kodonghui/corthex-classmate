@@ -72,7 +72,7 @@ describe("체크포인트", () => {
     const view = home(store);
     expect(view.note).toMatchObject({ kind: "preparing", lineId: "ts-p3-004", term: "new", time: "10:32:18", warn: false, waitingText: null });
     if (view.note.kind !== "preparing") return;
-    expect(view.note.sources.map((s) => s.label)).toEqual(["전사 4초 전", "Meet 2초 전", "OrderService.java 1초 전"]);
+    expect(view.note.sources.map((s) => s.label)).toEqual(["전사 4초 전", "화면 2초 전", "OrderService.java 1초 전"]);
     expect(view.active).toBe("ts-p3-004:1");
     expect(view.lines).toHaveLength(4);
     expect(view.footer.count).toBe(1);
@@ -124,7 +124,7 @@ describe("체크포인트", () => {
     expect(view.line?.id).toBe("ts-p3-004");
     expect(view.sections.map((s) => s.id)).toEqual(["why", "cmp", "code", "said"]);
     expect(view.sections[0]?.defaultOpen).toBe(true);
-    expect(view.sections.find((s) => s.id === "code")).toMatchObject({ type: "code", caption: "Meet · OrderService.java", highlightLines: [6, 7, 11] });
+    expect(view.sections.find((s) => s.id === "code")).toMatchObject({ type: "code", caption: "화면 · OrderService.java", highlightLines: [6, 7, 11] });
     expect(view.nowLine).toBe("지금 · 생성자 주입 코드로 넘어갔어요");
   });
 

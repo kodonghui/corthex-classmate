@@ -121,7 +121,7 @@ function makeHarness(settings: Partial<ClassmateSettings> = {}, options: Harness
     restartTiro: () => {
       controls.tiro += 1;
     },
-    restartCapture: () => {
+    reselectLessonTab: () => {
       controls.capture += 1;
     },
   };
@@ -708,7 +708,7 @@ describe('Router · 패널이 보내는 말', () => {
 // ── 질문에 붙는 화면 한 장 ────────────────────────────────────────────────
 //
 // 여기까지 오면 캡처는 이미 끝나 있고, 라우터가 보는 것은 "이름표 하나 또는 null" 뿐입니다.
-// 실제로 찍는 일(`captureVisibleTab` · Meet 인지 보기)은 `src/capture/snapshot.test.ts` 가
+// 실제로 찍는 일(`captureVisibleTab` · 고른 탭인지 보기)은 `src/capture/snapshot.test.ts` 가
 // 따로 시험합니다.
 
 describe('Router · 질문에 붙는 화면 한 장', () => {
@@ -764,7 +764,7 @@ describe('Router · 질문에 붙는 화면 한 장', () => {
     });
   });
 
-  it('못 찍었으면(Meet 탭이 아님) 화면 없이 질문이 나갑니다', async () => {
+  it('수업 탭을 못 찍었으면 화면 없이 질문이 나갑니다', async () => {
     const harness = makeHarness({}, { screen: { capture: async () => null } });
 
     await harness.router.handlePanelMessage({ type: PANEL_ASK, request: askRequest() });
@@ -982,17 +982,17 @@ describe('Router · 화면 한 장을 못 얻었을 때', () => {
     return last?.payload ?? null;
   }
 
-  it('Meet 탭이 없으면 connector.status {meet-tab, off, no-meet-tab} 으로 남깁니다', async () => {
+  it('고른 수업 탭이 없으면 connector.status {meet-tab, off, no-lesson-tab} 으로 남깁니다', async () => {
     // 2026-09-03 에는 하루 종일 0장이었는데 오류 기록이 0건이었습니다. 이제 까닭이 남습니다.
     const harness = makeHarness();
 
-    await harness.router.noteScreenMissing('no-meet-tab');
+    await harness.router.noteScreenMissing('no-lesson-tab');
 
-    expect(meetStatus(harness)).toEqual({ connector: 'meet-tab', state: 'off', reason: 'no-meet-tab' });
+    expect(meetStatus(harness)).toEqual({ connector: 'meet-tab', state: 'off', reason: 'no-lesson-tab' });
   });
 
   it('다시 될 수 있는 까닭은 호박색(paused)으로 남깁니다', async () => {
-    for (const reason of ['not-active', 'capture-failed', 'too-large', 'host-offline']) {
+    for (const reason of ['not-active', 'no-permission', 'capture-failed', 'too-large', 'host-offline']) {
       const harness = makeHarness();
       await harness.router.noteScreenMissing(reason);
       expect(meetStatus(harness)).toEqual({ connector: 'meet-tab', state: 'paused', reason });
@@ -1001,7 +1001,7 @@ describe('Router · 화면 한 장을 못 얻었을 때', () => {
 
   it('다시 찍히면 초록으로 되돌립니다', async () => {
     const harness = makeHarness();
-    await harness.router.noteScreenMissing('no-meet-tab');
+    await harness.router.noteScreenMissing('no-lesson-tab');
 
     await harness.router.noteScreenCaptured();
 
@@ -1011,9 +1011,9 @@ describe('Router · 화면 한 장을 못 얻었을 때', () => {
   it('같은 까닭이 이어지면 사건을 한 번만 냅니다', async () => {
     const harness = makeHarness();
 
-    await harness.router.noteScreenMissing('no-meet-tab');
-    await harness.router.noteScreenMissing('no-meet-tab');
-    await harness.router.noteScreenMissing('no-meet-tab');
+    await harness.router.noteScreenMissing('no-lesson-tab');
+    await harness.router.noteScreenMissing('no-lesson-tab');
+    await harness.router.noteScreenMissing('no-lesson-tab');
 
     const meets = harness
       .appended()
@@ -1203,7 +1203,7 @@ describe('Router · 교시', () => {
     const router = new Router({
       host: { send: (envelope) => { sent.push(envelope); return Promise.resolve({ status: 'queued' }); }, reconnectNow: () => {} },
       settings: { read: () => Promise.resolve({ periodNumber, subject: '수업', provider: 'claude' }) },
-      controls: { restartTiro: () => {}, restartCapture: () => {} },
+      controls: { restartTiro: () => {}, reselectLessonTab: () => {} },
       log: new PeriodLog(),
       ids: new EventIdFactory('1a2b3c4d'),
       now: () => NOW,
@@ -1275,7 +1275,7 @@ describe('Router · 교시', () => {
         reconnectNow: () => {},
       },
       settings: { read: () => Promise.resolve({ periodNumber, subject: '수업', provider: 'claude' }) },
-      controls: { restartTiro: () => {}, restartCapture: () => {} },
+      controls: { restartTiro: () => {}, reselectLessonTab: () => {} },
       log: new PeriodLog(),
       ids: new EventIdFactory('1a2b3c4d'),
       now: () => NOW,
