@@ -4,7 +4,7 @@
 //! 통합 시험이 함께 쓰는 도구들입니다.
 //!
 //! **이 파일은 실제 튜터 CLI 경로를 절대 만들지 않습니다.** 시험이 띄우는 것은 `node` 런타임과
-//! 같은 폴더의 `fake-claude.mjs` 뿐입니다.
+//! 이 크레이트의 가짜 Claude/Codex 스크립트뿐입니다.
 
 use std::ffi::OsString;
 use std::path::PathBuf;

@@ -1,6 +1,6 @@
 # classmate-providers
 
-튜터 제공자 어댑터입니다. `TutorProvider` trait 하나 뒤에 두 제공자를 붙입니다. **Claude CLI 제공자**는 호출자가 준 실행 파일 경로를 `-p --output-format stream-json --verbose --include-partial-messages` 로 띄우고, 질문과 문맥은 명령행이 아니라 **stdin** 으로만 흘려보낸 뒤 stdout 을 줄 단위 stream-json 으로 읽어 `Status → TextDelta… → Usage` 순서의 이벤트로 바꿉니다. 답은 다 만들어지기 전에 조각(`stream_event`)으로 먼저 흐릅니다. 제한 시간을 넘기면 `taskkill /PID <pid> /T /F` 로 프로세스를 **트리째** 끊고 stderr 꼬리를 실은 `Timeout` 을 돌려줍니다. 답을 다 받은 뒤 자식이 끝나기를 기다리는 자리에도 같은 마감이 걸려 있어, 자식이 stdout 을 닫고도 살아 있으면 트리째 끊고 나온 답으로 회차를 마칩니다(회차가 영원히 잠기지 않습니다). **Codex 제공자**는 사용 한도 소진으로 실측을 못 해 지금은 `NotImplemented` 스텁이고, app-server stdio 프로토콜 메모와 실측 후 채울 칸만 `src/codex.rs` 주석에 적어 두었습니다. 앞단의 `ProviderQueue` 는 작업 스레드 하나로 **한 번에 한 건만** CLI 를 띄우고 대기 줄 상한(기본 4)을 넘으면 곧바로 거절합니다. 자격증명은 어디에도 저장·전송하지 않고(불변 원칙 §4-2) 로그인은 각 CLI 가 스스로 한 것을 그대로 씁니다. 시험은 실제 CLI 를 **0회** 부르고 언제나 `node tests/fake-claude.mjs` 만 띄웁니다. 검증은 `cargo test -p classmate-providers --manifest-path apps/native-host/Cargo.toml` 입니다 — 시험 수는 여기에 적지 않습니다(적어 두면 늘 때마다 어긋납니다).
+튜터 제공자 어댑터입니다. `TutorProvider` trait 하나 뒤에 두 제공자를 붙입니다. **Claude CLI 제공자**는 호출자가 준 실행 파일 경로를 `-p --output-format stream-json --verbose --include-partial-messages` 로 띄우고, 질문과 문맥은 명령행이 아니라 **stdin** 으로만 흘려보낸 뒤 stdout 을 줄 단위 stream-json 으로 읽어 `Status → TextDelta… → Usage` 순서의 이벤트로 바꿉니다. 답은 다 만들어지기 전에 조각(`stream_event`)으로 먼저 흐릅니다. 제한 시간을 넘기면 `taskkill /PID <pid> /T /F` 로 프로세스를 **트리째** 끊고 stderr 꼬리를 실은 `Timeout` 을 돌려줍니다. 답을 다 받은 뒤 자식이 끝나기를 기다리는 자리에도 같은 마감이 걸려 있어, 자식이 stdout 을 닫고도 살아 있으면 트리째 끊고 나온 답으로 회차를 마칩니다(회차가 영원히 잠기지 않습니다). **Codex 제공자**는 호출자가 준 실행 파일 경로로 `app-server --listen stdio://`를 띄우고, 공식 JSONL 프로토콜의 `initialize → initialized → thread/start → turn/start` 순서와 델타·완료·중단을 처리합니다. 다만 이 PC의 `codex-cli 0.152.0`은 읽기 전용 샌드박스의 읽기 루트를 좁히는 정책을 표현하지 못하므로 아직 **protocol/streaming PoC**이고, 실제 사용 안전 경계(V2-202)는 미완료입니다. 상위 설정은 Codex를 기본 비활성·experimental로 유지해야 합니다. 앞단의 `ProviderQueue` 는 작업 스레드 하나로 **한 번에 한 건만** CLI 를 띄우고 대기 줄 상한(기본 4)을 넘으면 곧바로 거절합니다. 자격증명은 어디에도 저장·전송하지 않고(불변 원칙 §4-2) 로그인은 각 CLI 가 스스로 한 것을 그대로 씁니다. 시험은 실제 튜터 CLI 를 **0회** 부르고 언제나 `node tests/fake-claude.mjs` 또는 `node tests/fake-codex-app-server.mjs` 만 띄웁니다. 검증은 `cargo test -p classmate-providers --manifest-path apps/native-host/Cargo.toml` 입니다 — 시험 수는 여기에 적지 않습니다(적어 두면 늘 때마다 어긋납니다).
 
 ## 1. 무엇이 어디에 있나
 
@@ -12,9 +12,10 @@
 | `src/session.rs` | 교시 동안 자식 프로세스 하나를 살려 두고 여러 물음을 보내기 (`SessionClaudeProvider`) |
 | `src/queue.rs` | FIFO 큐 (동시 1건 · 상한 4 · `shutdown`) |
 | `src/retry.rs` | `RetryPolicy` — 다시 물어보기 간격표(값 타입 · 기다리지 않습니다) |
-| `src/codex.rs` | Codex 스텁 + app-server 프로토콜 메모 |
+| `src/codex.rs` | Codex app-server 구동 · JSONL RPC 수명주기 · 스트리밍 · 취소 · 승인/도구 실패 닫기 |
 | `tests/fake-claude.mjs` | 시험이 띄우는 **가짜** CLI (진입점 가드 있음) |
-| `tests/claude_fake_cli.rs` · `tests/session_fake_cli.rs` · `tests/queue_e2e.rs` · `tests/no_real_cli.rs` | 통합 시험 · 세션 통합 시험 · e2e · 비용 안전 시험 |
+| `tests/fake-codex-app-server.mjs` | 시험이 띄우는 **가짜** app-server (진입점 가드 있음) |
+| `tests/claude_fake_cli.rs` · `tests/codex_fake_app_server.rs` · `tests/session_fake_cli.rs` · `tests/queue_e2e.rs` · `tests/no_real_cli.rs` | 제공자 통합 시험 · 세션 통합 시험 · e2e · 비용 안전 시험 |
 
 ## 2. 흐름
 
@@ -185,8 +186,8 @@ Gate C2 에서 **검증 스크립트가 모듈을 `import` 했다는 이유만�
 
 1. **생성자가 경로를 요구합니다.** `ClaudeCliProvider::new(cli_path)` · `CodexAppServerProvider::new(cli_path)` 둘 다 경로가 필수 인자이고, 기본값도 PATH 탐색도 없습니다. 경로를 모르는 코드는 제공자를 만들 수 없습니다.
 2. **실행 파일 이름이 인자에 실리지 않습니다.** `tests/no_real_cli.rs` 가 `src/**` · `tests/**` 를 훑되, 낱말 하나가 아니라 **자리**로 봅니다. 프로세스를 띄우거나 인자를 붙이는 호출(`Command::new` · `arg` · `args` · `spawn` · PATH 탐색)의 인자 구간을 괄호 짝을 세어 잘라 내고, 그 안의 문자열 리터럴을 경로 구분자·확장자·대소문자를 지운 "실행 파일 이름"으로 정규화해 튜터 CLI 이름이 아닌지 확인합니다. 같은 구간의 리터럴을 이어 붙인 것도 함께 보므로 `"cl" + "aude"` 같은 조립 우회가 걸리고, `.cmd` 래퍼를 푼 뒤의 `node <스크립트>` 와 `cmd.exe /c` 폴백도 결국 이 자리들을 지납니다. 생성자 `Default` 구현과 튜터 CLI 이름이 든 환경변수 폴백이 없다는 것도 같은 파일이 확인합니다(찾는 낱말과 호출 머리는 이 파일이 스스로 걸리지 않게 실행 시점에 이어 붙여 만듭니다).
-3. **시험은 가짜 CLI 만 띄웁니다.** `tests/support/mod.rs` 가 PATH 에서 찾는 것은 **node 런타임**뿐이고, 스크립트는 언제나 이 크레이트 안의 `tests/fake-claude.mjs` 입니다.
-4. **가짜 CLI 에 진입점 가드가 있습니다.** `import.meta.url === pathToFileURL(process.argv[1]).href` 일 때만 돕니다. 사고를 낸 그 결함을 그대로 막는 장치입니다.
+3. **시험은 가짜 CLI 만 띄웁니다.** `tests/support/mod.rs` 와 Codex 통합 시험이 PATH 에서 찾는 것은 **node 런타임**뿐이고, 스크립트는 언제나 이 크레이트 안의 `tests/fake-claude.mjs` 또는 `tests/fake-codex-app-server.mjs` 입니다.
+4. **가짜 CLI 에 진입점 가드가 있습니다.** 두 스크립트 모두 `import.meta.url === pathToFileURL(process.argv[1]).href` 일 때만 돕니다. 사고를 낸 그 결함을 그대로 막는 장치입니다.
 
 `.cmd` 해석 시험은 임시 폴더에 가짜 `.cmd`·가짜 `node.exe`·가짜 진입점 파일을 만들어 씁니다. 존재 여부만 보는 함수라 실행되지 않습니다.
 
@@ -232,17 +233,23 @@ for attempt in 0..policy.max_attempts() {
 }
 ```
 
-## 8. Codex — 프로토콜 메모와 실측 후 채울 칸
+## 8. Codex — 공식 app-server JSONL 제공자
 
-Gate C2 시점에 사용 한도가 소진되어 **지연·비용은 미측정**입니다. 되는 척하지 않으려고 `ask()` 는 언제나 `NotImplemented` 를 돌려주고 자식 프로세스를 띄우지 않습니다. 최소 흐름은 `thread/start` → `turn/start` → `item/agentMessage/delta` → `turn/completed` 이고, 승인 요청 메소드 세 가지(`item/commandExecution/requestApproval` · `item/fileChange/requestApproval` · `item/permissions/requestApproval`)는 수업 모드에서 전부 거절로 고정합니다(§4-6 읽기 전용). 채울 칸(TTFT·총 소요·회차당 비용·`turn/start` 파라미터 이름·델타 필드 이름·`turn/interrupt` 응답 모양·로그인 만료 오류 모양)의 표는 `src/codex.rs` 맨 위 주석에 있고, 채우는 순서는 `docs/spikes/gate-c2-provider.md` 의 "사람이 할 일" 2·3번입니다.
+`CodexAppServerProvider`는 stdio 기본 전송의 newline-delimited JSON을 읽고 씁니다. 한 질문마다 빈 임시 작업 폴더에서 app-server를 띄운 뒤 `initialize` 요청과 `initialized` 알림, `thread/start`, `turn/start`를 순서대로 보냅니다. `item/agentMessage/delta`를 `TextDelta`로 흘리고, `item/completed`의 최종 본문을 정본으로 대조한 뒤 `turn/completed`가 `completed`일 때만 성공합니다. 완료 상태가 `interrupted` 또는 `failed`이거나 RPC 오류·깨진 JSON·예상치 못한 EOF가 오면 성공으로 포장하지 않습니다. 시간 제한에는 `turn/interrupt`를 최선 노력으로 보내고 stdin을 닫은 뒤 프로세스 트리를 종료합니다.
+
+수업 튜터는 `thread/start`에 `approvalPolicy: "never"`, `sandbox: "read-only"`, `ephemeral: true`, `runtimeWorkspaceRoots: []`, `environments: []`, `dynamicTools: []`를 요청하고, `turn/start`에는 `approvalPolicy: "never"`, `{ type: "readOnly", networkAccess: false }`, 빈 환경·runtime root를 요청합니다. `thread/start` 응답의 실제 승인 정책·sandbox·network·cwd·runtime root·instruction source·thread ephemeral/path를 모두 확인한 뒤에만 질문을 보냅니다. 질문 순간 화면은 호스트가 `screenFrameId`와 신뢰 루트로 검증한 JPEG·PNG·WebP 일반 파일(최대 20 MiB)만 받으며, 정책 검증 뒤 격리 cwd에 안전한 이름으로 크기와 deadline을 재확인하며 복사하고 원본 경로 대신 복사본 하나를 `localImage`로 보냅니다. 로컬 파일 시스템의 개별 동기 읽기 자체는 중간 취소할 수 없으므로, 응답하지 않는 네트워크 볼륨까지 `AskRequest.timeout`이 엄밀히 끊는다고 주장하지 않습니다.
+
+명령 실행·파일 변경 승인 요청에는 `cancel`, 권한 요청에는 빈 권한, 사용자 입력 요청에는 빈 답을 회신하고 그 회차를 실패 처리합니다. 도구 실행·웹 검색·MCP 호출 같은 항목이 보이면 interrupt하고 결과를 저장하지 않습니다. 그러나 `item/started`는 명령·MCP·검색이 **이미 시작된 시점**일 수 있으므로 이것은 실행 전 차단 보장이 아니라 결과 수용을 막는 fail-closed 장치입니다. 또한 0.152.0 생성 스키마의 `{ type: "readOnly", networkAccess: false }`에는 최신 문서의 `access: { type: "restricted", ... }` 필드가 없어 로컬 디스크 읽기 범위를 격리 cwd로 제한할 수 없습니다. 지원하지 않는 필드를 억지로 보내지 않았고, OS 수준 격리나 해당 필드를 지원하는 Codex 버전의 기능 탐지가 생길 때까지 Codex 경로를 실제 사용자 설정에서 켜면 안 됩니다.
+
+현재 자동 검증은 가짜 app-server만 사용합니다. handshake, thread/start와 effective 정책, turn/start, text+`localImage`, 델타, 완료 본문, 모델 재라우팅, 취소, 전체 시간 제한, turn 이후 interrupt, RPC 오류, 깨진 JSON, 실패 상태, 조기 EOF, 승인 요청, 안전하지 않은 도구 항목, 다른 회차 ID를 검사합니다. 실제 Codex 로그인·모델 호출·TTFT·비용은 의도적으로 확인하지 않았습니다.
 
 ## 9. 계약과 맞닿은 자리
 
 `ContextSnapshot` 은 `packages/contracts/schemas/question.schema.json` 의 `snapshot` 칸 이름을 그대로 씁니다(`transcriptSegmentIds` · `screenFrameId` · `editorContextId` · `ages`). `SourceAges` 는 `common.schema.json#/definitions/SourceAges` 와 같습니다. `TutorProvider::name()` 이 돌려주는 `claude` · `codex` 는 `answer.schema.json` 의 `provider` enum 값과 같은 낱말입니다.
 
-계약의 스냅샷은 **식별자만** 담고 전사·편집기 발췌의 본문은 담지 않습니다. 그래서 지금 프롬프트에는 자료의 "요약"(조각 수·유무·나이)만 들어가고 본문은 들어가지 않습니다. 본문까지 넣으려면 계약을 늘리거나 상위 단위가 조립한 문자열을 받아야 하는데, 계약은 이 라운드에서 고정이므로 **제안만** 남기고 여기서는 바꾸지 않았습니다.
+계약의 스냅샷은 **식별자만** 담고 전사·편집기 발췌의 본문은 담지 않습니다. 그래서 상위 단위가 만든 전사·문맥 본문은 `materials`로 받아 인용 구역에 넣습니다. 질문 순간 화면은 `AskRequest::local_image`의 공개 문자열 경로가 아니라 `VerifiedQuestionFrame`으로만 받습니다. 호스트가 자기 프레임 저장소에서 `screenFrameId`를 해결한 뒤 신뢰 루트 안의 일반 이미지인지 검증해 붙여야 하며, Codex 어댑터가 전송 직전에 다시 확인합니다. Claude 계약은 이 선택 필드를 무시하므로 기존 텍스트 경로는 그대로입니다.
 
-## 10. 가짜 CLI (`tests/fake-claude.mjs`)
+## 10. 가짜 CLI
 
 **이 파일의 경로와 옵션 이름·뜻은 고정입니다.** 다른 단위의 시험도 이 경로를 참고하므로 지우거나 뜻을 바꾸지 않고 **더하기만** 합니다.
 
@@ -260,6 +267,8 @@ Gate C2 시점에 사용 한도가 소진되어 **지연·비용은 미측정**�
 알 수 없는 인자는 조용히 무시합니다. 제공자가 언제나 붙이는 고정 인자가 그대로 들어오는데 그중 하나에 걸려 죽으면 모든 시험이 함께 죽기 때문입니다. `--include-partial-messages` 도 그렇게 받되, **`--partial` 은 그 옵션이 실제로 도착했을 때만 청크를 냅니다.** 실제 CLI 와 같은 규칙이고, 덕분에 고정 인자에서 옵션이 빠지면 `--partial` 시험이 곧바로 깨집니다.
 
 `--echo-stdin` 은 시험 전용 통로입니다. 받은 stdin 본문을 되돌려 보내 "질문·자료는 stdin 에만 있고 argv 에는 없다" 를 시험이 실측으로 대조하게 합니다. 실제 CLI 의 동작이 아닙니다.
+
+`tests/fake-codex-app-server.mjs`는 app-server의 JSONL 수명주기만 흉내 냅니다. 성공·최종 본문만 있는 완료·모델 재라우팅·실패·깨진 JSON·승인 요청·안전하지 않은 도구 항목·조기 EOF·무한 대기·비정상 종료·RPC 오류 시나리오를 제공하고, 임시 감사 JSONL로 제공자가 보낸 요청과 거절·중단 응답을 검증합니다. 실제 Codex 실행 파일이나 인증·모델에는 접근하지 않습니다.
 
 ## 11. 검증
 

@@ -7,9 +7,15 @@
 //! `crate::claude` 의 stdin 하나뿐이고, 명령행에는 고정된 리터럴 인자만 실립니다.
 
 use std::fmt;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+
+/// 질문 순간 화면 한 장의 최대 크기입니다(20 MiB).
+///
+/// 느리거나 잘못 해결된 파일 때문에 튜터 질문의 동기 복사가 무제한으로 늘어나지 않게 합니다.
+pub const MAX_QUESTION_FRAME_BYTES: u64 = 20 * 1024 * 1024;
 
 /// 질문을 붙잡은 순간 각 자료가 몇 초 전 것이었는지입니다.
 ///
@@ -51,6 +57,163 @@ pub struct ContextSnapshot {
     pub ages: SourceAges,
 }
 
+/// 호스트가 봉인한 질문 순간 화면을 실제 로컬 파일 하나로 확인한 결과입니다.
+///
+/// 임의의 문자열 경로를 Codex `localImage`로 바로 넘기지 않도록 필드는 모두 비공개입니다.
+/// 호스트는 SQLite의 `screenFrameId`를 자기 프레임 저장소에서 찾은 뒤, 그 저장소의 신뢰 루트와
+/// 실제 파일을 [`VerifiedQuestionFrame::verify`]에 함께 넘겨야 합니다. 심볼릭 링크와 정션은
+/// canonical 경로로 푼 뒤 다시 루트 안인지 확인합니다.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedQuestionFrame {
+    frame_id: String,
+    canonical_path: PathBuf,
+    canonical_root: PathBuf,
+}
+
+impl VerifiedQuestionFrame {
+    /// 질문 스냅샷의 화면 ID와 호스트가 해결한 파일을 함께 검증합니다.
+    ///
+    /// 허용 형식은 현재 호스트 캡처가 만드는 JPEG·PNG·WebP입니다. 파일 경로는 절대경로여야
+    /// 하고, 실경로가 `trusted_frames_root` 안의 일반 파일이어야 합니다. 오류에는 로컬 경로를
+    /// 넣지 않아 UI나 로그로 사용자 디렉터리가 새지 않습니다.
+    pub fn verify(
+        context: &ContextSnapshot,
+        resolved_frame_id: impl Into<String>,
+        path: impl AsRef<Path>,
+        trusted_frames_root: impl AsRef<Path>,
+    ) -> Result<Self, LocalImageError> {
+        let frame_id = resolved_frame_id.into();
+        if frame_id.is_empty() || context.screen_frame_id.as_deref() != Some(frame_id.as_str()) {
+            return Err(LocalImageError::FrameIdMismatch);
+        }
+
+        let path = path.as_ref();
+        let root = trusted_frames_root.as_ref();
+        if !path.is_absolute() || !root.is_absolute() {
+            return Err(LocalImageError::NotAbsolute);
+        }
+        let canonical_root =
+            std::fs::canonicalize(root).map_err(|_| LocalImageError::TrustedRootUnavailable)?;
+        if !canonical_root
+            .metadata()
+            .map_err(|_| LocalImageError::TrustedRootUnavailable)?
+            .is_dir()
+        {
+            return Err(LocalImageError::TrustedRootUnavailable);
+        }
+        let canonical_path =
+            std::fs::canonicalize(path).map_err(|_| LocalImageError::FrameUnavailable)?;
+        if canonical_path == canonical_root || !canonical_path.starts_with(&canonical_root) {
+            return Err(LocalImageError::OutsideTrustedRoot);
+        }
+        let metadata = canonical_path
+            .metadata()
+            .map_err(|_| LocalImageError::FrameUnavailable)?;
+        if !metadata.is_file() {
+            return Err(LocalImageError::NotAFile);
+        }
+        if metadata.len() > MAX_QUESTION_FRAME_BYTES {
+            return Err(LocalImageError::TooLarge);
+        }
+        if !has_supported_image_extension(&canonical_path) {
+            return Err(LocalImageError::UnsupportedFormat);
+        }
+
+        Ok(Self {
+            frame_id,
+            canonical_path,
+            canonical_root,
+        })
+    }
+
+    /// `AskRequest`가 바뀌었거나 파일이 링크 교체된 경우를 전송 직전에 다시 거절합니다.
+    pub(crate) fn revalidate_for(
+        &self,
+        context: &ContextSnapshot,
+    ) -> Result<&Path, LocalImageError> {
+        if context.screen_frame_id.as_deref() != Some(self.frame_id.as_str()) {
+            return Err(LocalImageError::FrameIdMismatch);
+        }
+        let current = std::fs::canonicalize(&self.canonical_path)
+            .map_err(|_| LocalImageError::FrameUnavailable)?;
+        if current != self.canonical_path
+            || current == self.canonical_root
+            || !current.starts_with(&self.canonical_root)
+        {
+            return Err(LocalImageError::OutsideTrustedRoot);
+        }
+        let metadata = current
+            .metadata()
+            .map_err(|_| LocalImageError::FrameUnavailable)?;
+        if !metadata.is_file() {
+            return Err(LocalImageError::NotAFile);
+        }
+        if metadata.len() > MAX_QUESTION_FRAME_BYTES {
+            return Err(LocalImageError::TooLarge);
+        }
+        if !has_supported_image_extension(&current) {
+            return Err(LocalImageError::UnsupportedFormat);
+        }
+        Ok(&self.canonical_path)
+    }
+
+    /// 봉인한 화면 식별자입니다. 파일 경로는 의도적으로 공개하지 않습니다.
+    pub fn frame_id(&self) -> &str {
+        &self.frame_id
+    }
+}
+
+fn has_supported_image_extension(path: &Path) -> bool {
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .map(|extension| {
+            matches!(
+                extension.to_ascii_lowercase().as_str(),
+                "jpg" | "jpeg" | "png" | "webp"
+            )
+        })
+        .unwrap_or(false)
+}
+
+/// 질문 순간 화면이 `localImage` 입력 자격을 갖추지 못한 이유입니다.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalImageError {
+    /// 스냅샷 ID와 호스트가 해결한 프레임 ID가 다릅니다.
+    FrameIdMismatch,
+    /// 파일 또는 신뢰 루트가 절대경로가 아닙니다.
+    NotAbsolute,
+    /// 호스트가 지정한 신뢰 프레임 루트를 확인할 수 없습니다.
+    TrustedRootUnavailable,
+    /// 프레임 파일이 없거나 실경로를 확인할 수 없습니다.
+    FrameUnavailable,
+    /// 링크를 푼 실경로가 신뢰 루트 밖입니다.
+    OutsideTrustedRoot,
+    /// 경로가 일반 파일이 아닙니다.
+    NotAFile,
+    /// 지원하는 질문 순간 화면 형식이 아닙니다.
+    UnsupportedFormat,
+    /// 질문 순간 화면이 허용 크기를 넘었습니다.
+    TooLarge,
+}
+
+impl fmt::Display for LocalImageError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let message = match self {
+            Self::FrameIdMismatch => "봉인한 화면 ID와 해결한 프레임 ID가 다릅니다",
+            Self::NotAbsolute => "화면 파일과 신뢰 루트는 절대경로여야 합니다",
+            Self::TrustedRootUnavailable => "신뢰 프레임 저장소를 확인할 수 없습니다",
+            Self::FrameUnavailable => "질문 순간 화면 파일을 확인할 수 없습니다",
+            Self::OutsideTrustedRoot => "화면 파일이 신뢰 프레임 저장소 밖을 가리킵니다",
+            Self::NotAFile => "질문 순간 화면 경로가 일반 파일이 아닙니다",
+            Self::UnsupportedFormat => "질문 순간 화면 형식이 JPEG, PNG, WebP가 아닙니다",
+            Self::TooLarge => "질문 순간 화면이 20 MiB를 넘습니다",
+        };
+        f.write_str(message)
+    }
+}
+
+impl std::error::Error for LocalImageError {}
+
 /// 제공자에게 보내는 한 번의 물음입니다.
 #[derive(Debug, Clone)]
 pub struct AskRequest {
@@ -68,6 +231,8 @@ pub struct AskRequest {
     /// **남의 문장**이므로 프롬프트에서는 인용 표시와 함께 질문 앞에 놓입니다
     /// ([`AskRequest::prompt`] 의 자료 절).
     pub materials: Option<String>,
+    /// 호스트가 ID와 신뢰 루트로 검증한 질문 순간 화면입니다. 임의 경로 문자열은 받지 않습니다.
+    pub local_image: Option<VerifiedQuestionFrame>,
 }
 
 impl AskRequest {
@@ -79,6 +244,7 @@ impl AskRequest {
             timeout,
             model: None,
             materials: None,
+            local_image: None,
         }
     }
 
@@ -102,6 +268,19 @@ impl AskRequest {
     pub fn with_materials(mut self, materials: impl Into<String>) -> Self {
         self.materials = Some(materials.into());
         self
+    }
+
+    /// 호스트가 이미 검증한 질문 순간 화면을 붙입니다.
+    ///
+    /// 화면의 `frame_id`가 이 요청의 봉인 스냅샷과 다시 일치해야 합니다. Codex 제공자는 전송
+    /// 직전에 파일 실경로도 재검증하고 격리 폴더로 복사합니다.
+    pub fn with_local_image(
+        mut self,
+        image: VerifiedQuestionFrame,
+    ) -> Result<Self, LocalImageError> {
+        image.revalidate_for(&self.context)?;
+        self.local_image = Some(image);
+        Ok(self)
     }
 
     /// 자식 프로세스 stdin 으로 흘려보낼 프롬프트 문자열을 만듭니다.
@@ -269,7 +448,7 @@ pub enum ProviderError {
         /// stderr 마지막 200자입니다.
         stderr_tail: String,
     },
-    /// 아직 구현하지 않았습니다(Codex 스텁).
+    /// 아직 구현하지 않은 제공자가 쓰는 호환 오류입니다.
     NotImplemented,
     /// 큐가 받아 주지 않았습니다. 보기 `full` · `shutdown` 입니다.
     Queue(String),
@@ -331,6 +510,19 @@ pub trait TutorProvider {
 mod tests {
     use super::*;
 
+    fn image_test_dir(label: &str) -> PathBuf {
+        let nonce = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("시계")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "classmate-provider-image-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("시험 폴더");
+        dir
+    }
+
     fn snapshot() -> ContextSnapshot {
         ContextSnapshot {
             transcript_segment_ids: vec!["seg-1".into(), "seg-2".into()],
@@ -361,10 +553,65 @@ mod tests {
     fn model_defaults_to_none() {
         let req = AskRequest::new(snapshot(), "IoC 가 무엇인가요", Duration::from_secs(30));
         assert_eq!(req.model, None);
+        assert_eq!(req.local_image, None);
         assert_eq!(
             req.with_model("claude-opus-5[1m]").model.as_deref(),
             Some("claude-opus-5[1m]")
         );
+    }
+
+    #[test]
+    fn verified_question_frame_accepts_only_the_snapshot_frame_inside_the_trusted_root() {
+        let dir = image_test_dir("accepted");
+        let frames = dir.join("frames");
+        std::fs::create_dir_all(&frames).expect("신뢰 프레임 루트");
+        let frame = frames.join("frame-1.png");
+        std::fs::write(&frame, b"fake png bytes").expect("시험 프레임");
+
+        let image = VerifiedQuestionFrame::verify(&snapshot(), "frame-1", &frame, &frames)
+            .expect("ID와 신뢰 루트가 맞는 프레임");
+        assert_eq!(image.frame_id(), "frame-1");
+        let request = AskRequest::new(snapshot(), "화면 설명", Duration::from_secs(30))
+            .with_local_image(image)
+            .expect("요청에도 같은 screenFrameId");
+        assert_eq!(
+            request.local_image.as_ref().map(|image| image.frame_id()),
+            Some("frame-1")
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn arbitrary_or_mismatched_local_image_paths_are_rejected() {
+        let dir = image_test_dir("rejected");
+        let frames = dir.join("frames");
+        std::fs::create_dir_all(&frames).expect("신뢰 프레임 루트");
+        let outside = dir.join("outside.png");
+        std::fs::write(&outside, b"fake png bytes").expect("루트 밖 파일");
+
+        assert_eq!(
+            VerifiedQuestionFrame::verify(&snapshot(), "frame-1", &outside, &frames),
+            Err(LocalImageError::OutsideTrustedRoot)
+        );
+        assert_eq!(
+            VerifiedQuestionFrame::verify(&snapshot(), "other-frame", &outside, &frames),
+            Err(LocalImageError::FrameIdMismatch)
+        );
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn oversized_question_frame_is_rejected_before_copy() {
+        let dir = image_test_dir("oversized");
+        let frame = dir.join("frame-1.png");
+        let file = std::fs::File::create(&frame).expect("시험 프레임");
+        file.set_len(MAX_QUESTION_FRAME_BYTES + 1)
+            .expect("희소 파일 크기");
+        assert_eq!(
+            VerifiedQuestionFrame::verify(&snapshot(), "frame-1", &frame, &dir),
+            Err(LocalImageError::TooLarge)
+        );
+        std::fs::remove_dir_all(dir).ok();
     }
 
     #[test]

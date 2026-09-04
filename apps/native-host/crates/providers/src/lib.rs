@@ -1,7 +1,7 @@
 //! 튜터 제공자 어댑터 크레이트입니다 — Phase 2 1라운드 단위 (8).
 //!
 //! 맡는 것은 다섯입니다. [`TutorProvider`] trait · Claude CLI 제공자([`ClaudeCliProvider`]) ·
-//! FIFO 큐([`ProviderQueue`]) · Codex 스텁([`CodexAppServerProvider`]) ·
+//! FIFO 큐([`ProviderQueue`]) · Codex app-server 제공자([`CodexAppServerProvider`]) ·
 //! 다시 물어보기 간격표([`RetryPolicy`] — 표만 답하고 기다리지는 않습니다).
 //!
 //! ```text
@@ -35,8 +35,8 @@ pub mod stream_json;
 pub use claude::{plan_launch, resolve_cmd_wrapper, ClaudeCliProvider, LaunchPlan, Resolved};
 pub use codex::CodexAppServerProvider;
 pub use provider::{
-    AskOutcome, AskRequest, ContextSnapshot, ProviderError, ProviderEvent, SourceAges,
-    TutorProvider,
+    AskOutcome, AskRequest, ContextSnapshot, LocalImageError, ProviderError, ProviderEvent,
+    SourceAges, TutorProvider, VerifiedQuestionFrame, MAX_QUESTION_FRAME_BYTES,
 };
 pub use queue::{OutcomeReceiver, ProviderQueue, DEFAULT_CAPACITY};
 pub use retry::RetryPolicy;
