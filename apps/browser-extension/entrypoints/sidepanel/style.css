@@ -331,6 +331,190 @@ body {
   color: var(--text-tertiary);
 }
 
+/*
+  과거 세션은 현재 교시의 붙잡은 순간과 다른 단위라 별도 줄로 둡니다. 카드처럼 띄우지 않고
+  기록 화면의 헤어라인 문법을 그대로 씁니다. 경로·파일명은 이 줄에 표시하지 않습니다.
+*/
+.cm-session-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.cm-session-row {
+  width: 100%;
+  padding: 12px var(--panel-inset);
+  border: 0;
+  border-top: 1px solid var(--border-hairline);
+  background: transparent;
+  color: var(--text-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.cm-session-row:hover {
+  background: var(--surface-card);
+}
+
+.cm-session-row:focus-visible {
+  outline: none;
+  box-shadow: inset var(--focus-ring);
+}
+
+.cm-session-row__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.cm-session-row__title {
+  min-width: 0;
+  overflow: hidden;
+  font: var(--type-body);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cm-session-row__date,
+.cm-session-row__meta {
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+}
+
+.cm-session-row__date {
+  flex: none;
+}
+
+.cm-session-row__meta {
+  display: block;
+  margin-top: 3px;
+}
+
+.cm-session-library__notice {
+  padding: 10px var(--panel-inset) 14px;
+  border-top: 1px solid var(--border-hairline);
+  color: var(--text-tertiary);
+  font: var(--type-caption);
+}
+
+.cm-session-library__notice p {
+  margin: 0 0 8px;
+}
+
+.cm-session-library__notice button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* 과거 세션 상세 — 전사·질문·답·화면 근거를 시간순 한 줄기로 읽습니다. */
+.cm-session-detail {
+  gap: 0;
+}
+
+.cm-session-detail__counts,
+.cm-session-detail__warning {
+  margin: 0;
+  padding: 10px 0;
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+}
+
+.cm-session-detail__warning {
+  border-top: 1px solid var(--border-hairline);
+}
+
+.cm-session-detail__error {
+  padding: 14px 0;
+  color: var(--text-tertiary);
+  font: var(--type-body);
+}
+
+.cm-session-detail__error p {
+  margin: 0 0 10px;
+}
+
+.cm-session-detail__error button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.cm-session-timeline {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.cm-session-moment {
+  padding: 12px 0;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.cm-session-moment__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font: var(--type-time);
+  color: var(--text-tertiary);
+}
+
+.cm-session-moment__body {
+  margin: 4px 0 0;
+  font: var(--type-body);
+  color: var(--text-body);
+  white-space: pre-wrap;
+}
+
+.cm-session-moment__section {
+  margin-top: 8px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border-hairline);
+}
+
+.cm-session-moment__section h3,
+.cm-session-moment__section p,
+.cm-session-moment__provider {
+  margin: 0;
+}
+
+.cm-session-moment__section h3 {
+  font: var(--type-caption);
+  color: var(--text-secondary);
+}
+
+.cm-session-moment__section p {
+  margin-top: 2px;
+  font: var(--type-body);
+  color: var(--text-body);
+  white-space: pre-wrap;
+}
+
+.cm-session-moment__provider {
+  margin-top: 6px;
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+}
+
+.cm-session-moment__evidence {
+  margin: 4px 0 0;
+  font: var(--type-caption);
+  color: var(--text-tertiary);
+}
+
 /* 붙잡은 순간 줄들 — 헤어라인만으로 나눕니다. 카드도 화살표도 없습니다. */
 .cm-rows {
   display: flex;

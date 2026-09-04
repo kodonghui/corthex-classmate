@@ -83,7 +83,7 @@ interface Harness {
   handshake(): void;
 }
 
-function makeHarness(options: { maxQueued?: number } = {}): Harness {
+function makeHarness(options: { maxQueued?: number; requestTimeoutMs?: number } = {}): Harness {
   const ports: FakePort[] = [];
   const statuses: { state: string; reason: string | undefined }[] = [];
   const pushes: unknown[] = [];
@@ -97,6 +97,7 @@ function makeHarness(options: { maxQueued?: number } = {}): Harness {
       return port;
     },
     ...(options.maxQueued === undefined ? {} : { maxQueued: options.maxQueued }),
+    ...(options.requestTimeoutMs === undefined ? {} : { requestTimeoutMs: options.requestTimeoutMs }),
     onStatus: (state, reason) => statuses.push({ state, reason }),
     onPush: (push) => pushes.push(push),
     onDelta: (delta) => deltas.push(delta),
@@ -171,6 +172,104 @@ describe('NativeHostClient · 왕복', () => {
     const secondResult = await second;
     expect(firstResult).toMatchObject({ status: 'replied', message: { id: 'ev-1' } });
     expect(secondResult).toMatchObject({ status: 'replied', message: { id: 'ev-2' } });
+  });
+
+  it('과거 세션 목록 응답도 기다리던 읽기 요청과 짝지웁니다', async () => {
+    const harness = makeHarness();
+    harness.client.start();
+    harness.handshake();
+
+    const sending = harness.client.send({ type: 'session.list' });
+    harness.port().reply({
+      type: 'session.listed',
+      sessions: [
+        {
+          sessionId: PERIOD,
+          legacyPeriodId: PERIOD,
+          profile: 'class',
+          eventCount: 12,
+          transcriptCount: 5,
+          questionCount: 2,
+          answerCount: 1,
+          frameCount: 1,
+        },
+      ],
+    });
+
+    expect(await sending).toMatchObject({
+      status: 'replied',
+      message: { type: 'session.listed', sessions: [{ sessionId: PERIOD }] },
+    });
+  });
+
+  it('모양은 정상이어도 맨 앞 부탁과 다른 답은 FIFO를 소비하지 않습니다', async () => {
+    const harness = makeHarness();
+    harness.client.start();
+    harness.handshake();
+
+    const history = harness.client.send({ type: 'session.list' });
+    const live = harness.client.send(appendEnvelope('ev-live'));
+    harness.port().reply({ type: 'event.ack', periodId: PERIOD, seq: 1, id: 'ev-too-early' });
+    harness.port().reply({ type: 'session.listed', sessions: [] });
+    harness.port().reply({ type: 'event.ack', periodId: PERIOD, seq: 2, id: 'ev-live' });
+
+    expect(await history).toMatchObject({ status: 'replied', message: { type: 'session.listed' } });
+    expect(await live).toMatchObject({ status: 'replied', message: { type: 'event.ack', id: 'ev-live' } });
+    expect(harness.warnings.some((line) => line.includes('기다리던 부탁과 다른 답'))).toBe(true);
+  });
+
+  it('같은 답 종류라도 다른 사건 id면 라이브 FIFO를 소비하지 않습니다', async () => {
+    const harness = makeHarness();
+    harness.client.start();
+    harness.handshake();
+
+    const live = harness.client.send(appendEnvelope('ev-live'));
+    harness.port().reply({ type: 'event.ack', periodId: PERIOD, seq: 1, id: 'ev-other' });
+    harness.port().reply({ type: 'event.ack', periodId: PERIOD, seq: 2, id: 'ev-live' });
+
+    expect(await live).toMatchObject({ status: 'replied', message: { id: 'ev-live' } });
+    expect(harness.warnings.some((line) => line.includes('기다리던 부탁과 다른 답'))).toBe(true);
+  });
+
+  it('절대 자산 경로가 든 번들 응답은 대기열을 소비하지 않습니다', async () => {
+    const harness = makeHarness();
+    harness.client.start();
+    harness.handshake();
+
+    const sending = harness.client.send({ type: 'session.bundle', sessionId: PERIOD });
+    harness.port().reply({
+      type: 'session.bundled',
+      bundle: {
+        schemaVersion: '2',
+        sessionId: PERIOD,
+        profile: 'class',
+        startedAt: '2026-09-02T10:00:00+09:00',
+        sources: [],
+        moments: [],
+        activities: [],
+        artifacts: [
+          { id: 'asset-1', kind: 'image', mediaType: 'image/jpeg', path: 'C:\\private\\frame.jpg' },
+        ],
+      },
+    });
+    harness.port().reply({
+      type: 'session.bundled',
+      bundle: {
+        schemaVersion: '2',
+        sessionId: PERIOD,
+        profile: 'class',
+        startedAt: '2026-09-02T10:00:00+09:00',
+        sources: [],
+        moments: [],
+        activities: [],
+        artifacts: [
+          { id: 'asset-1', kind: 'image', mediaType: 'image/jpeg', path: 'frames/frame.jpg' },
+        ],
+      },
+    });
+
+    expect(harness.warnings.some((line) => line.includes('모양이 다른 말'))).toBe(true);
+    expect(await sending).toMatchObject({ status: 'replied', message: { type: 'session.bundled' } });
   });
 
   it('같은 사건을 다시 보내면 오는 duplicate:true 를 성공으로 봅니다', async () => {
@@ -278,10 +377,11 @@ describe('NativeHostClient · 왕복', () => {
     expect(harness.warnings.some((line) => line.includes('모양이 다른 말'))).toBe(true);
   });
 
-  it('답이 오지 않으면 그 부탁만 포기하고 뒤엣것의 짝은 그대로 맞습니다', async () => {
+  it('답이 오지 않으면 포트를 새로 열고 재전송 가능한 부탁의 순서를 보존합니다', async () => {
     const harness = makeHarness();
     harness.client.start();
     harness.handshake();
+    const oldPort = harness.port();
 
     const stalled = harness.client.send(appendEnvelope('ev-1'));
     // 둘째 부탁은 10초 뒤에 보냅니다. 그래야 첫째만 45초를 채워 포기합니다.
@@ -290,11 +390,46 @@ describe('NativeHostClient · 왕복', () => {
 
     await vi.advanceTimersByTimeAsync(35_000);
     expect(await stalled).toEqual({ status: 'dropped', reason: 'timeout' });
+    expect(await next).toEqual({ status: 'queued' });
 
-    // 뒤늦게 온 첫 답은 포기한 자리와 짝지어지고 버려집니다. 둘째 답이 둘째 부탁의 것입니다.
+    // 옛 포트의 늦은 답은 격리되고, 새 포트에는 두 라이브 기록이 원래 순서로 재전송됩니다.
+    oldPort.reply({ type: 'event.ack', periodId: PERIOD, seq: 1, id: 'ev-1' });
+    await vi.advanceTimersByTimeAsync(1000);
+    harness.handshake();
+    const resent = harness.port().sent.slice(1) as { event?: { id?: string } }[];
+    expect(resent.map((message) => message.event?.id)).toEqual(['ev-1', 'ev-2']);
     harness.port().reply({ type: 'event.ack', periodId: PERIOD, seq: 1, id: 'ev-1' });
     harness.port().reply({ type: 'event.ack', periodId: PERIOD, seq: 2, id: 'ev-2' });
-    expect(await next).toMatchObject({ status: 'replied', message: { id: 'ev-2' } });
+    expect(harness.client.stats().waiting).toBe(0);
+  });
+
+  it('과거 세션 답이 영영 오지 않아도 새 연결에서 라이브 기록을 계속합니다', async () => {
+    const harness = makeHarness({ requestTimeoutMs: 100 });
+    harness.client.start();
+    harness.handshake();
+
+    const history = harness.client.send({ type: 'session.bundle', sessionId: PERIOD });
+    await vi.advanceTimersByTimeAsync(100);
+
+    expect(await history).toEqual({ status: 'dropped', reason: 'timeout' });
+    expect(harness.client.connected).toBe(false);
+    expect(harness.client.stats().waiting).toBe(0);
+
+    await vi.advanceTimersByTimeAsync(1000);
+    harness.handshake();
+    const live = harness.client.send(appendEnvelope('ev-after-history-timeout'));
+    harness.port().reply({
+      type: 'event.ack',
+      periodId: PERIOD,
+      seq: 1,
+      id: 'ev-after-history-timeout',
+    });
+
+    expect(await live).toMatchObject({
+      status: 'replied',
+      message: { type: 'event.ack', id: 'ev-after-history-timeout' },
+    });
+    expect(harness.client.stats().waiting).toBe(0);
   });
 });
 
@@ -481,6 +616,37 @@ describe('NativeHostClient · 끊김과 재연결', () => {
     expect(ports).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(2000);
     expect(ports).toHaveLength(1);
+  });
+
+  it('connect 예외의 민감한 원문은 경고에 싣지 않습니다', () => {
+    const warnings: string[] = [];
+    const client = new NativeHostClient({
+      connect: () => {
+        throw new Error('manifest C:\\Users\\learner\\host.json?access_token=secret');
+      },
+      warn: (message) => warnings.push(message),
+    });
+
+    client.start();
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('connect-failed');
+    expect(warnings[0]).not.toContain('C:\\Users');
+    expect(warnings[0]).not.toContain('access_token');
+  });
+
+  it('postMessage 예외의 민감한 원문은 호출 결과에 싣지 않습니다', async () => {
+    const harness = makeHarness();
+    harness.client.start();
+    harness.handshake();
+    harness.port().postMessage = () => {
+      throw new Error('file:///home/learner/private?token=secret');
+    };
+
+    expect(await harness.client.send(appendEnvelope('ev-1'))).toEqual({
+      status: 'dropped',
+      reason: 'post-failed',
+    });
   });
 
   it('stop 뒤에는 다시 붙지 않습니다', async () => {

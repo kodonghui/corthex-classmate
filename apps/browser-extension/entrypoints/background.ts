@@ -22,6 +22,7 @@ import { createFrameStorePort } from '../src/background/frame-port';
 import { NativeHostClient } from '../src/background/host-client';
 import type { NativePortLike } from '../src/background/host-client';
 import { NATIVE_HOST_NAME } from '../src/background/host-messages';
+import { handleSessionHistoryRequest } from '../src/background/session-history';
 import { LessonTabSelection } from '../src/background/lesson-tab';
 import { PeriodLog } from '../src/background/period-log';
 import { Router } from '../src/background/router';
@@ -35,6 +36,7 @@ import {
   isTiroMessage,
 } from '../src/background/tiro-messages';
 import { PANEL_PORT_NAME } from '../src/live/messages';
+import { HISTORY_SESSION_ERROR, isSessionHistoryRequest } from '../src/session-history/messages';
 
 /** Offscreen 문서의 상대 URL. WXT 가 entrypoints/offscreen/index.html 을 여기로 냅니다. */
 const OFFSCREEN_URL = 'offscreen.html';
@@ -652,6 +654,22 @@ export default defineBackground(() => {
     // 전사가 온 탭을 적어 둡니다. 나중에 `tiro.stop`·`tiro.start` 를 되말 자리입니다.
     if (isTiroMessage(message) && sender.tab?.id !== undefined) {
       lastTiroTabId = sender.tab.id;
+    }
+
+    // 과거 세션은 확장 페이지(사이드패널)에서만 읽습니다. content script는 sender.tab이
+    // 있으므로 이 길에 들어오지 못합니다. 응답에는 고정된 오류 코드만 담고 호스트의 내부
+    // 경로나 원시 오류 문장을 웹 쪽으로 내보내지 않습니다.
+    if (sender.tab === undefined && isSessionHistoryRequest(message)) {
+      void handleSessionHistoryRequest(message, host)
+        .then(sendResponse)
+        .catch(() => {
+          sendResponse({
+            type: HISTORY_SESSION_ERROR,
+            requestType: message.type,
+            reason: 'read-failed',
+          });
+        });
+      return true;
     }
 
     // 라우터가 맡은 것(tiro.* · capture.stats · capture.error)을 먼저 봅니다.

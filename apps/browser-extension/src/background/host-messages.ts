@@ -17,6 +17,9 @@
  *   frame.store  {periodId, frame, bytes…}     frame.stored {periodId, id, path, bytes, seq}
  *   tutor.ask    {periodId, questionId, …}     tutor.accepted {periodId, questionId}
  *   tutor.retry  {periodId, questionId}        tutor.accepted {periodId, questionId}
+ *   session.list {}                            session.listed {sessions}
+ *   session.getSummary {sessionId}             session.summary {summary}
+ *   session.bundle {sessionId}                 session.bundled {bundle}
  *   (부탁이 실패하면 언제나)                    error {message, reason, received}
  *
  *   호스트가 스스로 미는 것 (부탁에 대한 답이 아님)
@@ -31,6 +34,8 @@
 import type { Answer, QuestionSnapshot, SessionEvent } from '@classmate/contracts';
 import type { FrameStoreMessage, FrameStoredMessage, HostErrorMessage } from '../capture/host-messages';
 import { isFrameStoredMessage, isHostErrorMessage } from '../capture/host-messages';
+import type { SessionBundleV2, SessionSummaryV2 } from '../session-history/types';
+import { isSessionBundleV2, isSessionSummaryV2 } from '../session-history/types';
 
 /**
  * 로컬 도우미의 Native Messaging 이름입니다.
@@ -49,6 +54,12 @@ export const TUTOR_ASK = 'tutor.ask';
 export const TUTOR_RETRY = 'tutor.retry';
 export const TUTOR_ACCEPTED = 'tutor.accepted';
 export const TUTOR_EVENT = 'tutor.event';
+export const SESSION_LIST = 'session.list';
+export const SESSION_LISTED = 'session.listed';
+export const SESSION_GET_SUMMARY = 'session.getSummary';
+export const SESSION_SUMMARY = 'session.summary';
+export const SESSION_BUNDLE = 'session.bundle';
+export const SESSION_BUNDLED = 'session.bundled';
 /**
  * 답이 만들어지는 **동안** 흐르는 조각입니다. 호스트가 스스로 밉니다.
  *
@@ -90,13 +101,33 @@ export interface TutorRetryEnvelope {
   questionId: string;
 }
 
+/** 로컬 SQLite에 남은 세션을 최근 순으로 읽습니다. */
+export interface SessionListEnvelope {
+  type: typeof SESSION_LIST;
+}
+
+/** 세션의 개수·시간·제목만 다시 읽습니다. */
+export interface SessionGetSummaryEnvelope {
+  type: typeof SESSION_GET_SUMMARY;
+  sessionId: string;
+}
+
+/** 세션의 근거 순간과 자산 manifest를 V2 읽기 뷰로 받습니다. */
+export interface SessionBundleEnvelope {
+  type: typeof SESSION_BUNDLE;
+  sessionId: string;
+}
+
 /** 확장이 호스트로 보내는 것 전부입니다. */
 export type HostEnvelope =
   | PingEnvelope
   | EventAppendEnvelope
   | FrameStoreMessage
   | TutorAskEnvelope
-  | TutorRetryEnvelope;
+  | TutorRetryEnvelope
+  | SessionListEnvelope
+  | SessionGetSummaryEnvelope
+  | SessionBundleEnvelope;
 
 export interface HelloReply {
   type: typeof HELLO;
@@ -124,6 +155,21 @@ export interface TutorAcceptedReply {
   type: typeof TUTOR_ACCEPTED;
   periodId: string;
   questionId: string;
+}
+
+export interface SessionListedReply {
+  type: typeof SESSION_LISTED;
+  sessions: readonly SessionSummaryV2[];
+}
+
+export interface SessionSummaryReply {
+  type: typeof SESSION_SUMMARY;
+  summary: SessionSummaryV2;
+}
+
+export interface SessionBundledReply {
+  type: typeof SESSION_BUNDLED;
+  bundle: SessionBundleV2;
 }
 
 /** 호스트가 스스로 미는 것입니다. 부탁에 대한 답이 아니므로 대기열을 쓰지 않습니다. */
@@ -164,11 +210,18 @@ export type HostReply =
   | EventAckReply
   | FrameStoredMessage
   | TutorAcceptedReply
+  | SessionListedReply
+  | SessionSummaryReply
+  | SessionBundledReply
   | TutorEventPush
   | HostErrorMessage;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  return Object.keys(value).every((key) => allowed.includes(key));
 }
 
 export function isHelloReply(value: unknown): value is HelloReply {
@@ -187,6 +240,36 @@ export function isEventAckReply(value: unknown): value is EventAckReply {
 export function isTutorAcceptedReply(value: unknown): value is TutorAcceptedReply {
   if (!isRecord(value) || value['type'] !== TUTOR_ACCEPTED) return false;
   return typeof value['periodId'] === 'string' && typeof value['questionId'] === 'string';
+}
+
+export function isSessionListedReply(value: unknown): value is SessionListedReply {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ['type', 'sessions']) ||
+    value['type'] !== SESSION_LISTED ||
+    !Array.isArray(value['sessions'])
+  ) {
+    return false;
+  }
+  return value['sessions'].every(isSessionSummaryV2);
+}
+
+export function isSessionSummaryReply(value: unknown): value is SessionSummaryReply {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, ['type', 'summary']) &&
+    value['type'] === SESSION_SUMMARY &&
+    isSessionSummaryV2(value['summary'])
+  );
+}
+
+export function isSessionBundledReply(value: unknown): value is SessionBundledReply {
+  return (
+    isRecord(value) &&
+    hasOnlyKeys(value, ['type', 'bundle']) &&
+    value['type'] === SESSION_BUNDLED &&
+    isSessionBundleV2(value['bundle'])
+  );
 }
 
 export function isTutorEventPush(value: unknown): value is TutorEventPush {
@@ -225,9 +308,49 @@ export function isHostReply(value: unknown): value is HostReply {
     isEventAckReply(value) ||
     isFrameStoredMessage(value) ||
     isTutorAcceptedReply(value) ||
+    isSessionListedReply(value) ||
+    isSessionSummaryReply(value) ||
+    isSessionBundledReply(value) ||
     isTutorEventPush(value) ||
     isHostErrorMessage(value)
   );
+}
+
+/**
+ * 구조가 정상인 답이 FIFO 맨 앞의 부탁과 같은 왕복인지 확인합니다.
+ * 다른 종류의 정상 답도 먼저 꺼내 버리면 그 뒤의 라이브 `event.ack`까지 한 칸씩 밀립니다.
+ */
+export function replyMatchesEnvelope(envelope: HostEnvelope, reply: HostReply): boolean {
+  if (isHostErrorMessage(reply)) return reply.received === envelope.type;
+  switch (envelope.type) {
+    case PING:
+      return isHelloReply(reply);
+    case EVENT_APPEND:
+      return (
+        isEventAckReply(reply) &&
+        reply.periodId === envelope.periodId &&
+        reply.id === envelope.event.id
+      );
+    case 'frame.store':
+      return (
+        isFrameStoredMessage(reply) &&
+        reply.periodId === envelope.periodId &&
+        reply.id === envelope.frame.id
+      );
+    case TUTOR_ASK:
+    case TUTOR_RETRY:
+      return (
+        isTutorAcceptedReply(reply) &&
+        reply.periodId === envelope.periodId &&
+        reply.questionId === envelope.questionId
+      );
+    case SESSION_LIST:
+      return isSessionListedReply(reply);
+    case SESSION_GET_SUMMARY:
+      return isSessionSummaryReply(reply) && reply.summary.sessionId === envelope.sessionId;
+    case SESSION_BUNDLE:
+      return isSessionBundledReply(reply) && reply.bundle.sessionId === envelope.sessionId;
+  }
 }
 
 /**

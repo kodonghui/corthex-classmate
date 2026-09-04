@@ -15,7 +15,7 @@
 
 import type { SessionEvent } from "@classmate/contracts";
 import { formatIso } from "@classmate/tutor-core";
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { historyView } from "./history-view";
 import { detailView, detailViewFor, listeningAskParent, listeningView } from "./lesson-view";
@@ -26,6 +26,13 @@ import { DetailScreen } from "./screens/DetailScreen";
 import { HistoryScreen } from "./screens/HistoryScreen";
 import { ListeningScreen } from "./screens/ListeningScreen";
 import { SettingsScreen } from "./screens/SettingsScreen";
+import { PastSessionScreen } from "./screens/PastSessionScreen";
+import type { PastSessionScreenState } from "./screens/PastSessionScreen";
+import type { SessionHistoryClient } from "../session-history/client";
+import { sessionHistoryErrorText } from "../session-history/client";
+import type { SessionLibraryView } from "../session-history/view";
+import { pastSessionDetailViewFromBundle, sessionLibraryView } from "../session-history/view";
+import type { SessionSummaryV2 } from "../session-history/types";
 import type { Settings, SettingsStorage } from "./settings-store";
 import {
   DEFAULT_SETTINGS,
@@ -63,6 +70,18 @@ export interface PanelAppProps {
   readonly onReconnect?: (connector: ReconnectTarget) => void;
   /** 설정의 "오늘 기록 지우기" 를 확인했을 때입니다. */
   readonly onClearToday?: () => void;
+  /** Native Host의 과거 세션 읽기 전용 API입니다. fixture에는 넣지 않습니다. */
+  readonly sessionHistory?: SessionHistoryClient;
+}
+
+type SessionListState =
+  | { readonly status: "idle" | "loading" }
+  | { readonly status: "ready"; readonly sessions: readonly SessionSummaryV2[] }
+  | { readonly status: "error"; readonly message: string };
+
+interface PastSessionTarget {
+  readonly sessionId: string;
+  readonly title: string;
 }
 
 export function PanelApp({
@@ -71,11 +90,16 @@ export function PanelApp({
   settings: settingsStorage,
   onReconnect,
   onClearToday,
+  sessionHistory,
 }: PanelAppProps): React.JSX.Element {
   const state = useSyncExternalStore(store.subscribe, store.getState, store.getState);
   const [overlay, setOverlay] = useState<Overlay>("none");
   /** 기록에서 연 지난 순간입니다. null 이면 기록 목록을 그립니다. */
   const [openedMoment, setOpenedMoment] = useState<string | null>(null);
+  const [sessionList, setSessionList] = useState<SessionListState>({ status: "idle" });
+  const [openedPast, setOpenedPast] = useState<PastSessionScreenState | null>(null);
+  const [openedPastTarget, setOpenedPastTarget] = useState<PastSessionTarget | null>(null);
+  const sessionRequest = useRef(0);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
 
   // `chrome` 전역은 여기서 처음 만집니다. 모듈 최상위에서 만지면 vitest(env node)가 깨집니다.
@@ -148,19 +172,100 @@ export function PanelApp({
   }, [store, overlay, settings.altS]);
 
   const goLesson = useCallback((): void => {
+    sessionRequest.current += 1;
     setOverlay("none");
     setOpenedMoment(null);
+    setOpenedPast(null);
+    setOpenedPastTarget(null);
   }, []);
+
+  useEffect(() => {
+    // 라이브에서 클라이언트 배선이 교체되면 옛 클라이언트의 늦은 결과를 새 화면에 쓰지 않습니다.
+    sessionRequest.current += 1;
+    setSessionList({ status: "idle" });
+    setOpenedPast(null);
+    setOpenedPastTarget(null);
+  }, [sessionHistory]);
+
+  const loadPastSessions = useCallback((): void => {
+    if (sessionHistory === undefined) return;
+    const request = sessionRequest.current + 1;
+    sessionRequest.current = request;
+    setSessionList({ status: "loading" });
+    void sessionHistory.list().then((result) => {
+      if (sessionRequest.current !== request) return;
+      if (result.status === "error") {
+        setSessionList({ status: "error", message: sessionHistoryErrorText(result.reason) });
+        return;
+      }
+      setSessionList({ status: "ready", sessions: result.value });
+    }).catch(() => {
+      if (sessionRequest.current !== request) return;
+      setSessionList({ status: "error", message: sessionHistoryErrorText("read-failed") });
+    });
+  }, [sessionHistory]);
+
+  useEffect(() => {
+    if (overlay !== "history" || sessionHistory === undefined || sessionList.status !== "idle") return;
+    loadPastSessions();
+  }, [loadPastSessions, overlay, sessionHistory, sessionList.status]);
+
+  const loadPastSession = useCallback(
+    (sessionId: string, title: string): void => {
+      if (sessionHistory === undefined) return;
+      const request = sessionRequest.current + 1;
+      sessionRequest.current = request;
+      setOpenedPast({ status: "loading", title });
+      void sessionHistory.getBundle(sessionId)
+        .then((bundle) => {
+          if (sessionRequest.current !== request) return;
+          if (bundle.status === "error") {
+            setOpenedPast({ status: "error", title, message: sessionHistoryErrorText(bundle.reason) });
+            return;
+          }
+          setOpenedPast({ status: "ready", view: pastSessionDetailViewFromBundle(bundle.value) });
+        })
+        .catch(() => {
+          if (sessionRequest.current !== request) return;
+          setOpenedPast({ status: "error", title, message: sessionHistoryErrorText("read-failed") });
+        });
+    },
+    [sessionHistory],
+  );
+
+  const openPastSession = useCallback(
+    (sessionId: string, title: string): void => {
+      setOpenedPastTarget({ sessionId, title });
+      loadPastSession(sessionId, title);
+    },
+    [loadPastSession],
+  );
+
+  const retryPastSession = useCallback((): void => {
+    if (openedPastTarget === null) return;
+    loadPastSession(openedPastTarget.sessionId, openedPastTarget.title);
+  }, [loadPastSession, openedPastTarget]);
+
+  const library: SessionLibraryView | undefined =
+    sessionHistory === undefined
+      ? undefined
+      : sessionList.status === "ready"
+        ? sessionLibraryView(sessionList.sessions, store.bundle.periodId)
+        : sessionList.status === "error"
+          ? { status: "error", rows: [], message: sessionList.message }
+          : { status: "loading", rows: [] };
 
   const lines = store.lines(state.now);
   const opened =
-    overlay === "history" && openedMoment !== null ? detailViewFor(store.bundle, state, lines, openedMoment) : null;
+    overlay === "history" && openedPast === null && openedMoment !== null
+      ? detailViewFor(store.bundle, state, lines, openedMoment)
+      : null;
   const detail = overlay === "none" && state.screen === "detail" ? detailView(store.bundle, state, lines) : null;
 
   const label =
     overlay === "settings"
       ? "설정"
-      : opened !== null || detail !== null
+      : openedPast !== null || opened !== null || detail !== null
         ? "자세히"
         : overlay === "history"
           ? "기록"
@@ -185,11 +290,28 @@ export function PanelApp({
           }}
         />
       ) : overlay === "history" ? (
-        opened === null ? (
+        openedPast !== null ? (
+          <PastSessionScreen
+            state={openedPast}
+            onRetry={retryPastSession}
+            onBack={() => {
+              sessionRequest.current += 1;
+              setOpenedPast(null);
+              setOpenedPastTarget(null);
+            }}
+          />
+        ) : opened === null ? (
           <HistoryScreen
             view={historyView(store.bundle, state)}
             onBack={goLesson}
             onOpen={(questionId) => setOpenedMoment(questionId)}
+            {...(library === undefined
+              ? {}
+              : {
+                  library,
+                  onOpenSession: openPastSession,
+                  onReloadSessions: loadPastSessions,
+                })}
           />
         ) : (
           // 기록에서 연 자세히는 "수업으로 돌아가기" 도 헤더 뒤로도 듣는 중으로 갑니다(정본 dc.html 의 goHome).
@@ -218,7 +340,11 @@ export function PanelApp({
           onExpand={() => store.expand()}
           onSettings={() => setOverlay("settings")}
           onHistory={() => {
+            sessionRequest.current += 1;
             setOpenedMoment(null);
+            setOpenedPast(null);
+            setOpenedPastTarget(null);
+            if (sessionHistory !== undefined) setSessionList({ status: "idle" });
             setOverlay("history");
           }}
           onReconnect={(connector) => onReconnect?.(connector)}

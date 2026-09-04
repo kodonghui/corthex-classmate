@@ -9,6 +9,7 @@ import { ReplayStore } from '../../src/panel/replay-store';
 import type { Settings } from '../../src/panel/settings-store';
 import { detectSettingsStorage, readSettings, withTextScaleApplied } from '../../src/panel/settings-store';
 import { makePeriodId } from '../../src/tiro/period';
+import { createSessionHistoryClient } from '../../src/session-history/client';
 
 /**
  * 사이드패널의 뿌리. 데이터 소스는 주소의 `?replay=` 로 고릅니다.
@@ -94,6 +95,13 @@ function FixtureApp({ mode }: { readonly mode: 'auto' | 'manual' }): React.JSX.E
 
 function LiveApp(): React.JSX.Element | null {
   const [setup, setSetup] = useState<LiveSetup | null>(null);
+  const sessionHistory = useMemo(
+    () =>
+      createSessionHistoryClient({
+        sendMessage: (message) => chrome.runtime.sendMessage(message),
+      }),
+    [],
+  );
 
   /*
     보관소는 한 번만 만들어 이 컴포넌트의 첫 읽기와 PanelApp 이 **함께** 씁니다.
@@ -126,6 +134,7 @@ function LiveApp(): React.JSX.Element | null {
       autoClock
       settings={storage}
       onReconnect={(connector) => setup.live.reconnect(connector)}
+      sessionHistory={sessionHistory}
     />
   );
 }

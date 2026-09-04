@@ -4,7 +4,7 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { atClock, clockOfIso, clockOfMs } from "./clock";
+import { atClock, clockOfIso, clockOfMs, dateTimeOfIso } from "./clock";
 
 /** 이 시험이 쓰는 시간대 둘입니다. KST 는 +09:00, 뉴욕 여름은 -04:00 입니다. */
 const KST = 540;
@@ -35,6 +35,11 @@ describe("clockOfIso", () => {
     expect(clockOfIso("2026-09-03T11:20:46+0900", 0)).toBe("02:20:46");
   });
 
+  it("정본이 허용하는 소문자 구분자와 공백 구분자도 같은 KST로 읽습니다", () => {
+    expect(clockOfIso("2026-09-03t02:20:46z", KST)).toBe("11:20:46");
+    expect(clockOfIso("2026-09-03 02:20:46+0000", KST)).toBe("11:20:46");
+  });
+
   it("시간대가 안 적혀 있으면 이미 화면이 쓰는 벽시계로 봅니다", () => {
     expect(clockOfIso("2026-09-03T11:20:46", KST)).toBe("11:20:46");
     expect(clockOfIso("2026-09-03T11:20:46", NEW_YORK)).toBe("11:20:46");
@@ -54,6 +59,20 @@ describe("clockOfIso", () => {
 describe("clockOfMs", () => {
   it("밀리초 시각은 KST 로 읽습니다 (재생 화면이 컴퓨터마다 흔들리지 않게)", () => {
     expect(clockOfMs(Date.parse("2026-09-02T10:32:18+09:00"))).toBe("10:32:18");
+  });
+});
+
+describe("dateTimeOfIso", () => {
+  it("UTC 날짜가 KST에서 자정을 넘으면 날짜와 시각을 함께 옮깁니다", () => {
+    expect(dateTimeOfIso("2026-09-03T15:30:00Z")).toBe("2026.09.04 00:30");
+  });
+
+  it("다른 오프셋으로 적힌 순간도 같은 KST 축에 표시합니다", () => {
+    expect(dateTimeOfIso("2026-09-04T20:30:00-04:00")).toBe("2026.09.05 09:30");
+  });
+
+  it("해석할 수 없는 시각은 조용히 그리지 않고 막습니다", () => {
+    expect(() => dateTimeOfIso("어제 오후")).toThrow(RangeError);
   });
 });
 

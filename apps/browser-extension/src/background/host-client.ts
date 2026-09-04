@@ -44,6 +44,7 @@ import {
   isResendable,
   isTutorDeltaPush,
   isTutorEventPush,
+  replyMatchesEnvelope,
 } from './host-messages';
 
 /** 포트에서 우리가 쓰는 부분만 적었습니다. `chrome.runtime.Port` 가 이 모양을 만족합니다. */
@@ -299,6 +300,13 @@ export class NativeHostClient {
         entry.settle = null;
         this.warn(`도우미가 ${this.options.requestTimeoutMs}ms 안에 답하지 않았어요 · ${envelope.type}`);
         settled({ status: 'dropped', reason: 'timeout' });
+
+        // FIFO에는 응답 id가 없으므로, 답이 영영 오지 않은 자리를 그냥 빼면 아주 늦은 답이
+        // 다음 부탁을 먹습니다. 연결을 새로 열어 옛 포트의 늦은 답 자체를 격리합니다.
+        const wasConnected = this.handshaken;
+        this.teardown('timeout');
+        if (wasConnected) this.onStatus('off', 'timeout');
+        this.scheduleReconnect('timeout');
       }, this.options.requestTimeoutMs);
 
       try {
@@ -306,8 +314,10 @@ export class NativeHostClient {
       } catch (error: unknown) {
         // postMessage 가 던지면 답은 영영 오지 않습니다. 자리를 비우고 곧장 끝냅니다.
         this.removeWaiting(entry);
-        const reason = error instanceof Error ? error.message : 'post-failed';
-        entry.settle?.({ status: 'dropped', reason });
+        // 브라우저/호스트가 던진 원문에는 로컬 경로나 등록 명령이 섞일 수 있으므로
+        // 호출자에게는 정해진 이유 코드만 건넵니다.
+        void error;
+        entry.settle?.({ status: 'dropped', reason: 'post-failed' });
         entry.settle = null;
       }
     });
@@ -333,8 +343,10 @@ export class NativeHostClient {
       port = this.options.connect();
     } catch (error: unknown) {
       // 권한이 없거나 호스트 이름이 등록되지 않았으면 여기서 던집니다.
-      const reason = error instanceof Error ? error.message : 'connect-failed';
-      this.scheduleReconnect(reason);
+      // 예외 원문을 로그에 싣지 않습니다. Chrome의 원문에는 로컬 manifest 경로가
+      // 포함될 수 있어 고정 이유 코드로만 재연결 상태를 알립니다.
+      void error;
+      this.scheduleReconnect('connect-failed');
       return;
     }
 
@@ -377,18 +389,24 @@ export class NativeHostClient {
       return;
     }
 
+    // 호스트는 한 줄로 일하지만, 구조가 정상인 엉뚱한 답 하나도 FIFO를 밀지 못하게 왕복
+    // 종류를 다시 맞춥니다. 맞지 않으면 맨 앞 자리를 그대로 둡니다.
+    const entry = this.waiting[0];
+    if (entry === undefined) {
+      this.warn('도우미가 부탁하지 않은 답을 보냈어요 · 무시합니다');
+      return;
+    }
+    if (!replyMatchesEnvelope(entry.envelope, message)) {
+      this.warn('도우미가 기다리던 부탁과 다른 답을 보냈어요 · 대기열은 그대로 두고 버립니다');
+      return;
+    }
+    this.waiting.shift();
+
     if (isHelloReply(message) && !this.handshaken) {
       this.handshaken = true;
       this.attempts = 0;
       this.onStatus('connected');
       this.flushPending();
-    }
-
-    // 호스트는 한 줄로 일하므로 답은 보낸 순서대로 옵니다. 맨 앞과 짝지웁니다.
-    const entry = this.waiting.shift();
-    if (entry === undefined) {
-      this.warn('도우미가 부탁하지 않은 답을 보냈어요 · 무시합니다');
-      return;
     }
     if (entry.timer !== null) {
       this.timers.clearTimeout(entry.timer);

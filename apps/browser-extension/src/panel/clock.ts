@@ -21,10 +21,10 @@
 import type { IsoDateTime } from "@classmate/contracts";
 import { KST_OFFSET_MINUTES, formatIso } from "@classmate/tutor-core";
 
-const CLOCK_IN_ISO = /T(\d{2}:\d{2}:\d{2})/;
+const CLOCK_IN_ISO = /[Tt ](\d{2}:\d{2}:\d{2})/;
 
 /** 문자열 끝에 적힌 시간대입니다. `Z` · `+09:00` · `+0900` 을 봅니다. */
-const OFFSET_IN_ISO = /(?:(Z)|([+-])(\d{2}):?(\d{2}))$/;
+const OFFSET_IN_ISO = /(?:([Zz])|([+-])(\d{2}):?(\d{2}))$/;
 
 /**
  * 문자열에 **적혀 있는** 시간대를 분으로 읽습니다. 아무것도 안 적혀 있으면 null 입니다.
@@ -85,6 +85,24 @@ export function clockOfIso(
  */
 export function clockOfMs(ms: number): string {
   return clockOfIso(formatIso(ms), KST_OFFSET_MINUTES);
+}
+
+/**
+ * ISO 시각을 화면 축(KST 기본값)의 `YYYY.MM.DD HH:mm`으로 냅니다.
+ *
+ * `clockOfIso`와 달리 날짜까지 표시하므로 오프셋 변환 중 자정이 넘어가는 경우도 함께
+ * 옮깁니다. 과거 세션 목록처럼 날짜와 시각을 한 줄에 쓰는 자리가 이 함수를 공유합니다.
+ */
+export function dateTimeOfIso(
+  iso: IsoDateTime,
+  viewerOffsetMinutes: number = KST_OFFSET_MINUTES,
+): string {
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) {
+    throw new RangeError(`시각 문자열이 ISO 8601 모양이 아니에요: ${iso}`);
+  }
+  const shifted = new Date(ms + Math.trunc(viewerOffsetMinutes) * 60_000).toISOString();
+  return `${shifted.slice(0, 10).replaceAll('-', '.')} ${shifted.slice(11, 16)}`;
 }
 
 /**
