@@ -11,7 +11,7 @@
 //   detail ───▶ 자세히 화면 (F) — 홈에서는 ready 와 같게 그립니다
 //   folded ───▶ MarginNote collapsed (E)
 
-import type { Answer, Id } from "@classmate/contracts";
+import type { Answer, Id, SessionProfileV2 } from "@classmate/contracts";
 import { answerView, foldNotice, parseIso, WAITING_FOOTER_LINE, WAITING_NOTE_LINE } from "@classmate/tutor-core";
 import type {
   AnswerSection,
@@ -26,6 +26,7 @@ import type {
 } from "@classmate/ui-classmate";
 
 import { formatAgo } from "../lib/format-time";
+import { sessionProfileCopy } from "../session-profile";
 import { clockOfIso, clockOfMs } from "./clock";
 import { evidenceType } from "./evidence";
 import type { GoldenBundle } from "./golden-bundle";
@@ -216,6 +217,10 @@ export interface DetailView {
   /** 이어 물은 후속들입니다(물은 순서). */
   readonly threads: readonly ThreadView[];
   readonly nowLine: string | null;
+  /** 프로필에 맞는 현재 맥락의 발화자/자료 접두사입니다. */
+  readonly nowPrefix: string;
+  /** 수업 fixture는 기존 문구, 시험·회의는 중립적인 세션 문구입니다. */
+  readonly returnLabel: string;
 }
 
 /** 화면 칩 문구 → 칩 id. 정본 디자인의 id 를 따릅니다. */
@@ -353,7 +358,6 @@ function screenTrouble(state: ReplayState): { state: string; reason: string | nu
  * 오면 지어내지 않고 일반 문장을 씁니다.
  */
 const SCREEN_TROUBLE_LINE: Readonly<Record<string, string>> = {
-  "no-lesson-tab": "수업 화면 탭을 아직 안 골랐어요. 영상 탭에서 확장 아이콘을 눌러 주세요.",
   "no-permission": "이 탭은 찍을 권한이 없어요. 영상 탭에서 확장 아이콘을 한 번 눌러 주세요.",
   "not-active": "수업 화면 탭이 그 창에서 뒤에 있어요. 앞으로 꺼내 주세요.",
   "capture-failed": "화면을 찍는 데 실패했어요.",
@@ -362,21 +366,31 @@ const SCREEN_TROUBLE_LINE: Readonly<Record<string, string>> = {
 };
 
 /** 답이 딸린 세 자료의 근거 칩입니다. 근거 단계는 답의 것을 그대로 쓰고 시각은 붙잡은 시각입니다. */
-export function evidenceOf(answer: Answer, moment: Moment | null): EvidenceItem[] {
+export function evidenceOf(
+  answer: Answer,
+  moment: Moment | null,
+  profile: SessionProfileV2 = 'class',
+): EvidenceItem[] {
   const type = evidenceType(answer.evidence);
   const time = moment === null ? undefined : moment.time.slice(0, 5);
-  return SOURCE_ORDER.map((source) => (time === undefined ? { type, source } : { type, source, time }));
+  const sources = sessionProfileCopy(profile).includesEditor ? SOURCE_ORDER : SOURCE_ORDER.slice(0, 2);
+  return sources.map((source) => (time === undefined ? { type, source } : { type, source, time }));
 }
 
 /** 칩을 눌렀을 때 메모에 대신 보일 글과 근거입니다. fixture 의 details 에 있는 것만 씁니다. */
-export function chipContent(answer: Answer, chip: string | null, moment: Moment | null): { text: string; evidence: EvidenceItem[] } {
+export function chipContent(
+  answer: Answer,
+  chip: string | null,
+  moment: Moment | null,
+  profile: SessionProfileV2 = 'class',
+): { text: string; evidence: EvidenceItem[] } {
   const details = answer.details ?? {};
   const type = evidenceType(answer.evidence);
   const time = moment === null ? undefined : moment.time.slice(0, 5);
   const withSource = (source: string): EvidenceItem => (time === undefined ? { type, source } : { type, source, time });
   if (chip === "why" && details.why !== undefined) return { text: details.why, evidence: [withSource("tiro")] };
   if (chip === "screen" && details.screenCode !== undefined) return { text: details.screenCode, evidence: [withSource("meet")] };
-  if (chip === "mine" && details.compareMyCode !== undefined) {
+  if (chip === "mine" && sessionProfileCopy(profile).includesEditor && details.compareMyCode !== undefined) {
     return { text: details.compareMyCode, evidence: [withSource("intellij")] };
   }
   if (chip !== null) {
@@ -385,7 +399,7 @@ export function chipContent(answer: Answer, chip: string | null, moment: Moment 
       evidence: [{ type: "inferred", reason: "이 칩의 글이 fixture 에 없어 결론을 그대로 보여요" }],
     };
   }
-  return { text: answer.conclusion, evidence: evidenceOf(answer, moment) };
+  return { text: answer.conclusion, evidence: evidenceOf(answer, moment, profile) };
 }
 
 /**
@@ -427,11 +441,12 @@ function preparingSources(bundle: GoldenBundle, moment: Moment | null, paused: b
   const tiroAge = ages?.transcriptSec ?? null;
   const screenAge = ages?.screenSec ?? null;
   const editorAge = ages?.editorSec ?? null;
-  return [
+  const sources: SourceItem[] = [
     { key: "tiro", state: paused ? "paused" : "live", label: paused ? "전사 멈춤" : `전사 ${formatAgo(tiroAge)}` },
     { key: "meet", state: "live", label: `화면 ${formatAgo(screenAge)}` },
     { key: "intellij", state: "live", label: `${file} ${formatAgo(editorAge)}` },
   ];
+  return sessionProfileCopy(bundle.profile).includesEditor ? sources : sources.slice(0, 2);
 }
 
 /**
@@ -487,7 +502,7 @@ function noteOf(bundle: GoldenBundle, state: ReplayState): NoteView {
     return { kind: "collapsed", lineId: moment.lineId, term: moment.term, time: moment.time, conclusion: answer.conclusion };
   }
 
-  const { text, evidence } = chipContent(answer, state.chip, moment);
+  const { text, evidence } = chipContent(answer, state.chip, moment, bundle.profile);
   return {
     kind: "ready",
     lineId: moment.lineId,
@@ -511,6 +526,7 @@ const VISIBLE_WITHOUT_NOTE = 5;
 const LIVE_VISIBLE = 400;
 
 function footerOf(bundle: GoldenBundle, state: ReplayState): FooterView {
+  const copy = sessionProfileCopy(bundle.profile);
   const ages = sourceAges(bundle, state.now);
   const paused = tiroPaused(state);
   const sources: FooterSource[] = [
@@ -535,7 +551,7 @@ function footerOf(bundle: GoldenBundle, state: ReplayState): FooterView {
     warn = {
       tone: "paused",
       title: "전사가 잠시 멈췄어요.",
-      description: "화면과 코드는 계속 기록하고 있어요.",
+      description: copy.transcriptPausedDescription,
       action: RECONNECT_LABEL,
       reconnect: "tiro-share",
     };
@@ -552,13 +568,17 @@ function footerOf(bundle: GoldenBundle, state: ReplayState): FooterView {
     // 위의 셋(제공자·전사·도우미)이 멀쩡할 때만 이 줄이 보입니다.
     warn = {
       tone: "paused",
-      title: "수업 화면을 못 찍고 있어요.",
-      description: `${screen.reason === null ? "" : `${SCREEN_TROUBLE_LINE[screen.reason] ?? "까닭을 알 수 없어요."} `}질문과 전사는 그대로 기록해요.`,
+      title: copy.screenMissingTitle,
+      description: `${screen.reason === null ? "" : `${screen.reason === "no-lesson-tab" ? copy.screenNotSelected : (SCREEN_TROUBLE_LINE[screen.reason] ?? "까닭을 알 수 없어요.")} `}질문과 전사는 그대로 기록해요.`,
       action: RECONNECT_LABEL,
       reconnect: "meet-tab",
     };
   }
-  return { sources, count: state.moments.length, warn };
+  return {
+    sources: copy.includesEditor ? sources : sources.slice(0, 2),
+    count: state.moments.length,
+    warn,
+  };
 }
 
 /**
@@ -593,10 +613,11 @@ export function listeningView(
   const moment = currentMoment(state);
   const answer = currentAnswer(bundle, state);
   const paused = tiroPaused(state);
+  const copy = sessionProfileCopy(bundle.profile);
   return {
     header: {
       title: bundle.subject,
-      subtitle: `${bundle.periodIndex}교시`,
+      subtitle: copy.slot(bundle.periodIndex),
       time: clockOfMs(state.now),
       status: paused ? "paused" : "live",
     },
@@ -632,32 +653,38 @@ function highlightLinesOf(code: string, needle: string): number[] {
 /** 자세히 화면의 접힌 절 4종입니다. fixture 의 details 에 있는 절만 만듭니다. */
 export function sectionsOf(bundle: GoldenBundle, answer: Answer, line: TranscriptLine | null): AnswerSection[] {
   const details = answer.details ?? {};
+  const copy = sessionProfileCopy(bundle.profile);
   const file = basename(bundle.editor.filePath);
   const sections: AnswerSection[] = [];
   if (details.why !== undefined) {
     sections.push({ id: "why", label: "왜 그런가요", content: details.why, defaultOpen: true });
   }
-  if (details.compareMyCode !== undefined) {
+  if (copy.includesEditor && details.compareMyCode !== undefined) {
     sections.push({ id: "cmp", label: "내 코드와 비교", icon: "git-compare", meta: file, content: details.compareMyCode });
   }
   if (details.screenCode !== undefined) {
-    sections.push({
-      id: "code",
-      label: "선생님 화면 코드",
-      icon: "monitor",
-      type: "code",
-      code: bundle.editor.excerpt,
-      caption: `화면 · ${file}`,
-      source: clockOfIso(bundle.editor.capturedAt),
-      highlightLines: highlightLinesOf(bundle.editor.excerpt, "= new "),
-      lineNumbers: true,
-      content: details.screenCode,
-    });
+    if (copy.includesEditor) {
+      sections.push({
+        id: "code",
+        label: copy.screenSection,
+        icon: "monitor",
+        type: "code",
+        code: bundle.editor.excerpt,
+        caption: `화면 · ${file}`,
+        source: clockOfIso(bundle.editor.capturedAt),
+        highlightLines: highlightLinesOf(bundle.editor.excerpt, "= new "),
+        lineNumbers: true,
+        content: details.screenCode,
+      });
+    } else {
+      // 시험·회의에는 IntelliJ 자리표시를 코드 근거인 것처럼 보여 주지 않습니다.
+      sections.push({ id: "code", label: copy.screenSection, icon: "monitor", content: details.screenCode });
+    }
   }
   if (details.teacherSaid !== undefined) {
     sections.push({
       id: "said",
-      label: "선생님이 말한 부분",
+      label: copy.saidSection,
       type: "quote",
       content: details.teacherSaid,
       ...(line?.time === undefined ? {} : { time: line.time }),
@@ -704,7 +731,7 @@ function carriedOf(bundle: GoldenBundle, state: ReplayState): CarriedNoteView[] 
         time: moment.time,
         conclusion: answer?.conclusion ?? null,
         body: answer === null ? null : noteBody(answer, null),
-        evidence: answer === null ? [] : evidenceOf(answer, moment),
+        evidence: answer === null ? [] : evidenceOf(answer, moment, bundle.profile),
         stream: answer === null ? streamOf(state, questionId) : null,
         failure: answer === null ? failureOf(state, questionId) : null,
       },
@@ -735,7 +762,7 @@ function threadsOf(bundle: GoldenBundle, state: ReplayState, questionId: Id): Th
       loading: item.state === "waiting",
       stream: item.state === "waiting" ? streamOf(state, item.id) : null,
       conclusion: answer?.conclusion ?? "",
-      evidence: answer === null ? [] : evidenceOf(answer, null),
+      evidence: answer === null ? [] : evidenceOf(answer, null, bundle.profile),
       failure: item.state === "failed" ? item.message : null,
     };
   });
@@ -771,12 +798,14 @@ export function detailViewFor(
       current && view.waiting ? "튜터가 돌아오면 여기에 나타나요 · 순간은 저장됐어요" : "한 줄로 정리하고 있어요",
     stream: loading ? streamOf(state, questionId) : null,
     conclusion: answer?.conclusion ?? "",
-    evidence: answer === null ? [] : evidenceOf(answer, moment),
+    evidence: answer === null ? [] : evidenceOf(answer, moment, bundle.profile),
     sections: answer === null ? [] : sectionsOf(bundle, answer, line),
     followUps: followUpsOf(state, answer, current),
     reply: current ? state.reply : null,
     threads: threadsOf(bundle, state, questionId),
     nowLine: answer?.nowLine === undefined ? pinnedNow(bundle, state.now) : answer.nowLine,
+    nowPrefix: sessionProfileCopy(bundle.profile).nowPrefix,
+    returnLabel: sessionProfileCopy(bundle.profile).returnToSession,
   };
 }
 

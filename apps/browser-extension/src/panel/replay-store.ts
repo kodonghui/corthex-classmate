@@ -39,6 +39,7 @@ import type {
   QuestionSnapshot,
   ScreenFrame,
   SessionEvent,
+  SessionProfileV2,
   TranscriptSegment,
 } from "@classmate/contracts";
 import type { Effect, Env, MachineInput, MachineState } from "@classmate/tutor-core";
@@ -47,7 +48,7 @@ import type { TranscriptLine } from "@classmate/ui-classmate";
 
 import {
   ASK_EASIER,
-  ASK_WHY,
+  askWhyForProfile,
   clampAskQuestion,
   followUpQuestion,
   normalizeAskText,
@@ -61,6 +62,7 @@ import { guessesFromSentence, WHOLE_SENTENCE_TERM } from "./guesses";
 import { termsInText } from "./live-terms";
 import type { AnswerDelta, AskPort, AskRequest, PanelInbox, PanelOutbox } from "./ports";
 import { foldSegments, resolveAlias, segmentKeyOfWord, toTranscriptLines } from "./transcript-lines";
+import { normalizeSessionProfile, sessionProfileCopy } from "../session-profile";
 
 export type Screen = "home" | "detail";
 
@@ -243,6 +245,8 @@ export interface ReplayStoreOptions {
 export interface LiveStoreOptions {
   readonly periodId: PeriodId;
   readonly startMs: number;
+  /** 새 세션이 시작되기 전의 설정값입니다. 첫 `period.started`가 오면 그 기록값이 정본이 됩니다. */
+  readonly profile?: SessionProfileV2;
   readonly askPort?: AskPort;
   /** 헤더 제목입니다. `period.started` 가 오면 그것으로 덮습니다. */
   readonly subject?: string;
@@ -365,6 +369,8 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   #panelQuestionSeq = 0;
   #emitSeq = 0;
   #mockSeq = 0;
+  /** 라이브 세션의 최초 `period.started`를 흡수했는지입니다. 같은 세션의 정체성은 이후 고정합니다. */
+  #hasAuthoritativeStart = false;
 
   constructor(bundle: GoldenBundle, options: ReplayStoreOptions = {}) {
     this.#bundle = bundle;
@@ -389,7 +395,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
    *     });
    */
   static live(options: LiveStoreOptions): ReplayStore {
-    const { periodId, startMs, subject } = options;
+    const { periodId, startMs, subject, profile } = options;
     const live: LiveConfig = {
       startMs,
       ...(options.askPort === undefined ? {} : { askPort: options.askPort }),
@@ -397,7 +403,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       ...(options.idToken === undefined ? {} : { idToken: options.idToken }),
       ...(options.askTimeoutMs === undefined ? {} : { askTimeoutMs: options.askTimeoutMs }),
     };
-    return new ReplayStore(emptyBundle(periodId, startMs, subject), {
+    return new ReplayStore(emptyBundle(periodId, startMs, subject, profile), {
       ...(options.env === undefined ? {} : { env: options.env }),
       live,
     });
@@ -440,6 +446,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     this.#panelQuestionSeq = 0;
     this.#emitSeq = 0;
     this.#mockSeq = 0;
+    this.#hasAuthoritativeStart = false;
     this.#asked.clear();
     this.#askedIds.clear();
     this.#watching.clear();
@@ -728,7 +735,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     }
     const chip = this.#modelChip(answer, followUpId);
     const label = chip ?? (followUpId === "why" ? "왜 필요한데?" : "더 쉽게");
-    const ask = chip ?? (followUpId === "why" ? ASK_WHY : ASK_EASIER);
+    const ask = chip ?? (followUpId === "why" ? askWhyForProfile(this.#bundle.profile) : ASK_EASIER);
     this.#ask(parentId, label, followUpQuestion(answer.conclusion, ask));
   }
 
@@ -1097,10 +1104,15 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     const { payload } = event;
     switch (event.type) {
       case "period.started": {
+        // 이 스토어는 세션 하나에 묶입니다. 다른 period의 시작이나 같은 period의 두 번째 시작으로
+        // 주제·프로필을 소급 변경하지 않습니다. 설정을 바꾼 값은 다음 새 스토어/새 세션부터입니다.
+        if (event.periodId !== this.#bundle.periodId || this.#hasAuthoritativeStart) return;
+        this.#hasAuthoritativeStart = true;
         const subject = stringOf(payload, "subject");
         const index = numberOf(payload, "index");
         this.#bundle = {
           ...this.#bundle,
+          profile: normalizeSessionProfile(payload["profile"]),
           ...(subject === null ? {} : { subject }),
           ...(index === null ? {} : { periodIndex: index }),
         };
@@ -1307,7 +1319,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       .slice(Math.max(0, index - 2), index)
       .reverse()
       .map((item) => item.text);
-    return guessesFromSentence(sentence, before);
+    return guessesFromSentence(sentence, before, this.#bundle.profile);
   }
 
   /** 그 붙잡은 순간에 지금까지 도착한 답입니다. 없으면 null 입니다. */
@@ -1345,7 +1357,11 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
       answer.nowLine !== undefined
         ? answer.nowLine.replace(/^지금 · /, "")
         : (last?.text ?? "같은 내용을 이어가고 있어요");
-    return { q: "방금 내용", a: `선생님은 지금 ${line}`, reason: "전사 마지막 문장 기준" };
+    return {
+      q: "방금 내용",
+      a: `${sessionProfileCopy(this.#bundle.profile).nowPrefix} ${line}`,
+      reason: "전사 마지막 문장 기준",
+    };
   }
 
   /** `model-0` 같은 칩 id 를 답이 실어 준 칩 문장으로 바꿉니다. 그 칩이 없으면 null 입니다. */

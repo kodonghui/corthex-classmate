@@ -171,14 +171,75 @@ describe("빈 번들로 시작", () => {
     expect(() => store.goto("answer")).toThrow(/라이브 모드/);
   });
 
-  it("period.started 가 오면 제목과 교시 번호를 채운다", () => {
+  it("legacy period.started 가 오면 class로 폴백하고 제목과 교시 번호를 채운다", () => {
     const { store } = rig();
     store.pushEvent(
       event("ev-x-001", 0, "period.started", { periodId: PERIOD, subject: "IoC 와 DI", index: 3 }),
     );
     expect(store.bundle.subject).toBe("IoC 와 DI");
+    expect(store.bundle.profile).toBe("class");
     expect(store.bundle.periodIndex).toBe(3);
     expect(home(store).header).toMatchObject({ title: "IoC 와 DI", subtitle: "3교시" });
+  });
+
+  it.each([
+    ["class", "3교시"],
+    ["exam", "시험 공부 · 3번 슬롯"],
+    ["meeting", "회의 · 3번 슬롯"],
+  ] as const)("period.started의 %s profile을 흡수합니다", (profile, subtitle) => {
+    const store = ReplayStore.live({ periodId: PERIOD, startMs: START, profile: "class" });
+    store.pushEvent(
+      event("ev-profile-001", 0, "period.started", { periodId: PERIOD, profile, subject: "주제", index: 3 }),
+    );
+
+    expect(store.bundle.profile).toBe(profile);
+    expect(home(store).header.subtitle).toBe(subtitle);
+  });
+
+  it("첫 period.started 뒤 같은 period의 새 시작 사건이 와도 활성 profile은 바뀌지 않습니다", () => {
+    const store = ReplayStore.live({ periodId: PERIOD, startMs: START, profile: "class" });
+    store.pushEvent(
+      event("ev-profile-first", 0, "period.started", {
+        periodId: PERIOD,
+        profile: "exam",
+        subject: "민법 총칙",
+        index: 2,
+      }),
+    );
+    store.pushEvent(
+      event("ev-profile-late", 1, "period.started", {
+        periodId: PERIOD,
+        profile: "meeting",
+        subject: "주간 회의",
+        index: 4,
+      }),
+    );
+
+    expect(store.bundle).toMatchObject({ profile: "exam", subject: "민법 총칙", periodIndex: 2 });
+  });
+
+  it("깨진 profile은 class로 폴백하고 다른 period의 시작은 현재 묶음에 섞지 않습니다", () => {
+    const store = ReplayStore.live({ periodId: PERIOD, startMs: START, profile: "meeting" });
+    store.pushEvent(
+      event("ev-profile-invalid", 0, "period.started", {
+        periodId: PERIOD,
+        profile: "conference",
+        subject: "옛 기록",
+        index: 1,
+      }),
+    );
+    expect(store.bundle.profile).toBe("class");
+
+    store.pushEvent({
+      ...event("ev-other-period", 1, "period.started", {
+        periodId: "2026-09-02-p8",
+        profile: "meeting",
+        subject: "다른 회의",
+        index: 8,
+      }),
+      periodId: "2026-09-02-p8",
+    });
+    expect(store.bundle).toMatchObject({ profile: "class", subject: "옛 기록", periodIndex: 1 });
   });
 });
 

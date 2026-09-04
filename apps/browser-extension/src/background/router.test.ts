@@ -141,6 +141,7 @@ function makeHarness(settings: Partial<ClassmateSettings> = {}, options: Harness
       read: async () => {
         await (options.gate?.() ?? Promise.resolve());
         return {
+          profile: 'class',
           periodNumber: 3,
           subject: 'IoC 컨테이너와 의존성 주입',
           provider: 'claude',
@@ -1135,6 +1136,7 @@ describe('Router · 교시', () => {
     expect(appended.map((event) => event.type)).toEqual(['period.started', 'panel.opened']);
     expect(appended[0]?.payload).toEqual({
       periodId: PERIOD,
+      profile: 'class',
       subject: 'IoC 컨테이너와 의존성 주입',
       index: 3,
     });
@@ -1147,6 +1149,47 @@ describe('Router · 교시', () => {
     await harness.router.openPanel(new FakePanel());
 
     expect(harness.appended().filter((event) => event.type === 'period.started')).toHaveLength(1);
+  });
+
+  it.each(['class', 'exam', 'meeting'] as const)('%s profile을 새 period.started에 고정합니다', async (profile) => {
+    const harness = makeHarness({ profile });
+    await harness.router.openPanel(harness.panel);
+
+    const started = harness.appended().find((event) => event.type === 'period.started');
+    expect(started?.payload['profile']).toBe(profile);
+  });
+
+  it('같은 periodId 동안 설정 profile만 바뀌어도 활성 세션은 바꾸거나 다시 시작하지 않습니다', async () => {
+    let profile: ClassmateSettings['profile'] = 'exam';
+    const sent: HostEnvelope[] = [];
+    const router = new Router({
+      host: {
+        send: (envelope) => {
+          sent.push(envelope);
+          return Promise.resolve({ status: 'queued' });
+        },
+        reconnectNow: () => {},
+      },
+      settings: {
+        read: () => Promise.resolve({ profile, periodNumber: 3, subject: '민법 총칙', provider: 'claude' }),
+      },
+      controls: { restartTiro: () => {}, reselectLessonTab: () => {} },
+      log: new PeriodLog(),
+      ids: new EventIdFactory('1a2b3c4d'),
+      now: () => NOW,
+      warn: () => {},
+    });
+
+    await router.openPanel(new FakePanel());
+    profile = 'meeting';
+    await router.ensurePeriod();
+
+    const started = sent
+      .filter((envelope): envelope is Extract<HostEnvelope, { type: 'event.append' }> => envelope.type === 'event.append')
+      .filter((envelope) => envelope.event.type === 'period.started');
+    expect(started).toHaveLength(1);
+    expect(started[0]?.event.payload['profile']).toBe('exam');
+    expect(router.snapshot().periodStarted?.payload['profile']).toBe('exam');
   });
 
   it('패널이 닫히면 panel.closed 를 붙이고 서비스 워커는 계속 기록합니다', async () => {
@@ -1202,7 +1245,7 @@ describe('Router · 교시', () => {
     const sent: HostEnvelope[] = [];
     const router = new Router({
       host: { send: (envelope) => { sent.push(envelope); return Promise.resolve({ status: 'queued' }); }, reconnectNow: () => {} },
-      settings: { read: () => Promise.resolve({ periodNumber, subject: '수업', provider: 'claude' }) },
+      settings: { read: () => Promise.resolve({ profile: 'class', periodNumber, subject: '수업', provider: 'claude' }) },
       controls: { restartTiro: () => {}, reselectLessonTab: () => {} },
       log: new PeriodLog(),
       ids: new EventIdFactory('1a2b3c4d'),
@@ -1274,7 +1317,7 @@ describe('Router · 교시', () => {
         },
         reconnectNow: () => {},
       },
-      settings: { read: () => Promise.resolve({ periodNumber, subject: '수업', provider: 'claude' }) },
+      settings: { read: () => Promise.resolve({ profile: 'class', periodNumber, subject: '수업', provider: 'claude' }) },
       controls: { restartTiro: () => {}, reselectLessonTab: () => {} },
       log: new PeriodLog(),
       ids: new EventIdFactory('1a2b3c4d'),

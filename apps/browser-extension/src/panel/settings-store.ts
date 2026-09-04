@@ -14,6 +14,13 @@
 // 이 파일 아래쪽에는 값 하나(글씨 크기)를 **화면에 얹는** 자리도 있습니다. 나머지 아홉 칸은 읽는 쪽이
 // 따로 있는데, 글씨 크기는 읽는 쪽이 CSS 라서 뿌리 요소의 이름표(`data-text-scale`)가 곧 읽는 길입니다.
 
+import type { SessionProfileV2 } from "@classmate/contracts";
+
+import {
+  DEFAULT_SESSION_PROFILE,
+  normalizeSessionProfile,
+  SESSION_PROFILE_STORAGE_KEY,
+} from "../session-profile";
 import { PERIOD_NUMBER_MAX, PERIOD_NUMBER_MIN, PERIOD_NUMBER_STORAGE_KEY } from "../tiro/period";
 
 /** 답변을 만들 곳입니다. codex 는 한도가 돌아오기 전까지 고를 수 없습니다. */
@@ -26,6 +33,8 @@ export type AnswerLength = "short" | "full";
 export type TextScale = "sm" | "md" | "lg" | "xl";
 
 export interface Settings {
+  /** 수업·시험 공부·회의 중 이 세션을 어떤 목적으로 쓰는지입니다. */
+  readonly profile: SessionProfileV2;
   /** 지금 교시(1~8). `PeriodId` 를 만들 때 씁니다. */
   readonly periodNumber: number;
   readonly provider: ProviderChoice;
@@ -48,6 +57,7 @@ export interface Settings {
  * `textScale` 만 이번에 더한 열째 칸입니다 — 계약의 아홉 개는 그대로 두고 새 이름 하나만 늘렸습니다.
  */
 export const SETTINGS_KEYS = {
+  profile: SESSION_PROFILE_STORAGE_KEY,
   periodNumber: PERIOD_NUMBER_STORAGE_KEY,
   provider: "classmate.provider",
   subject: "classmate.subject",
@@ -61,6 +71,7 @@ export const SETTINGS_KEYS = {
 } as const satisfies Readonly<Record<keyof Settings, string>>;
 
 export const DEFAULT_SETTINGS: Settings = {
+  profile: DEFAULT_SESSION_PROFILE,
   periodNumber: PERIOD_NUMBER_MIN,
   provider: "claude",
   subject: "수업",
@@ -181,6 +192,7 @@ export function mergeLoadedSettings(previous: Settings, loaded: Settings): Setti
 /** 저장소에서 읽어 온 날것을 설정 한 벌로 다듬습니다. 모르는 값은 기본값이 됩니다. */
 export function normalizeSettings(raw: Record<string, unknown>): Settings {
   return {
+    profile: normalizeSessionProfile(raw[SETTINGS_KEYS.profile]),
     periodNumber: asPeriodNumber(raw[SETTINGS_KEYS.periodNumber]),
     provider: asProvider(raw[SETTINGS_KEYS.provider]),
     subject: asSubject(raw[SETTINGS_KEYS.subject]),

@@ -12,7 +12,9 @@
 //
 // 브라우저 API 도 상태도 없습니다. 순수 함수만 둡니다.
 
-import { askAboutSentence, askAboutToken } from "./ask-text";
+import type { SessionProfileV2 } from "@classmate/contracts";
+
+import { askAboutSentenceForProfile, askAboutTokenForProfile } from "./ask-text";
 import { lessonTokens } from "./live-terms";
 
 /** 문장 전체를 묻는 짐작의 라벨입니다. 늘 목록 맨 끝에 둡니다. */
@@ -81,13 +83,17 @@ export function codeTokens(texts: readonly string[], limit: number = MAX_TOKEN_G
  * @param sentence 붙잡은 문장
  * @param before   바로 앞 1~2문장. 가까운 것이 앞에 옵니다. 붙잡은 문장에 코드 낱말이 없을 때 씁니다.
  */
-export function guessesFromSentence(sentence: string, before: readonly string[] = []): Guess[] {
+export function guessesFromSentence(
+  sentence: string,
+  before: readonly string[] = [],
+  profile: SessionProfileV2 = "class",
+): Guess[] {
   const tokens = codeTokens([sentence, ...before]);
   const fromTokens = tokens.map<Guess>((token, index) => ({
     id: `g${index + 1}`,
     label: `${token} 가 뭔지`,
     term: token,
-    question: askAboutToken(sentence, token),
+    question: askAboutTokenForProfile(sentence, token, profile),
     word: token,
   }));
   return [
@@ -96,7 +102,7 @@ export function guessesFromSentence(sentence: string, before: readonly string[] 
       id: "gs",
       label: WHOLE_SENTENCE_LABEL,
       term: WHOLE_SENTENCE_TERM,
-      question: askAboutSentence(sentence),
+      question: askAboutSentenceForProfile(sentence, profile),
     },
   ];
 }

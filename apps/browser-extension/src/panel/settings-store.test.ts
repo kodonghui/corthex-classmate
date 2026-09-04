@@ -22,8 +22,9 @@ describe("키와 기본값", () => {
     expect(SETTINGS_KEYS.periodNumber).toBe("classmate.periodNumber");
   });
 
-  it("아홉 칸의 키가 고정 계약 그대로이고 글씨 크기 한 칸이 더 있다", () => {
+  it("기존 키를 보존하면서 사용 목적 키를 더한다", () => {
     expect(SETTINGS_KEYS).toEqual({
+      profile: "classmate.profile",
       periodNumber: "classmate.periodNumber",
       provider: "classmate.provider",
       subject: "classmate.subject",
@@ -40,6 +41,7 @@ describe("키와 기본값", () => {
 
   it("기본값은 claude · 수업 · 1교시 · 전부 켜짐 · short · 보통 글씨다", () => {
     expect(DEFAULT_SETTINGS).toEqual({
+      profile: "class",
       periodNumber: 1,
       provider: "claude",
       subject: "수업",
@@ -61,6 +63,16 @@ describe("키와 기본값", () => {
 describe("값 다듬기", () => {
   it("빈 저장소는 전부 기본값이 된다", () => {
     expect(normalizeSettings({})).toEqual(DEFAULT_SETTINGS);
+  });
+
+  it.each(["class", "exam", "meeting"] as const)("profile %s 값을 그대로 읽는다", (profile) => {
+    expect(normalizeSettings({ [SETTINGS_KEYS.profile]: profile }).profile).toBe(profile);
+  });
+
+  it("예전 저장소와 깨진 profile은 class로 이어진다", () => {
+    expect(normalizeSettings({}).profile).toBe("class");
+    expect(normalizeSettings({ [SETTINGS_KEYS.profile]: "conference" }).profile).toBe("class");
+    expect(normalizeSettings({ [SETTINGS_KEYS.profile]: 3 }).profile).toBe("class");
   });
 
   it("범위 밖 교시와 모르는 제공자는 기본값으로 되돌린다", () => {
@@ -101,9 +113,11 @@ describe("보관소", () => {
   it("메모리 보관소는 쓴 값을 그대로 돌려준다", async () => {
     const storage = createMemorySettingsStorage();
     await writeSetting(storage, "periodNumber", 5);
+    await writeSetting(storage, "profile", "meeting");
     await writeSetting(storage, "subject", "스프링 기초");
     const values = await readSettings(storage);
     expect(values.periodNumber).toBe(5);
+    expect(values.profile).toBe("meeting");
     expect(values.subject).toBe("스프링 기초");
     expect(values.provider).toBe("claude");
   });

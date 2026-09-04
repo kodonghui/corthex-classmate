@@ -10,12 +10,13 @@
 //  - 정본(ui_kits/sidepanel/HistoryScreen.jsx)의 지난 교시 3줄은 kit 의 시연 자료라 옮기지 않습니다.
 //    지어낸 줄을 기록에 섞으면 "붙잡은 순간" 이라는 말이 거짓이 됩니다.
 
-import type { Id } from "@classmate/contracts";
+import type { Id, SessionProfileV2 } from "@classmate/contracts";
 import type { FooterSource, MomentRowProps } from "@classmate/ui-classmate";
 
 import type { GoldenBundle } from "./golden-bundle";
 import { answerIdByQuestion } from "./lesson-view";
 import type { Moment, ReplayState } from "./replay-store";
+import { sessionProfileCopy } from "../session-profile";
 
 /** MomentRow 가 받는 상태 중 이 화면이 쓰는 둘입니다. */
 export type HistoryRowState = Extract<NonNullable<MomentRowProps["state"]>, "ready" | "preparing">;
@@ -93,10 +94,11 @@ function footerSourceOf(key: string, status: string | undefined): FooterSource {
 }
 
 /** 바닥줄 세 칸입니다. 자료는 상태기계가 받아 적은 `connector.status` 뿐입니다. */
-function recordingSources(state: ReplayState): FooterSource[] {
-  return FOOTER_KEYS.map((entry) =>
+function recordingSources(state: ReplayState, profile: SessionProfileV2): FooterSource[] {
+  const sources = FOOTER_KEYS.map((entry) =>
     footerSourceOf(entry.key, state.machine.connectors[entry.connector]),
   );
+  return sessionProfileCopy(profile).includesEditor ? sources : sources.slice(0, 2);
 }
 
 /**
@@ -119,15 +121,16 @@ function rowOf(bundle: GoldenBundle, arrived: Readonly<Record<string, Id>>, mome
 
 /** 기록 화면(G)의 값 전부입니다. 새로 붙잡은 순간이 맨 위에 옵니다. */
 export function historyView(bundle: GoldenBundle, state: ReplayState): HistoryView {
+  const copy = sessionProfileCopy(bundle.profile);
   const arrived = answerIdByQuestion(state);
   const rows = [...state.moments].reverse().map((moment) => rowOf(bundle, arrived, moment));
   return {
     title: "기록",
     subtitle: `오늘 ${rows.length}개`,
-    groups: [{ period: `${bundle.periodIndex}교시`, rows }],
+    groups: [{ period: copy.slot(bundle.periodIndex), rows }],
     emptyText: HISTORY_EMPTY_TEXT,
-    footNote: HISTORY_FOOT_NOTE,
-    sources: recordingSources(state),
+    footNote: copy.historyFootNote,
+    sources: recordingSources(state, bundle.profile),
     count: rows.length,
   };
 }

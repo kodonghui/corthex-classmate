@@ -31,6 +31,8 @@ describe("골든 fixture 묶음", () => {
 
   it("교시·제목·개수가 fixture 와 같다", () => {
     expect(GOLDEN_BUNDLE.periodId).toBe("2026-09-02-p3");
+    // 기존 fixture에는 profile 칸이 없으므로 수업으로 안전하게 이어집니다.
+    expect(GOLDEN_BUNDLE.profile).toBe("class");
     expect(GOLDEN_BUNDLE.periodIndex).toBe(3);
     expect(GOLDEN_BUNDLE.subject).toBe("IoC 컨테이너와 의존성 주입");
     expect(GOLDEN_BUNDLE.events).toHaveLength(27);
@@ -81,5 +83,9 @@ describe("라이브 빈 묶음", () => {
     expect(emptyBundle("2026-09-02-p9", START).subject).toBe("수업");
     expect(emptyBundle("2026-09-02-p9", START, "IoC 와 DI").subject).toBe("IoC 와 DI");
     expect(emptyBundle("2026-09-02-p9", START).periodIndex).toBe(1);
+  });
+
+  it.each(["class", "exam", "meeting"] as const)("%s profile로 빈 라이브 묶음을 시작한다", (profile) => {
+    expect(emptyBundle("2026-09-02-p9", START, "주제", profile).profile).toBe(profile);
   });
 });

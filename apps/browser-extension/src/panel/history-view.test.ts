@@ -88,6 +88,19 @@ describe("기록 화면 값", () => {
     expect(view.sources.map((source) => source.state)).toEqual(["live", "live", "live"]);
     expect(view.footNote).toBe("붙잡은 순간은 수업이 끝나도 남아요. 지우기는 설정에서.");
   });
+
+  it.each([
+    ["exam", "시험 공부 · 3번 슬롯", "붙잡은 순간은 공부 세션이 끝나도 남아요. 지우기는 설정에서."],
+    ["meeting", "회의 · 3번 슬롯", "붙잡은 순간은 회의가 끝나도 남아요. 지우기는 설정에서."],
+  ] as const)("%s 기록은 목적별 슬롯·안내를 쓰고 IntelliJ를 강요하지 않는다", (profile, slot, footNote) => {
+    const store = new ReplayStore(GOLDEN_BUNDLE);
+    store.goto("answer");
+    const view = historyView({ ...GOLDEN_BUNDLE, profile }, store.getState());
+
+    expect(view.groups[0]?.period).toBe(slot);
+    expect(view.footNote).toBe(footNote);
+    expect(view.sources.map((source) => source.key)).toEqual(["tiro", "meet"]);
+  });
 });
 
 // 실측(2026-09-03 2교시)에서 수업 화면도 IntelliJ도 붙지 않았는데 바닥줄이 「기록 중」으로

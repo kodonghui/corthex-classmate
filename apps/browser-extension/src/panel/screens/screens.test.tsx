@@ -460,7 +460,7 @@ describe("기록 화면", () => {
 });
 
 describe("설정 화면", () => {
-  it("네 절 · 개인정보 세 칸 · 제공자 고르기 · 오늘 기록 지우기", () => {
+  it("사용 목적 · 개인정보 세 칸 · 제공자 고르기 · 오늘 기록 지우기", () => {
     const html = settingsHtml();
     expect(html).toContain("설정");
     // (a) 답변
@@ -478,18 +478,24 @@ describe("설정 화면", () => {
     // (b) 붙잡을 때 함께 저장 + 개인정보 세 칸(불변 원칙 §5 정본 문구)
     expect(html).toContain("붙잡을 때 함께 저장");
     expect(html).toContain("막힌 시점의 최근 30초");
-    expect(html).toContain("영상 탭에서 고른 화면 한 장");
+    expect(html).toContain("선택한 화면 탭에서 붙잡은 한 장");
     expect(html).toContain("지금 보고 있는 파일");
     expect(html).toContain("cm-set__privacy");
     expect(html).toContain("로컬 보관");
     expect(html).toContain("선택한 AI 제공자로 전송될 수 있음");
     expect(html).toContain("Corthex 서버 기본 전송 없음");
-    // (c) 수업
-    expect(html).toContain("지금 교시");
-    expect(html).toContain("8교시");
+    // (c) 세션 — 프로필 셋과 중립적인 기록 슬롯 문구
+    expect(html).toContain("사용 목적");
+    expect(html).toContain("수업");
+    expect(html).toContain("시험 공부");
+    expect(html).toContain("회의");
+    expect(html).toContain("기록 슬롯");
+    expect(html).toContain("8번");
     expect(html).toContain("주제");
     expect(html).toContain("단축키 Alt+S");
     expect(html).toContain("마지막 문장을 붙잡아요");
+    expect(html).toContain("사용 목적·기록 슬롯·주제는 다음에 패널을 열어 새 세션을 시작할 때 적용돼요");
+    expect(html).toContain("진행 중 기록은 바뀌지 않아요");
     // (d) 위험
     expect(html).toContain("오늘 기록 지우기");
     expect(html).toContain("cm-btn--danger");

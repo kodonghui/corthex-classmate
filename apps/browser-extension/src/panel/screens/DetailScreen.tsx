@@ -124,7 +124,7 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
       <div className="cm-screen__bar">
         {view.nowLine === null ? null : (
           <NowLine variant="plain" style={{ marginBottom: 10 }}>
-            {`선생님은 지금 ${view.nowLine.replace(/^지금 · /, "")}`}
+            {`${view.nowPrefix} ${view.nowLine.replace(/^지금 · /, "")}`}
           </NowLine>
         )}
         <div className="cm-ask">
@@ -146,7 +146,7 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
           />
         </div>
         <Button variant="primary" size="lg" full icon="arrow-left" onClick={onBack}>
-          수업으로 돌아가기
+          {view.returnLabel}
         </Button>
       </div>
     </div>

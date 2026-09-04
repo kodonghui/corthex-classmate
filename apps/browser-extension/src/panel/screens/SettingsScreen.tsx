@@ -11,6 +11,7 @@
 import { Button, Checkbox, Dialog, Input, RadioGroup, Select, Switch, PanelHeader } from "@classmate/ui-base";
 import { useState } from "react";
 
+import { normalizeSessionProfile, sessionProfileCopy } from "../../session-profile";
 import { PERIOD_NUMBER_MAX, PERIOD_NUMBER_MIN } from "../../tiro/period";
 import type { Settings } from "../settings-store";
 import { PRIVACY_CELLS, subjectInput, TEXT_SCALE_STEPS, textScaleInput } from "../settings-store";
@@ -26,8 +27,14 @@ export interface SettingsScreenProps {
 
 const PERIOD_OPTIONS = Array.from({ length: PERIOD_NUMBER_MAX - PERIOD_NUMBER_MIN + 1 }, (_, index) => {
   const number = PERIOD_NUMBER_MIN + index;
-  return { value: String(number), label: `${number}교시` };
+  return { value: String(number), label: `${number}번` };
 });
+
+const PROFILE_OPTIONS = [
+  { value: "class", label: "수업", description: "강의 내용을 듣고 바로 질문해요" },
+  { value: "exam", label: "시험 공부", description: "요건·예외·사례 적용을 복습해요" },
+  { value: "meeting", label: "회의", description: "결정·근거·할 일을 붙잡아요" },
+];
 
 /*
   아직 읽는 곳이 없는 칸은 **끄고 그 까닭을 적습니다.** 켤 수 있는 것처럼 두면 사용자가
@@ -55,6 +62,7 @@ const TEXT_SCALE_OPTIONS = TEXT_SCALE_STEPS.map((step) => ({ value: step.value, 
 
 export function SettingsScreen({ values, count, onBack, onChange, onClearToday }: SettingsScreenProps): React.JSX.Element {
   const [confirm, setConfirm] = useState(false);
+  const profile = sessionProfileCopy(values.profile);
 
   return (
     <div className="cm-screen">
@@ -110,20 +118,24 @@ export function SettingsScreen({ values, count, onBack, onChange, onClearToday }
             onChange={(event) => onChange("captureTranscript", event.target.checked)}
           />
           <Checkbox
-            label="수업 화면"
-            description="영상 탭에서 고른 화면 한 장"
+            label={profile.captureScreen}
+            description="선택한 화면 탭에서 붙잡은 한 장"
             checked={values.captureScreen}
             disabled
             onChange={(event) => onChange("captureScreen", event.target.checked)}
           />
-          <Checkbox
-            label="IntelliJ 코드"
-            description="지금 보고 있는 파일"
-            checked={values.captureEditor}
-            disabled
-            onChange={(event) => onChange("captureEditor", event.target.checked)}
-          />
-          <p className="cm-set__note">지금은 세 가지를 늘 함께 저장해요 — 골라 끄기는 {NEXT_ROUND_NOTE}</p>
+          {profile.includesEditor ? (
+            <Checkbox
+              label="IntelliJ 코드"
+              description="지금 보고 있는 파일"
+              checked={values.captureEditor}
+              disabled
+              onChange={(event) => onChange("captureEditor", event.target.checked)}
+            />
+          ) : null}
+          <p className="cm-set__note">
+            지금은 연결된 자료를 늘 함께 저장해요 — 골라 끄기는 {NEXT_ROUND_NOTE}
+          </p>
           <p className="cm-set__privacy">
             {PRIVACY_CELLS.map((cell) => (
               <span key={cell} className="cm-set__privacy-cell">
@@ -134,9 +146,16 @@ export function SettingsScreen({ values, count, onBack, onChange, onClearToday }
         </section>
 
         <section className="cm-set">
-          <div className="cm-set__h">수업</div>
+          <div className="cm-set__h">세션</div>
+          <div className="cm-set__sub">사용 목적</div>
+          <RadioGroup
+            name="session-profile"
+            value={values.profile}
+            onChange={(value) => onChange("profile", normalizeSessionProfile(value))}
+            options={PROFILE_OPTIONS}
+          />
           <Select
-            label="지금 교시"
+            label="기록 슬롯"
             options={PERIOD_OPTIONS}
             value={String(values.periodNumber)}
             onChange={(event) => onChange("periodNumber", Number(event.target.value))}
@@ -156,7 +175,9 @@ export function SettingsScreen({ values, count, onBack, onChange, onClearToday }
             onChange={(event) => onChange("altS", event.target.checked)}
             style={{ width: "100%" }}
           />
-          <p className="cm-set__note">교시와 주제는 패널을 다시 열 때부터 적용돼요</p>
+          <p className="cm-set__note">
+            사용 목적·기록 슬롯·주제는 다음에 패널을 열어 새 세션을 시작할 때 적용돼요. 진행 중 기록은 바뀌지 않아요.
+          </p>
         </section>
 
         <section className="cm-set">

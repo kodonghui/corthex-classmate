@@ -405,6 +405,7 @@ export class Router {
     this.pendingQuestionId = null;
     const started = this.makeEvent(periodId, 'period.started', {
       periodId,
+      profile: settings.profile,
       subject: settings.subject,
       index: settings.periodNumber,
     });

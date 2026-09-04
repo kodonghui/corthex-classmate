@@ -152,7 +152,7 @@ describe("아직 배선되지 않은 설정 칸", () => {
     }
     expect(changes).toHaveLength(0);
     // 왜 잠갔는지를 그 자리에서 말합니다.
-    expect(document.body.textContent).toContain("지금은 세 가지를 늘 함께 저장해요 — 골라 끄기는 다음 라운드에 켜져요");
+    expect(document.body.textContent).toContain("지금은 연결된 자료를 늘 함께 저장해요 — 골라 끄기는 다음 라운드에 켜져요");
   });
 
   it("답변 길이 라디오는 잠겨 있고 눌러도 값이 바뀌지 않는다", () => {
@@ -202,6 +202,26 @@ describe("주제 칸", () => {
     const { changes } = settingsScreen();
     typeInto(subjectField(), "IoC");
     expect(changes.at(-1)).toEqual({ key: "subject", value: "IoC" });
+  });
+});
+
+describe("사용 목적", () => {
+  it("수업·시험 공부·회의를 모두 고를 수 있고 profile 설정만 바꾼다", () => {
+    const { changes } = settingsScreen();
+    const profiles = [...document.querySelectorAll<HTMLInputElement>('input[name="session-profile"]')];
+    expect(profiles.map((input) => input.value)).toEqual(["class", "exam", "meeting"]);
+    expect(profiles.every((input) => !input.disabled)).toBe(true);
+
+    click(inputLabelled("회의"));
+    expect(changes).toEqual([{ key: "profile", value: "meeting" }]);
+  });
+
+  it("회의 설정에서는 공유 화면만 안내하고 IntelliJ를 필수 자료처럼 보이지 않는다", () => {
+    settingsScreen({ ...DEFAULT_SETTINGS, profile: "meeting" });
+
+    expect(inputLabelled("회의").checked).toBe(true);
+    expect(document.body.textContent).toContain("공유 화면");
+    expect(document.body.textContent).not.toContain("IntelliJ 코드");
   });
 });
 

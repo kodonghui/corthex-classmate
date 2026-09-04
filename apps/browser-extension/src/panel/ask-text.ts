@@ -9,6 +9,8 @@
 //
 // 여기에는 브라우저 API 도 상태도 없습니다. 순수 함수만 둡니다.
 
+import type { SessionProfileV2 } from "@classmate/contracts";
+
 /** 사람이 적은 질문 문장의 상한입니다. 호스트가 `question-too-long` 으로 거절하는 경계와 같습니다. */
 export const MAX_ASK_QUESTION_BYTES = 4096;
 
@@ -57,12 +59,30 @@ function quoted(sentence: string): string {
 
 /** 붙잡은 문장 안의 낱말 하나를 묻는 문장입니다. */
 export function askAboutToken(sentence: string, token: string): string {
-  return `선생님이 방금 "${quoted(sentence)}" 이라고 했는데, ${token} 가 무엇인지 지금 수업 맥락에서 설명해 주세요`;
+  return askAboutTokenForProfile(sentence, token, "class");
+}
+
+/** 사용 목적에 맞춰 붙잡은 낱말을 모델에게 묻습니다. */
+export function askAboutTokenForProfile(
+  sentence: string,
+  token: string,
+  profile: SessionProfileV2,
+): string {
+  const lead = profile === "class" ? "선생님이 방금" : profile === "exam" ? "강의에서 방금" : "회의에서 방금";
+  const context = profile === "class" ? "수업" : profile === "exam" ? "시험 공부" : "회의";
+  return `${lead} "${quoted(sentence)}" 이라고 했는데, ${token} 가 무엇인지 지금 ${context} 맥락에서 설명해 주세요`;
 }
 
 /** 붙잡은 문장 전체를 묻는 문장입니다. */
 export function askAboutSentence(sentence: string): string {
-  return `선생님이 방금 "${quoted(sentence)}" 이라고 했는데, 이 문장이 무슨 뜻인지 지금 수업 맥락에서 설명해 주세요`;
+  return askAboutSentenceForProfile(sentence, "class");
+}
+
+/** 사용 목적에 맞춰 붙잡은 문장 전체를 모델에게 묻습니다. */
+export function askAboutSentenceForProfile(sentence: string, profile: SessionProfileV2): string {
+  const lead = profile === "class" ? "선생님이 방금" : profile === "exam" ? "강의에서 방금" : "회의에서 방금";
+  const context = profile === "class" ? "수업" : profile === "exam" ? "시험 공부" : "회의";
+  return `${lead} "${quoted(sentence)}" 이라고 했는데, 이 문장이 무슨 뜻인지 지금 ${context} 맥락에서 설명해 주세요`;
 }
 
 /** "더 쉽게" 칩이 보내는 문장입니다. */
@@ -70,6 +90,12 @@ export const ASK_EASIER = "방금 답을 더 쉽게 다시 설명해 주세요";
 
 /** "왜 필요한데?" 칩이 보내는 문장입니다. */
 export const ASK_WHY = "이게 왜 필요한지 지금 수업 맥락에서 설명해 주세요";
+
+/** 시험·회의에서 수업이라고 잘못 부르지 않는 후속 질문입니다. */
+export function askWhyForProfile(profile: SessionProfileV2): string {
+  if (profile === "class") return ASK_WHY;
+  return `이게 왜 필요한지 지금 ${profile === "exam" ? "시험 공부" : "회의"} 맥락에서 설명해 주세요`;
+}
 
 /**
  * 이어 묻는 문장입니다. 앞선 답의 결론을 한 줄 맥락으로 붙입니다.

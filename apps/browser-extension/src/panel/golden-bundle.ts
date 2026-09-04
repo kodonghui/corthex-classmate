@@ -13,9 +13,12 @@ import type {
   Question,
   ScreenFrame,
   SessionEvent,
+  SessionProfileV2,
   TranscriptSegment,
 } from "@classmate/contracts";
 import { formatIso } from "@classmate/tutor-core";
+
+import { DEFAULT_SESSION_PROFILE, normalizeSessionProfile } from "../session-profile";
 
 import answer2Json from "../../../../fixtures/synthetic-class/golden-ioc/answer-2.json";
 import answerQueuedJson from "../../../../fixtures/synthetic-class/golden-ioc/answer-queued.json";
@@ -29,6 +32,8 @@ import transcriptJson from "../../../../fixtures/synthetic-class/golden-ioc/tran
 
 export interface GoldenBundle {
   readonly periodId: PeriodId;
+  /** 이 세션의 사용 목적입니다. 시작 뒤에는 설정 변경만으로 바뀌지 않습니다. */
+  readonly profile: SessionProfileV2;
   /** `period.started` 의 subject. 헤더 제목이 됩니다. */
   readonly subject: string;
   /** `period.started` 의 index. "3교시" 의 3 입니다. */
@@ -79,6 +84,7 @@ export function buildGoldenBundle(): GoldenBundle {
 
   return {
     periodId: first.periodId,
+    profile: started ? normalizeSessionProfile(started.payload["profile"]) : DEFAULT_SESSION_PROFILE,
     subject: started ? textField(started.payload, "subject", "수업") : "수업",
     periodIndex: started ? numberField(started.payload, "index", 1) : 1,
     transcript: transcriptJson as unknown as TranscriptSegment[],
@@ -107,9 +113,15 @@ export const LIVE_EDITOR_PLACEHOLDER_ID = "ec-live-none";
  * 뜻으로 `fixture` 를 씁니다. 이 자리표시는 질문 봉인(sealSnapshot)에 넣지 않습니다 —
  * 진짜 문맥이 한 번이라도 와야 봉인에 들어갑니다(`ReplayStore` 의 `#hasEditor`).
  */
-export function emptyBundle(periodId: PeriodId, startMs: number, subject = "수업"): GoldenBundle {
+export function emptyBundle(
+  periodId: PeriodId,
+  startMs: number,
+  subject = "수업",
+  profile: SessionProfileV2 = DEFAULT_SESSION_PROFILE,
+): GoldenBundle {
   return {
     periodId,
+    profile,
     subject,
     periodIndex: 1,
     transcript: [],
