@@ -185,3 +185,36 @@
 - [!] `%TEMP%/ccsq`(스크래치 Rust target 폴더) 삭제 여부
 - [ ] 같은 글인데 세그먼트 id 가 갈리는 경우 — 2026-09-03 11:48 실측: `ts-014 partial(len 238)` 뒤에 `ts-013 partial(len 238, 같은 글)` 이 오고 `ts-013` 만 final 이 됨(id 가 뒤로 감). 패널 재열기(11:48:13 `panel.opened`) 직후라 관찰기가 문단 번호를 다시 세는 것으로 보임. 워커는 (id 말고) 글 내용이 같은 최근 조각을 겹치지 않게 걸러야 함 → 3라운드 A 후속
 - [ ] `src/background/router.ts` 에 NUL 바이트 2개가 소스에 그대로 들어가 git 이 이 파일을 이진으로 봄(`file` → data · `git diff` 가 내용을 안 보여 주고 텍스트 병합이 안 됨) — 전사 조각 지문을 `${segment.state}` + NUL + `${segment.text}` 로 적으면서 이스케이프(`\u0000`) 대신 진짜 제어 문자를 넣었기 때문(오프셋 10207 · 27604). 이스케이프로 바꿀 것. **3라운드 A 병합 뒤**에 고침(지금 고치면 A 브랜치와 이진 충돌)
+
+## v0.2 — 근거 기반 세션 동반자
+
+### Slice 1 — Evidence replay
+
+- [ ] V2-001 `SessionBundleV2`와 V1 호환 읽기 모델을 계약 패키지에 추가
+- [ ] V2-002 호스트 `session.list`·`session.getSummary`·`session.bundle` 읽기 봉투와 시험 추가
+- [ ] V2-003 프레임 id로 실제 `.jpg/.png/.webp`를 해결하는 asset manifest 추가
+- [ ] V2-004 실제 SQLite 사건을 전사·질문·답·화면이 연결된 번들로 조립
+- [ ] V2-005 report-ui가 V2 번들에서 독립 세션 HTML과 묶음 허브 생성
+- [ ] V2-006 Chrome 완전 재시작 뒤 과거 세션 목록·상세 열기
+- [ ] V2-007 명시적 내보내기·삭제 UI와 보존 경계 추가
+
+### Slice 2 — Profiles, vision, five activities
+
+- [ ] V2-101 `class`·`exam`·`meeting` 프로필과 중립 레이블 추가
+- [ ] V2-102 `TutorResponseV2` 동적 섹션과 V1 답 어댑터 추가
+- [ ] V2-103 다섯 슬롯 `ActivityCard`·시도·힌트·피드백·지연 변형 계약 추가
+- [ ] V2-104 세 모드 비식별 합성 fixture와 결정적 다섯 활동 시험 추가
+- [ ] V2-105 화면 픽셀에만 답이 있는 Claude/Codex 시각 E2E 관문 추가
+
+### Slice 3 — Codex provider
+
+- [ ] V2-201 공식 Codex app-server handshake·인증·스트리밍 가짜 서버 시험
+- [ ] V2-202 취소·시간 초과·로그인 실패·읽기 전용 안전 경계 추가
+- [ ] V2-203 Claude와 같은 텍스트·화면 골든 시험 통과 뒤 설정 활성화
+
+### 공개·장시간 사람 관문
+
+- [!] V2-H01 65분 한 세션과 하루 8교시 리허설
+- [!] V2-H02 깨끗한 Windows 설치와 자기 Tiro·Claude·Codex 인증
+- [!] V2-H03 합성 fixture·비밀·개인경로·의존성 라이선스 공개 감사
+- [!] V2-H04 LICENSE 선택과 GitHub 공개 전환·push·배포 승인

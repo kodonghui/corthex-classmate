@@ -1,8 +1,9 @@
 # Corthex Classmate — 에이전트 규칙 (정본)
 
 `AGENTS.md` 가 유일한 정본이고 `CLAUDE.md` 는 `@AGENTS.md` 한 줄입니다.
-전체 지시서는 `docs/master-prompt.md`, 합의 정본은 `docs/kickoff.md` 입니다.
-둘이 충돌하면 kickoff.md 가 우선하고 그 사실을 `docs/DECISIONS.md` 에 적습니다.
+전체 지시서는 `docs/master-prompt.md`, 현재 합의 정본은 `docs/kickoff-v0.2.md` 입니다.
+`docs/kickoff.md` 는 v0.1 역사 기록으로 보존합니다. 문서가 충돌하면
+`kickoff-v0.2.md` 가 우선하고 그 사실을 `docs/DECISIONS.md` 에 적습니다.
 
 ## 1. 세션 규약 (master-prompt §0 요약)
 
