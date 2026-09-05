@@ -4,17 +4,20 @@
 전체 지시서는 `docs/master-prompt.md`, 합의 정본은 `docs/kickoff.md` 입니다.
 둘이 충돌하면 kickoff.md 가 우선하고 그 사실을 `docs/DECISIONS.md` 에 적습니다.
 
-## 1. 세션 규약 (master-prompt §0 요약)
+## 1. 현재 작업과 협업
 
-- 대화는 한국어 존댓말. 답변 맨 위에 결론 블록(동사가 든 한 문장 + 핵심 2~4개). 과정·순서는 ASCII 그림, 비교는 표.
-- Windows 로컬 세션이고 셸은 Git Bash. 경로·명령은 Windows 기준임을 밝힌다. stdio MCP 는 `cmd /c npx -y …` 로 감싼다.
-- 할 일은 `docs/TASKS.md`(체크박스), 기록은 `docs/WORKLOG.md`(시간순: 변경·검증·위험·다음 행동).
-  Phase 경계와 매 시간마다 WORKLOG 항목을 추가하고 로컬 커밋한다.
-- 매 턴 끝에 검증 명령을 실제로 실행하고 출력을 그대로 남긴다. 도구 실행 없이 말만 하는 턴을 연속으로 만들지 않는다.
-- 막히면 이유 → 대안 → 대안 실행 → WORKLOG 기록. 사람 결정이 필요한 항목은 **'대기'** 로 표시하고 다른 작업으로 넘어간다.
-- 자동화(체크포인트·loop)는 commit 까지만. `git push`·배포·공개 전환·Web Store 업로드는 사용자 확인 후에만.
-- 결정은 `docs/DECISIONS.md` 에 날짜·결정·근거·대안 순서로 쌓는다.
-- 보고 형식은 master-prompt §9: 결론 / 이번 턴 변경 / 검증(명령과 출력 그대로) / 블로커·대기 / 다음 행동(하나만).
+- 한국어 존댓말로 결론부터 설명하고, 필요한 흐름은 그림·비교는 표로 표현합니다.
+- 실제 OS·셸·실행 경로를 확인합니다. 과거 문서의 Git Bash 가정을 PowerShell에 그대로 적용하지 않습니다.
+- 현재 일은 `docs/TASKS.md`, 의미 있는 변경·확인·위험·다음 행동은 `docs/WORKLOG.md`,
+  결정은 `docs/DECISIONS.md`에 기록합니다.
+- 작업 묶음 완료·중요한 변화·대기 때 기록합니다. 매 시간 커밋하거나 매 턴 검사를 강제하지 않습니다.
+- 구현은 현재 에이전트와 실제 제공된 도구로 수행합니다. 독립 작업이 있을 때만 병렬 기능을 선택합니다.
+- 로그인·접근 문제와 중요한 방향 논의에서는 멈추고 사용자와 맞춥니다.
+- push·배포·공개·스토어 업로드·등록은 현재 요청과 기존 승인 범위를 따릅니다.
+  같은 권한을 다시 승인받기 위해 멈추지 않으며 수업 데이터의 공개 경계는 유지합니다.
+- 검사는 바꾼 동작과 불확실성에 맞춥니다. 실제 실행 결과와 정적 확인을 구분하고 핵심 근거를 전달합니다.
+- 예전 master-prompt의 고정 운영 순서·역할보다 이 절을 현재 작업 방식으로 사용합니다.
+  제품의 합의 범위와 아래 불변 원칙은 보존합니다.
 
 ## 2. 불변 원칙 (master-prompt §4 · 위반 시 작업을 중단하고 보고)
 
@@ -60,13 +63,6 @@ docs/                     kickoff · master-prompt · DECISIONS · TASKS · WORK
 | E2E | `pnpm --filter @classmate/browser-extension e2e` | 처음 한 번 `npx playwright install chromium` |
 | 커밋 전 확인 | `git status --short && git diff --check` | |
 
-## 5. 서브에이전트 (`.claude/agents/`)
+## 5. Optional specialist definitions
 
-| 이름 | 모델 · effort | 권한 | 용도 |
-|---|---|---|---|
-| scout | haiku | Read/Grep/Glob | 코드·문서 위치 찾기 |
-| implementer | sonnet · high | 편집·실행 | 한 패키지 단위 구현 + 테스트 |
-| reviewer | opus · xhigh | 읽기만 | §2 불변 원칙·계약·보안 검토, 파일 수정 금지 |
-| researcher | sonnet · high | Web + 읽기 | 공식 문서 확인 (Chrome/Tiro/JetBrains/OpenAI/Anthropic) |
-
-서브에이전트에는 fable 을 쓰지 않는다(무인 상태에서 동의 프롬프트가 만료되어 턴이 멈춤).
+Existing .claude/agents definitions are optional helpers. Discover current models and permissions; do not require fixed roles or a fixed provider before ordinary work. Product boundaries in section 2 still apply.
