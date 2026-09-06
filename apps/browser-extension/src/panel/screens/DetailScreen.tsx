@@ -52,7 +52,11 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
   // 이 화면은 답을 위에서부터 읽는 곳이라 열자마자 바닥으로 내리지 않습니다(startStuck: false).
   // 이어 물은 줄이 하나 늘면 그때 바닥으로 내려가(pinOn), 답이 한 글자씩 길어지는 동안 따라갑니다.
   // 학습자가 위를 읽으려고 올려 두면 그대로 둡니다. 규칙은 `use-stick-to-bottom.ts` 한 곳입니다.
-  const body = useStickToBottom<HTMLDivElement>({ startStuck: false, pinOn: view.threads.length });
+  const body = useStickToBottom<HTMLDivElement>({
+    startStuck: false,
+    pinOn: view.threads.length,
+    preserveOn: view.threads.filter((thread) => !thread.loading).map((thread) => thread.id).join("|"),
+  });
   const left = MAX_ASK_QUESTION_BYTES - utf8ByteLength(typed);
   const ready = typed.trim().length > 0 && left >= 0;
 
@@ -102,7 +106,10 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
               <div className="cm-reply__wait">{thread.failure}</div>
             ) : (
               <>
-                <div className="cm-reply__a">{thread.conclusion}</div>
+                <div className="cm-reply__a">
+                  <strong>{thread.conclusion}</strong>
+                  {thread.body === null ? null : <div className="cm-reply__body">{thread.body}</div>}
+                </div>
                 {thread.evidence.length === 0 ? null : (
                   <div className="cm-reply__ev">
                     {thread.evidence.map((item, index) => (

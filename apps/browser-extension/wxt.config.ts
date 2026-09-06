@@ -46,7 +46,7 @@ export default defineConfig({
   modules: ['@wxt-dev/module-react'],
   manifest: {
     name: 'Corthex Classmate',
-    description: '수업 중 막힌 순간을 한 번에 붙잡고 한 문장으로 수업에 돌아가요',
+    description: '수업을 함께 보며 앞 대화를 이어 쉽게 설명하고, 질문과 답변을 자동으로 기록해요',
     // `version` 은 적지 않습니다. WXT가 이 앱 package.json의 version을 정본으로 사용합니다.
     // `version_name` 은 같은 숫자판에 commit과 dirty 여부를 더한 표시용 식별자입니다.
     version_name: releaseVersionName(),

@@ -34,6 +34,7 @@
 
 pub mod answer;
 pub mod clock;
+pub mod conversation;
 pub mod delta;
 pub mod events;
 pub mod materials;
@@ -832,9 +833,25 @@ impl Worker {
         // 그림 파일은 저장소가 아는 자리에만 있습니다. 저장소가 없으면 경로 없이 진행합니다.
         let frames_dir = self.store.as_ref().map(SessionStore::frames_dir);
         let bundle = materials::collect(&stored, &sealed.snapshot, frames_dir.as_deref());
+        let history = self
+            .store
+            .as_ref()
+            .map(|store| {
+                store
+                    .conversation_before(&sealed.envelope.question_id)
+                    .unwrap_or_else(|error| {
+                        eprintln!(
+                            "classmate-host tutor: 최근 문답을 읽지 못했습니다 · {}",
+                            error.reason_code()
+                        );
+                        Vec::new()
+                    })
+            })
+            .unwrap_or_default();
+        let dialogue = conversation::render(&history, &sealed.envelope.question_id);
         Body {
             materials: materials::render_with_limit(&bundle, self.max_material_chars),
-            question: prompt::build(sealed.ask_text()),
+            question: prompt::build_with_conversation(sealed.ask_text(), &dialogue),
         }
     }
 

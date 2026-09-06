@@ -197,7 +197,7 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("여기에 적어 물으면 답이 이 칸에 쌓여요");
     // 경계는 끌 수 있는 구분선입니다(기본 1/3).
     expect(html).toContain('role="separator"');
-    expect(html).toContain('aria-valuenow="33"');
+    expect(html).toContain('aria-valuenow="60"');
     // 자세히 화면 같은 고정 바닥바를 만들지는 않습니다.
     expect(html).not.toContain("cm-screen__bar");
     // 안내 글과 Alt+S 는 전사 칸 맨 아래에 그대로 남습니다.
@@ -249,6 +249,27 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("갈아 끼우기 쉬워져요");
     // 다 쓴 답의 자리(cm-reply__a)로 올라가지 않습니다.
     expect(html).not.toContain("cm-reply__a");
+  });
+
+  it("대화 답변은 40자 결론 뒤에 상세 설명의 마지막 문단까지 펼쳐 보인다", () => {
+    const html = liveScreen((store) => {
+      store.askTyped("2026-09-02-p3", "스프링이 왜 필요한가요?");
+      const questionId = store.getState().threads["2026-09-02-p3"]?.[0]?.id ?? "";
+      const template = Object.values(GOLDEN_BUNDLE.answers)[0]!;
+      store.pushEvent({
+        id: "ev-chat-body", periodId: "2026-09-02-p3", at: "2026-09-02T10:00:04+09:00",
+        type: "answer.completed",
+        payload: { questionId, answerId: "a-chat-body", answer: {
+          ...template, id: "a-chat-body", questionId,
+          conclusion: "객체를 연결해 줘요",
+          details: { why: "첫 문단: 객체는 일을 하는 부품이에요.\n\n마지막 문단: 부품을 교체하기 쉬워져요. <script>danger</script>" },
+        } },
+      });
+    });
+    expect(html).toContain("cm-reply__body");
+    expect(html).toContain("마지막 문단: 부품을 교체하기 쉬워져요.");
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).not.toContain("<script>danger</script>");
   });
 
   it("답을 기다리는 중에 문단을 누르면 짐작 목록이 앞 질문의 메모와 함께 보인다", () => {

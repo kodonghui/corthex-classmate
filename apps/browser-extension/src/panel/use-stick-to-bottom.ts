@@ -57,6 +57,8 @@ export interface StickToBottomOptions {
    * 예: 자세히 화면의 이어 물은 줄 수 — 내가 방금 보낸 질문이 접힌 절 아래에 숨지 않게 합니다.
    */
   readonly pinOn?: string | number;
+  /** 긴 완성 답변이 도착하면 읽던 위치를 유지합니다. 새 질문의 pinOn은 우선합니다. */
+  readonly preserveOn?: string | number;
 }
 
 export interface StickToBottom<T extends HTMLElement> {
@@ -78,7 +80,7 @@ export interface StickToBottom<T extends HTMLElement> {
  * 줄이 늘었는지 마지막 줄이 한 글자 자랐는지 구분할 필요가 없습니다.
  */
 export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOptions = {}): StickToBottom<T> {
-  const { startStuck = true, pinOn = 0 } = options;
+  const { startStuck = true, pinOn = 0, preserveOn = 0 } = options;
   const ref = useRef<T>(null);
   // 붙었나 풀렸나는 `scroll` 이벤트 안에서도 최신 값을 읽어야 해서 ref 에도 둡니다.
   const stuckRef = useRef(startStuck);
@@ -86,6 +88,7 @@ export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOp
   const everStuckRef = useRef(startStuck);
   const heightRef = useRef(0);
   const pinRef = useRef(pinOn);
+  const preserveRef = useRef(preserveOn);
   const [stuck, setStuck] = useState(startStuck);
   const [hasNew, setHasNew] = useState(false);
 
@@ -111,6 +114,16 @@ export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOp
     // `pinOn` 이 바뀌었으면(이어 물었으면) 여기서 다시 붙습니다. 이때는 사용자가 위를 읽고 있던
     // 중이라도 내려가는 것이 뜻이므로, 아래의 거리 재기를 건너뜁니다.
     const pinned = pinOn !== pinRef.current;
+    const preserve = preserveOn !== preserveRef.current;
+    preserveRef.current = preserveOn;
+    if (preserve && !pinned) {
+      const nearBottom = height - el.scrollTop - el.clientHeight <= STICK_TO_BOTTOM_SLACK_PX;
+      stuckRef.current = nearBottom;
+      setStuck(nearBottom);
+      setHasNew(!nearBottom);
+      heightRef.current = height;
+      return;
+    }
     if (pinned) {
       pinRef.current = pinOn;
       stuckRef.current = true;

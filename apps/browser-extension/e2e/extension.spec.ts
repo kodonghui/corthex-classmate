@@ -382,7 +382,7 @@ test('17 라이브 대화 칸 — 누르지 않아도 글 칸이 보이고 전�
   await expect(field).toBeVisible();
   await expect(field).toBeEditable();
   await expect(live.locator('.cm-chat__log')).toBeVisible();
-  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '33');
+  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '60');
   expect(
     await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
   ).toBe(true);
@@ -448,6 +448,39 @@ test('17 라이브 대화 칸 — 누르지 않아도 글 칸이 보이고 전�
 
   // 글 칸은 그동안에도 계속 보입니다.
   await expect(field).toBeVisible();
+  await live.close();
+});
+
+test('18 대화 답의 전체 설명과 이어 묻기 버튼이 좁은 화면에서 보인다', async () => {
+  const live = await context.newPage();
+  await live.setViewportSize({ width: 380, height: 800 });
+  await live.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+  await live.waitForFunction(() => window.classmateReplay?.live === true);
+  await live.getByPlaceholder('지금 궁금한 걸 적어요').fill('스프링이 왜 필요한지 쉽게 설명해 주세요');
+  await live.getByPlaceholder('지금 궁금한 걸 적어요').press('Enter');
+  await live.evaluate(() => {
+    const handle = window.classmateReplay!;
+    const asked = handle.state().emitted.findLast((e) => e.type === 'question.asked')!;
+    const questionId = asked.payload['questionId'] as string;
+    handle.push({
+      id: 'ev-e2e-dialogue-answer', periodId: asked.periodId, at: new Date().toISOString(),
+      type: 'answer.completed', payload: {
+        questionId, answerId: 'a-e2e-dialogue', answer: {
+          id: 'a-e2e-dialogue', questionId, createdAt: new Date().toISOString(),
+          provider: 'claude', status: 'answered', evidence: 'inferred', chips: ['더 쉽게', '예시로'],
+          conclusion: '객체를 만들고 연결하는 반복 작업을 줄여줘요',
+          details: { why: '객체는 프로그램 안에서 일을 하는 부품이라고 생각하면 돼요. 주문 처리 부품은 주문을 저장하는 부품이 필요해요.\n\n직접 만들면 주문 처리 코드 안에서 저장 부품을 고르게 돼요. 나중에 테스트용 부품으로 바꿀 때 그 코드도 손봐야 해요.\n\n스프링은 필요한 부품을 만들고 연결해 줘요. 실제 코드에서는 생성자의 매개변수로 필요한 객체를 받게 할 수 있어요.\n\n스프링 없이도 프로그램은 만들 수 있어요. 프로그램이 커질수록 이런 반복 작업을 일관되게 관리하기 편해서 쓰는 거예요.' },
+        },
+      },
+    });
+  });
+  const explanation = live.locator('.cm-chat__log .cm-reply__body');
+  await expect(explanation).toContainText('스프링 없이도 프로그램은 만들 수 있어요.');
+  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '60');
+  expect(await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+  await live.screenshot({ path: test.info().outputPath('conversation-0.0.4.png') });
+  await live.getByRole('button', { name: '더 쉽게', exact: true }).click();
+  await expect(live.locator('.cm-chat__log .cm-reply__q').last()).toContainText('더 쉽게 설명해 주세요');
   await live.close();
 });
 

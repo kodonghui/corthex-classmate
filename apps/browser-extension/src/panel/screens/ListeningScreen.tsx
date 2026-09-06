@@ -91,17 +91,17 @@ const CHAT_EMPTY_LINE = "여기에 적어 물으면 답이 이 칸에 쌓여요"
 const HINT_BELOW_BYTES = 200;
 
 /**
- * 대화 칸의 기본 높이입니다. 패널 높이의 1/3 — 사용자가 그렇게 말했습니다("1/3은 대화 전용").
+ * 연속 대화가 주 사용 흐름이므로 기본 60%, 조절 범위는 20~85%입니다.
  *
  * 비율로 다루는 까닭: 사이드패널 높이는 창 크기와 함께 늘 바뀝니다. px 로 못 박으면 낮은
  * 창에서는 전사가 사라지고 높은 창에서는 대화 칸이 우표만 해집니다.
- * 아래끝·위끝(20%·60%)은 두 칸 중 하나가 사라지지 않게 하는 자리입니다. 여기에 더해
+ * 아래끝·위끝은 두 칸 중 하나가 사라지지 않게 하는 자리입니다. 여기에 더해
  * style.css 의 `min-height: min(180px, 45%)` 가 **픽셀 바닥**을 지킵니다 — 글 칸 한 줄(36px)과
  * 문답 두어 줄이 함께 보이는 최소 높이입니다.
  */
-const DEFAULT_CHAT_RATIO = 1 / 3;
+const DEFAULT_CHAT_RATIO = 0.6;
 const MIN_CHAT_RATIO = 0.2;
-const MAX_CHAT_RATIO = 0.6;
+const MAX_CHAT_RATIO = 0.85;
 
 /** 경계를 키보드 화살표로 움직이는 폭입니다(한 번에 패널 높이의 5%). */
 const RESIZE_STEP = 0.05;
@@ -158,19 +158,18 @@ export function ListeningScreen({
   const lastLineId = view.lines.at(-1)?.id ?? null;
   const shownAsks = view.asks.filter((item) => !closed.includes(item.id));
   /**
-   * 대화 칸을 바닥으로 붙일 까닭이 생겼는지입니다. 줄이 늘 때뿐 아니라 **기다리던 줄에 답이
-   * 도착할 때**도 붙여야 해서, 길이가 아니라 "각 줄이 아직 기다리는가" 까지 적어 둡니다.
+   * 새 질문은 아래로 이동하고, 긴 완성 답은 읽던 위치를 유지하도록 변화 신호를 나눕니다.
    */
-  const askSignature = view.asks.map((item) => `${item.id}:${item.loading ? "wait" : "done"}`).join("|");
+  const askSignature = view.asks.map((item) => item.id).join("|");
+  const completedSignature = view.asks.filter((item) => !item.loading).map((item) => item.id).join("|");
 
   // 두 상자 모두 아래에서 흐릅니다. 규칙은 `use-stick-to-bottom.ts` 한 곳에 있습니다 — 같은 문단이
   // 자라는 동안에도 따라가고, 일부러 올리면 붙잡지 않고, 풀린 뒤 아래에 새 글이 오면 알려 줍니다.
   //
   //   전사   그냥 붙입니다. 글 칸이 이 상자 밖(대화 칸)으로 나가서, 쓰는 동안 멈출 까닭이 없습니다.
-  //   대화   물었거나 답이 왔으면(`askSignature`) 위를 읽던 중이라도 바닥으로 내려갑니다. 방금
-  //          보낸 질문과 그 답이 접힌 절 아래에 숨으면 안 되기 때문입니다.
+  //   대화   새 질문은 아래로 이동합니다. 긴 답 완성 시 첫 부분을 건너뛰지 않도록 위치를 유지합니다.
   const body = useStickToBottom<HTMLDivElement>();
-  const log = useStickToBottom<HTMLDivElement>({ pinOn: askSignature });
+  const log = useStickToBottom<HTMLDivElement>({ pinOn: askSignature, preserveOn: completedSignature });
 
   // 전사를 위로 올려 읽는 동안 온 문장을 셉니다. 바닥으로 따라가는 일도, 지금 올려 둔 상태인지
   // 보는 일도 훅이 합니다(`body.stuck`) — 여기 남는 일은 "몇 줄을 놓쳤나" 세는 것 하나뿐입니다.
@@ -444,13 +443,26 @@ export function ListeningScreen({
               ) : item.failure !== null ? (
                 <div className="cm-reply__wait">{item.failure}</div>
               ) : (
-                <div className="cm-reply__a">{item.conclusion}</div>
+                <div className="cm-reply__a">
+                  <strong>{item.conclusion}</strong>
+                  {item.body === null ? null : <div className="cm-reply__body">{item.body}</div>}
+                  {item.id !== shownAsks.at(-1)?.id ? null : (
+                    <div className="cm-chat__suggestions" aria-label="이어서 질문하기">
+                      {["더 쉽게 설명해 주세요", "구체적인 예를 들어 주세요", "왜 필요한지 설명해 주세요"].map((question, index) => (
+                        <button type="button" key={question} onClick={() => onAsk(question)}>
+                          {["더 쉽게", "예시로", "왜 필요한가요?"][index]}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           ))
         )}
       </div>
       <div className="cm-chat__bar">
+        {log.hasNew ? <button type="button" className="cm-chat__catch" onClick={log.toBottom}>답변 아래로 이동 ↓</button> : null}
         <Input
           size="md"
           value={typed}

@@ -736,7 +736,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     const chip = this.#modelChip(answer, followUpId);
     const label = chip ?? (followUpId === "why" ? "왜 필요한데?" : "더 쉽게");
     const ask = chip ?? (followUpId === "why" ? askWhyForProfile(this.#bundle.profile) : ASK_EASIER);
-    this.#ask(parentId, label, followUpQuestion(answer.conclusion, ask));
+    this.#ask(parentId, label, followUpQuestion(this.#latestReply(parentId)?.conclusion ?? answer.conclusion, ask));
   }
 
   /**
@@ -746,8 +746,21 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   askTyped(parentId: Id, text: string): void {
     const typed = normalizeAskText(text);
     if (typed.length === 0) return;
-    const answer = this.#answerOf(parentId);
+    const answer = this.#latestReply(parentId);
     this.#ask(parentId, typed, followUpQuestion(answer?.conclusion ?? null, typed));
+  }
+
+  /** 같은 자리에서 여러 번 이어 물으면 원래 결론 대신 가장 최근 답을 가리킵니다. */
+  #latestReply(parentId: Id): Answer | null {
+    const replies = this.#state.threads[parentId] ?? [];
+    for (let i = replies.length - 1; i >= 0; i -= 1) {
+      const id = replies[i]?.answerId;
+      if (id !== undefined && id !== null) {
+        const answer = this.#bundle.answers[id];
+        if (answer !== undefined) return answer;
+      }
+    }
+    return this.#answerOf(parentId);
   }
 
   // ── 체크포인트 ───────────────────────────────────────────────────────────────

@@ -41,8 +41,8 @@ let top = 0;
 /** 이 시험이 훅에게 준 `startStuck` 입니다. 훅은 첫 그림에서만 읽습니다. */
 let startStuck = true;
 
-function Probe({ lines, pins }: { readonly lines: readonly string[]; readonly pins: number }): ReactElement {
-  const body = useStickToBottom<HTMLDivElement>({ startStuck, pinOn: pins });
+function Probe({ lines, pins, preserve = 0 }: { readonly lines: readonly string[]; readonly pins: number; readonly preserve?: number }): ReactElement {
+  const body = useStickToBottom<HTMLDivElement>({ startStuck, pinOn: pins, preserveOn: preserve });
   latest = { stuck: body.stuck, hasNew: body.hasNew, toBottom: body.toBottom };
   return createElement(
     "div",
@@ -117,12 +117,12 @@ function mount(begins = true): void {
  * 내용이 **줄면** 브라우저는 `scrollTop` 을 새 최대값으로 잘라 줍니다. happy-dom 은 배치가 없어서
  * 그 일을 하지 않으므로 여기서 흉내 냅니다 — 안 그러면 줄어드는 쪽 시험이 브라우저와 달라집니다.
  */
-function paint(lines: readonly string[], pins = 0): void {
+function paint(lines: readonly string[], pins = 0, preserve = 0): void {
   contentH = heightOf(lines);
   top = Math.min(top, bottomTop());
   const current = root;
   if (current === null) throw new Error("먼저 mount() 하세요");
-  act(() => current.render(createElement(Probe, { lines, pins })));
+  act(() => current.render(createElement(Probe, { lines, pins, preserve })));
 }
 
 /**
@@ -148,6 +148,17 @@ afterEach(() => {
 });
 
 describe("useStickToBottom", () => {
+  it("긴 답이 완성되면 읽던 위치를 지키고 새 질문은 아래로 이동한다", () => {
+    mount();
+    paint(BASE, 1);
+    const previousTop = box().scrollTop;
+    const expanded = [...BASE, ARRIVED.repeat(8)];
+    paint(expanded, 1, 1);
+    expect(box().scrollTop).toBe(previousTop);
+    expect(handle().hasNew).toBe(true);
+    paint([...expanded, "다음 질문"], 2, 1);
+    expect(box().scrollTop).toBe(bottomTop());
+  });
   it("1. 줄 수는 그대로인데 마지막 줄 글자 수만 늘어도 바닥에 붙는다", () => {
     mount();
     const growing = "생성자 주입은 필요한 것을";

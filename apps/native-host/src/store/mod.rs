@@ -417,6 +417,45 @@ impl SessionStore {
         Ok(found)
     }
 
+    /// 현재 질문 이전의 문답 사건만 읽습니다. 전사량과 무관하게 최근 64개로 제한합니다.
+    pub fn conversation_before(&self, question_id: &str) -> Result<Vec<StoredEvent>> {
+        let mut statement = self.connection.prepare(
+            "SELECT seq, id, period_id, at, \"type\", payload FROM events
+             WHERE \"type\" IN ('question.asked', 'answer.completed', 'answer.recovered')
+             AND seq < COALESCE((SELECT MIN(seq) FROM events
+                 WHERE \"type\" = 'question.asked'
+                 AND json_extract(payload, '$.questionId') = ?1), 0)
+             ORDER BY seq DESC LIMIT 64",
+        )?;
+        let rows = statement.query_map(params![question_id], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
+                row.get::<_, String>(5)?,
+            ))
+        })?;
+        let mut found = Vec::new();
+        for row in rows {
+            let (seq, id, period_id, at, kind, payload) = row?;
+            found.push(StoredEvent {
+                seq: seq as u64,
+                event: SessionEvent {
+                    id,
+                    period_id,
+                    at,
+                    kind,
+                    payload: serde_json::from_str(&payload)
+                        .map_err(|_| StoreError::Json("payload"))?,
+                },
+            });
+        }
+        found.reverse();
+        Ok(found)
+    }
+
     /// 지금까지 들어온 기록 수입니다.
     pub fn count(&self) -> Result<u64> {
         let total: i64 = self
@@ -674,6 +713,54 @@ mod tests {
         assert_eq!(store.count().expect("셈"), 0);
         assert_eq!(store.last_at().expect("마지막"), None);
         assert!(store.path().ends_with(format!("{FIXTURE_PERIOD}.sqlite")));
+    }
+
+    #[test]
+    fn conversation_survives_reopen_and_excludes_later_answers_and_other_periods() {
+        let dir = temp_dir("conversation");
+        let store = SessionStore::open(&dir, FIXTURE_PERIOD).unwrap();
+        let append = |id: &str, kind: &str, payload: Value| {
+            store
+                .append(&SessionEvent {
+                    id: id.into(),
+                    period_id: FIXTURE_PERIOD.into(),
+                    at: "2026-09-02T10:00:00+09:00".into(),
+                    kind: kind.into(),
+                    payload,
+                })
+                .unwrap();
+        };
+        append(
+            "ev-q1",
+            "question.asked",
+            json!({"questionId":"q1", "question":{"text":"스프링은 왜 필요한가요?"}}),
+        );
+        append(
+            "ev-a1",
+            "answer.completed",
+            json!({"questionId":"q1", "answer":{"conclusion":"연결을 도와줘요", "details":{"why":"자세한 설명 전체"}}}),
+        );
+        append(
+            "ev-q2",
+            "question.asked",
+            json!({"questionId":"q2", "question":{"text":"더 쉽게"}}),
+        );
+        append(
+            "ev-a2",
+            "answer.completed",
+            json!({"questionId":"q2", "answer":{"conclusion":"나중 답"}}),
+        );
+        drop(store);
+        let reopened = SessionStore::open(&dir, FIXTURE_PERIOD).unwrap();
+        let history = reopened.conversation_before("q2").unwrap();
+        assert_eq!(history.len(), 2);
+        let rendered = crate::tutor::conversation::render(&history, "q2");
+        assert!(rendered.contains("스프링은 왜 필요한가요?"));
+        assert!(rendered.contains("자세한 설명 전체"));
+        assert!(!rendered.contains("나중 답"));
+        assert!(reopened.conversation_before("unknown").unwrap().is_empty());
+        let other = SessionStore::open(&dir, "2026-09-02-p4").unwrap();
+        assert!(other.conversation_before("q2").unwrap().is_empty());
     }
 
     #[test]

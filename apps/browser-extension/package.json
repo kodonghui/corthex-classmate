@@ -1,6 +1,6 @@
 {
   "name": "@classmate/browser-extension",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "type": "module",
   "description": "Corthex Classmate Chrome 확장 (WXT · React · MV3 · Side Panel)",

@@ -588,6 +588,41 @@ fn three_questions_spawn_one_process_when_the_session_provider_is_used() {
 // ---------------------------------------------------------------- 자료 조립
 
 #[test]
+fn a_follow_up_after_host_restart_receives_the_previous_full_answer() {
+    let dir = temp_dir("conversation-restart");
+    let (first, inbox) = start(
+        &dir,
+        fake_provider(&["--prose"]),
+        fast_config(Duration::from_secs(30), 0),
+    );
+    let mut ask = envelope("q-p3-001");
+    ask.question = Some("스프링을 왜 쓰는지 설명해 주세요".into());
+    first.ask(ask).unwrap();
+    collect_pushes(&inbox, 2);
+    first.shutdown();
+
+    let dump = dir.join("second-stdin.json");
+    let dump_arg = dump.to_string_lossy().to_string();
+    let (second, inbox) = start(
+        &dir,
+        fake_provider(&["--dump-stdin", &dump_arg]),
+        fast_config(Duration::from_secs(30), 0),
+    );
+    let mut ask = envelope("q-p3-002");
+    ask.question = Some("자세히 설명해 주세요".into());
+    second.ask(ask).unwrap();
+    collect_pushes(&inbox, 2);
+    second.shutdown();
+    let dumped: Value = serde_json::from_str(&std::fs::read_to_string(dump).unwrap()).unwrap();
+    let stdin = dumped["stdin"].as_str().unwrap();
+    assert!(stdin.contains("[최근 문답"));
+    assert!(stdin.contains("스프링을 왜 쓰는지 설명해 주세요"));
+    assert!(stdin.contains("그래서 시험할 때 가짜 구현으로 바꿔 끼우기가 쉬워집니다."));
+    assert!(stdin.contains("질문: 자세히 설명해 주세요"));
+    assert!(!dumped["argv"].to_string().contains("스프링을 왜"));
+}
+
+#[test]
 fn the_sealed_materials_reach_the_provider_through_stdin_only() {
     let dir = temp_dir("materials");
     seed_materials(&dir);

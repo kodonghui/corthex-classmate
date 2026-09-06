@@ -196,6 +196,8 @@ export interface ThreadView {
   readonly evidence: readonly EvidenceItem[];
   /** 튜터가 멈췄을 때의 안내 문구입니다. 그 밖에는 null 입니다. */
   readonly failure: string | null;
+  /** 대화에서는 상세 설명 전체를 바로 읽습니다. 과거 한 줄 답도 계속 표시합니다. */
+  readonly body: string | null;
 }
 
 export interface DetailView {
@@ -762,6 +764,7 @@ function threadsOf(bundle: GoldenBundle, state: ReplayState, questionId: Id): Th
       loading: item.state === "waiting",
       stream: item.state === "waiting" ? streamOf(state, item.id) : null,
       conclusion: answer?.conclusion ?? "",
+      body: answer?.details?.why?.trim() || null,
       evidence: answer === null ? [] : evidenceOf(answer, null, bundle.profile),
       failure: item.state === "failed" ? item.message : null,
     };
