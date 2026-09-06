@@ -1,5 +1,14 @@
 # 작업 기록
 
+## 2026-09-07 — 0.0.6-beta1 Windows 친구 공유 패키지
+
+- 요청: 친구에게 설치 방법과 묶음을 제공. 수신자는 Windows라고 확인했다. corthex-project로 실제 제품 소스와 기존 Notion 최근 업데이트에 목표·결과를 연결했다.
+- 변경: 프로그램 전용 ZIP 빌더, Install/Diagnose/Disconnect 진입점, 사용자 범위 설치 스크립트, 한국어 HTML 안내. 기존 등록·설치를 덮어쓰지 않고 수업 자료·캡처·인증을 패키징하지 않는다. 최신 npm의 네이티브 Claude EXE 탐색을 추가했다. 실제 PC에 이 방식으로 Claude가 설치되어 있어 최초 격리 검사 실패 후 보완했다.
+- 검증: 설치 도구 79 tests 통과. 최종 ZIP 217개 파일 체크섬·218개 항목, 라이선스 45개 기록 확인. 한글/공백 경로, 변조·경로 탈출·재설치 거부 테스트. 실제 최종 페이로드의 격리 설치 성공, 현재 Chrome 등록과 User Claude 환경변수 전후 동일. AI 요청 없이 패키지 호스트 ping 확인.
+- 산출물: `out/share/Classmate-0.0.6-beta1/`, ZIP 5,127,136 bytes. SHA-256 `0a9e3696b6cc59f6d8c399d620864f48d75384e811b4e8bc355c4d68c532f99e`. 버전은 확장 0.0.6 / 설치 묶음 0.0.6-beta1이다.
+- 경계: 실제 튜터는 Claude만 지원. 개인 계정 한도/비용이 적용되며 전문 영역 최신 정확성을 보장하지 않는다. 친구의 별도 PC 전체 경로는 미검증. 현재 설치·수업 DB·별도 report-ui 변경은 건드리지 않는다. GitHub push·공개 릴리스·Sites 배포 없음.
+- 다음: 친구 첫 설치에서 실제 등록·전사·질문 한 번 확인. 상세 안내는 `docs/friend-sharing.md`.
+
 ## 2026-09-07 — 0.0.6 읽기 중심 인라인 UX/UI 보강
 
 - 설치 결과: `C:\CorthexClassmate\extension`을 `0.0.6+g18255758a309.dirty`로 교체했다. 기존 공개키 동일·빌드와 설치 파일 121개 SHA-256 전부 일치. 백업은 `C:\CorthexClassmate\extension.backup-0.0.5-20260907-015340`. `.dirty`는 별도 report-ui 미커밋 작업 상태다. 구현은 `ad49aa1`(답 보존)·`1825575`(UX). 사용자 Chrome 재로딩은 아직 확인하지 않았다.

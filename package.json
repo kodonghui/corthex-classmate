@@ -19,6 +19,7 @@
     "generate": "pnpm --filter @classmate/contracts generate",
     "package:host": "node installer/windows/build-host.mjs",
     "package:extension": "node installer/windows/package-extension.mjs",
+    "package:friend": "node installer/windows/package-friend.mjs",
     "install:dry-run": "node installer/windows/install.mjs",
     "smoke:host": "node installer/windows/smoke-host.mjs"
   }
