@@ -1020,10 +1020,11 @@ body {
 }
 
 .cm-inline-detail {
-  margin: 12px 0;
+  margin: 16px 0 20px;
   border: 1px solid var(--border-hairline);
-  border-radius: 10px;
-  padding: 12px;
+  border-left: 3px solid var(--ink-200);
+  border-radius: 12px;
+  padding: 16px;
   background: var(--surface-card);
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1031,23 +1032,88 @@ body {
 
 .cm-inline-detail__heading {
   color: var(--text-secondary);
-  font: var(--type-caption);
-  margin-bottom: 8px;
+  font: 500 calc(12px * var(--text-scale, 1))/1.5 var(--font-sans);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  padding-bottom: 12px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-hairline);
 }
+
+.cm-inline-detail--active { border-left-color: var(--ink-600); }
+.cm-inline-detail__topic {
+  color: var(--ink-700);
+  background: var(--ink-50);
+  padding: 3px 8px;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+.cm-inline-detail__current { color: var(--ink-700); }
+.cm-inline-detail__time { margin-left: auto; font-variant-numeric: tabular-nums; }
 
 .cm-inline-detail__body {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 20px;
 }
 
 .cm-inline-detail .cm-ans {
   margin: 0;
+  border: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  animation: none;
+  gap: 14px;
 }
 
-.cm-inline-detail__bar {
-  margin-top: 12px;
+/* 첫 설명과 후속 설명만 키웁니다. 전사·설정·공통 토큰은 변경하지 않습니다. */
+.cm-inline-detail .cm-ans__con {
+  font: 650 calc(18px * var(--text-scale, 1))/1.6 var(--font-sans);
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
 }
+.cm-inline-detail .cm-ans__p,
+.cm-inline-detail .cm-ans__quote-t,
+.cm-inline-detail .cm-reply__a,
+.cm-inline-detail .cm-reply__body {
+  font-size: calc(16px * var(--text-scale, 1));
+  line-height: 1.85;
+  color: var(--text-body);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.cm-inline-detail .cm-ans__secs { margin: 0; padding: 0; }
+.cm-inline-detail .cm-ans__follow {
+  padding-top: 12px;
+  border-top: 1px solid var(--border-hairline);
+}
+.cm-inline-detail .cm-chip { min-height: 34px; height: auto; white-space: normal; text-align: left; }
+.cm-inline-detail .cm-reply { padding: 16px 0 0; border-top: 1px solid var(--border-hairline); }
+.cm-inline-detail .cm-reply__q {
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: var(--surface-sunken);
+  color: var(--text-secondary);
+  font: 500 calc(14px * var(--text-scale, 1))/1.65 var(--font-sans);
+  margin-bottom: 12px;
+  overflow-wrap: anywhere;
+}
+.cm-inline-detail .cm-reply__question-label { display: block; font-size: 11px; margin-bottom: 3px; color: var(--ink-700); }
+.cm-inline-detail .cm-reply__time { font-size: 12px; color: var(--text-tertiary); white-space: nowrap; }
+.cm-inline-detail .cm-reply__ev { margin-top: 10px; }
+.cm-inline-detail .cm-ev { height: auto; min-height: 22px; white-space: normal; }
+.cm-inline-detail .cm-ev__t { overflow-wrap: anywhere; }
+
+.cm-inline-detail__bar {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-hairline);
+}
+.cm-inline-detail__input-label { margin-bottom: 8px; font: var(--type-caption); color: var(--text-secondary); }
 
 .cm-chat__suggestions {
   display: flex;

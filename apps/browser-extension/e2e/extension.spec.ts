@@ -574,11 +574,16 @@ test('21 완료된 답과 후속 대화가 다음 문단 질문 뒤에도 원래
       questionId, answerId: 'a-completed-first', answer: {
         id: 'a-completed-first', questionId, createdAt: at, provider: 'claude', status: 'answered', evidence: 'inferred',
         conclusion: '첫 문단의 빈 설명', chips: ['빈 예시를 더 알려 주세요', '다시 설명해 주세요'],
-        details: { why: '빈 설명은 다음 질문을 해도 이 문단에 남아야 합니다.' },
+        details: { why: '빈은 스프링이 만들고 관리하는 객체예요. 예를 들어 주문을 처리하는 서비스와 주문을 저장하는 저장소를 각각 빈으로 등록할 수 있어요.\n\n컨테이너는 이 객체들을 만들고 필요한 곳에 연결하는 관리자예요. 객체가 필요한 코드는 직접 새로 만드는 대신, 생성자의 매개변수로 받아서 사용할 수 있어요.\n\n빈 설명은 다음 질문을 해도 이 문단에 남아야 합니다.' },
       },
     } });
   });
   const first = live.locator('.cm-inline-detail').filter({ hasText: '첫 문단의 빈 설명' });
+  await expect(first.locator('.cm-ans__ev .cm-ev')).toHaveCount(1);
+  await expect(first.getByText('최근 질문', { exact: true })).toBeVisible();
+  expect(await first.locator('.cm-ans__con').evaluate((el) => getComputedStyle(el).fontSize)).toBe('18px');
+  expect(await first.locator('.cm-ans__p').first().evaluate((el) => getComputedStyle(el).fontSize)).toBe('16px');
+  expect(await first.locator('.cm-ans').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px');
   await first.getByRole('button', { name: '빈 예시를 더 알려 주세요', exact: true }).click();
   await live.evaluate(() => {
     const handle = window.classmateReplay!;
@@ -614,18 +619,28 @@ test('21 완료된 답과 후속 대화가 다음 문단 질문 뒤에도 원래
   await expect(cards.nth(0)).toContainText('빈 예시를 더 알려 주세요');
   await expect(cards.nth(0)).toContainText('첫 질문에 이어 나눈 예시 대화입니다.');
   await expect(cards.nth(1)).toContainText('둘째 문단의 컨테이너 설명');
+  await expect(first.getByText('최근 질문', { exact: true })).toHaveCount(0);
+  await expect(cards.nth(1).getByText('최근 질문', { exact: true })).toBeVisible();
   // 이전 카드에서 후속 질문을 추가해도 새 문단 답을 대체하지 않습니다.
   await first.getByPlaceholder('이어서 물어볼 말을 적어요').fill('이 빈 예시만 다시 알려 주세요');
-  await first.getByPlaceholder('이어서 물어볼 말을 적어요').press('Enter');
+  await first.getByPlaceholder('이어서 물어볼 말을 적어요').press('Tab');
+  await expect(first.getByRole('button', { name: '보내기', exact: true })).toBeFocused();
+  await first.getByRole('button', { name: '보내기', exact: true }).press('Enter');
   await expect(first.locator('.cm-reply__q').last()).toContainText('이 빈 예시만 다시 알려 주세요');
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(1)).toContainText('둘째 문단의 컨테이너 설명');
-  for (const width of [380, 790]) {
+  for (const width of [320, 380, 790]) {
     await live.setViewportSize({ width, height: 1000 });
     expect(await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     await live.locator('.cm-screen__body--flow').evaluate((el) => { el.scrollTop = 0; });
     await live.screenshot({ path: test.info().outputPath(`preserved-0.0.6-${width}.png`) });
+    await cards.nth(1).scrollIntoViewIfNeeded();
+    await live.screenshot({ path: test.info().outputPath(`preserved-second-0.0.6-${width}.png`) });
   }
+  await live.evaluate(() => document.documentElement.setAttribute('data-text-scale', 'xl'));
+  expect(await first.locator('.cm-ans__p').first().evaluate((el) => getComputedStyle(el).fontSize)).toBe('20px');
+  await live.setViewportSize({ width: 380, height: 1000 });
+  expect(await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await live.close();
 });
 

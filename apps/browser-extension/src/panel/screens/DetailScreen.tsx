@@ -18,6 +18,7 @@ import { AnswerCard, NowLine, TranscriptFlow } from "@classmate/ui-classmate";
 import { useState } from "react";
 
 import { MAX_ASK_QUESTION_BYTES, utf8ByteLength } from "../ask-text";
+import { compactEvidence } from "../answer-presentation";
 import type { AnswerStreamView, DetailView } from "../lesson-view";
 import { FOLLOW_UP_WAITING_LINE } from "../replay-store";
 import { useStickToBottom } from "../use-stick-to-bottom";
@@ -26,6 +27,7 @@ import { AnswerStream } from "./AnswerStream";
 export interface DetailScreenProps {
   /** 전사 옆에 설명·후속 질문·입력창을 그대로 펼치는 라이브 모드입니다. */
   readonly inline?: boolean;
+  readonly active?: boolean;
   readonly view: DetailView;
   readonly onBack: () => void;
   readonly onFollowUp: (followUpId: string) => void;
@@ -49,7 +51,7 @@ export function streamingLine(stream: AnswerStreamView | null, idle: string): st
   return `${idle} · ${stream.chars}자`;
 }
 
-export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false }: DetailScreenProps): React.JSX.Element {
+export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false, active = false }: DetailScreenProps): React.JSX.Element {
   const [typed, setTyped] = useState("");
   // 이 화면은 답을 위에서부터 읽는 곳이라 열자마자 바닥으로 내리지 않습니다(startStuck: false).
   // 이어 물은 줄이 하나 늘면 그때 바닥으로 내려가(pinOn), 답이 한 글자씩 길어지는 동안 따라갑니다.
@@ -69,8 +71,15 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false }
   };
 
   return (
-    <div className={inline ? "cm-inline-detail" : "cm-screen"}>
-      {inline ? <div className="cm-inline-detail__heading">{view.term} · {view.time}</div> : <PanelHeader onBack={onBack} strong title={view.term} subtitle={`${view.time} 붙잡음`} />}
+    <div className={inline ? `cm-inline-detail${active ? " cm-inline-detail--active" : ""}` : "cm-screen"}>
+      {inline ? (
+        <div className="cm-inline-detail__heading">
+          <span className="cm-inline-detail__topic">{view.term}</span>
+          <span className="cm-inline-detail__kind">튜터 설명</span>
+          {active ? <span className="cm-inline-detail__current">최근 질문</span> : null}
+          <span className="cm-inline-detail__time">{view.time}</span>
+        </div>
+      ) : <PanelHeader onBack={onBack} strong title={view.term} subtitle={`${view.time} 붙잡음`} />}
       <div className={inline ? "cm-inline-detail__body" : "cm-screen__body"} ref={inline ? undefined : body.ref}>
         {inline || view.line === null ? null : <TranscriptFlow size="md" lines={[view.line]} marked={[...view.marked]} showTimes />}
         {view.loading ? (
@@ -81,11 +90,11 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false }
         ) : (
           <AnswerCard
             conclusion={view.conclusion}
-            evidence={[...view.evidence]}
+            evidence={inline ? compactEvidence(view.evidence) : [...view.evidence]}
             sections={view.sections.map((section) => inline ? { ...section, defaultOpen: true } : section)}
             followUps={[...view.followUps]}
             onFollowUp={onFollowUp}
-            followUpLabel={null}
+            followUpLabel={inline ? "한 걸음 더 이해하기" : null}
           />
         )}
         {view.reply === null ? null : (
@@ -99,7 +108,11 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false }
         )}
         {view.threads.map((thread) => (
           <div className="cm-reply" key={thread.id}>
-            <div className="cm-reply__q">{`${thread.question} · ${thread.time}`}</div>
+            <div className="cm-reply__q">
+              {inline ? <span className="cm-reply__question-label">내 질문</span> : null}
+              <span>{thread.question}</span>
+              <span className="cm-reply__time"> · {thread.time}</span>
+            </div>
             {thread.loading ? (
               <div className="cm-reply__wait">
                 <AnswerStream stream={thread.stream} idle={FOLLOW_UP_WAITING_LINE} />
@@ -114,7 +127,7 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false }
                 </div>
                 {thread.evidence.length === 0 ? null : (
                   <div className="cm-reply__ev">
-                    {thread.evidence.map((item, index) => (
+                    {(inline ? compactEvidence(thread.evidence) : thread.evidence).map((item, index) => (
                       <Evidence key={index} {...item} />
                     ))}
                   </div>
@@ -131,6 +144,7 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false }
         ) : null}
       </div>
       <div className={inline ? "cm-inline-detail__bar" : "cm-screen__bar"}>
+        {inline ? <div className="cm-inline-detail__input-label">이 설명에 이어 묻기</div> : null}
         {inline || view.nowLine === null ? null : (
           <NowLine variant="plain" style={{ marginBottom: 10 }}>
             {`${view.nowPrefix} ${view.nowLine.replace(/^지금 · /, "")}`}

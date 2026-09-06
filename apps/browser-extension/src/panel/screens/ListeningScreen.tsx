@@ -152,7 +152,7 @@ export function ListeningScreen({
   const inline = (questionId: string): React.ReactNode => {
     const detail = inlineDetails.find((item) => item.questionId === questionId);
     if (detail === undefined || detail.loading || onAskAt === undefined || onFollowUpAt === undefined) return null;
-    return <DetailScreen key={questionId} inline view={detail} onBack={() => {}}
+    return <DetailScreen key={questionId} inline active={questionId === activeQuestionId} view={detail} onBack={() => {}}
       onAsk={(text) => onAskAt(questionId, text)} onFollowUp={(id) => onFollowUpAt(questionId, id)} />;
   };
   const chatRef = useRef<HTMLElement>(null);
