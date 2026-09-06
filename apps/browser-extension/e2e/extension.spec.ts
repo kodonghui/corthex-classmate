@@ -382,7 +382,7 @@ test('17 라이브 대화 칸 — 누르지 않아도 글 칸이 보이고 전�
   await expect(field).toBeVisible();
   await expect(field).toBeEditable();
   await expect(live.locator('.cm-chat__log')).toBeVisible();
-  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '60');
+  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '25');
   expect(
     await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
   ).toBe(true);
@@ -476,11 +476,83 @@ test('18 대화 답의 전체 설명과 이어 묻기 버튼이 좁은 화면에
   });
   const explanation = live.locator('.cm-chat__log .cm-reply__body');
   await expect(explanation).toContainText('스프링 없이도 프로그램은 만들 수 있어요.');
-  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '60');
+  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '25');
   expect(await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await live.screenshot({ path: test.info().outputPath('conversation-0.0.4.png') });
   await live.getByRole('button', { name: '더 쉽게', exact: true }).click();
   await expect(live.locator('.cm-chat__log .cm-reply__q').last()).toContainText('더 쉽게 설명해 주세요');
+  await live.close();
+});
+
+test('19 전사 옆에서 상세 설명과 후속 질문을 바로 사용한다', async () => {
+  const live = await context.newPage();
+  await live.setViewportSize({ width: 380, height: 800 });
+  await live.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+  await live.waitForFunction(() => window.classmateReplay?.live === true);
+  await live.evaluate(() => {
+    const handle = window.classmateReplay!;
+    const at = new Date().toISOString();
+    handle.pushSegment({ id: 'ts-inline-test', periodId: 'e2e-live', seq: 1,
+      text: '스프링이 대신 만들어서 관리하는 객체를 빈이라고 불러요.', state: 'final', arrivedAt: at, source: 'tiro-share' });
+    handle.catchTerm('ts-inline-test', 0, '빈');
+    const asked = handle.state().emitted.findLast((e) => e.type === 'question.asked')!;
+    const questionId = asked.payload['questionId'] as string;
+    handle.push({ id: 'ev-inline-answer', periodId: asked.periodId, at,
+      type: 'answer.completed', payload: { questionId, answerId: 'a-inline', answer: {
+        id: 'a-inline', questionId, createdAt: at, provider: 'claude', status: 'answered', evidence: 'inferred',
+        conclusion: '스프링이 만들어 관리하는 객체가 빈이에요', chips: ['빈이랑 컨테이너 관계가 뭔데?', '예시로 설명해 줘'],
+        details: { why: '빈은 스프링이 관리하는 객체예요.\n\n컨테이너는 빈을 만들고 필요한 곳에 연결해 주는 관리자예요.',
+          screenCode: '화면 예제: 컨테이너 안에 주문 서비스와 저장소가 있어요.', teacherSaid: '선생님은 빈을 보관하는 용기를 컨테이너에 비유했어요.' },
+      } } });
+  });
+  const card = live.locator('.cm-inline-detail');
+  await expect(card).toHaveCount(1);
+  await expect(card).toContainText('컨테이너는 빈을 만들고');
+  await expect(card).toContainText('화면 예제:');
+  await expect(card).toContainText('선생님은 빈을');
+  await expect(card.getByRole('button', { name: '빈이랑 컨테이너 관계가 뭔데?', exact: true })).toBeVisible();
+  await expect(live.getByText('자세히 보기', { exact: false })).toHaveCount(0);
+  await expect(card.getByPlaceholder('이어서 물어볼 말을 적어요')).toBeVisible();
+  await card.getByRole('button', { name: '빈이랑 컨테이너 관계가 뭔데?', exact: true }).click();
+  await expect(card.locator('.cm-reply__q')).toContainText('빈이랑 컨테이너 관계가 뭔데?');
+  await expect(card).not.toContainText('fixture');
+  for (const width of [380, 790]) {
+    await live.setViewportSize({ width, height: 1000 });
+    await live.locator('.cm-screen__body--flow').evaluate((el) => { el.scrollTop = 0; });
+    expect(await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await live.screenshot({ path: test.info().outputPath(`inline-0.0.5-${width}.png`) });
+  }
+  await live.close();
+});
+
+test('20 이전 자리에 남은 카드에서도 같은 질문에 이어 묻는다', async () => {
+  const live = await context.newPage();
+  await live.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+  await live.waitForFunction(() => window.classmateReplay?.live === true);
+  const originalId = await live.evaluate(() => {
+    const handle = window.classmateReplay!;
+    const at = new Date().toISOString();
+    for (const seq of [1, 2]) handle.pushSegment({ id: `ts-carried-${seq}`, periodId: 'e2e-live', seq,
+      text: seq === 1 ? '빈은 스프링이 관리하는 객체예요.' : '컨테이너가 빈을 연결합니다.', state: 'final', arrivedAt: at, source: 'tiro-share' });
+    handle.catchTerm('ts-carried-1', 0, '빈');
+    const first = handle.state().emitted.findLast((e) => e.type === 'question.asked')!;
+    const questionId = first.payload['questionId'] as string;
+    handle.catchTerm('ts-carried-2', 0, '컨테이너');
+    handle.push({ id: 'ev-carried-inline', periodId: first.periodId, at, type: 'answer.completed', payload: {
+      questionId, answerId: 'a-carried-inline', answer: {
+        id: 'a-carried-inline', questionId, createdAt: at, provider: 'claude', status: 'answered', evidence: 'inferred',
+        conclusion: '첫 번째 질문의 답이에요', chips: ['첫 번째 답을 예시로 풀어 주세요', '다시 설명해 주세요'],
+        details: { why: '이전 자리에 남은 카드의 자세한 설명입니다.' },
+      },
+    } });
+    return questionId;
+  });
+  const card = live.locator('.cm-inline-detail');
+  await expect(card).toContainText('이전 자리에 남은 카드의 자세한 설명');
+  await card.getByRole('button', { name: '첫 번째 답을 예시로 풀어 주세요', exact: true }).click();
+  await expect(card.locator('.cm-reply__q')).toContainText('첫 번째 답을 예시로 풀어 주세요');
+  expect(await live.evaluate((id) => window.classmateReplay!.state().threads[id]?.length, originalId)).toBe(1);
+  await expect(card.getByPlaceholder('이어서 물어볼 말을 적어요')).toBeVisible();
   await live.close();
 });
 

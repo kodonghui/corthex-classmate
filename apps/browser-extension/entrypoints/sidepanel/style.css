@@ -175,11 +175,11 @@ body {
       ├ .cm-ph                  머리글        flex: none
       ├ .cm-screen__body--flow  전사          flex: 1      ← 남는 자리를 다 씁니다
       ├ .cm-chat__catch         새 문장 N개   flex: none   (밀린 줄이 있을 때만)
-      ├ .cm-chat                대화          height: 60%
+      ├ .cm-chat                대화          height: 25%
       └ .cm-sf                  바닥줄        flex: none
 
   높이를 %로 두는 까닭: 패널 높이는 창과 함께 늘 바뀝니다. px 로 못 박으면 낮은 창에서는
-  전사가 사라지고 높은 창에서는 대화 칸이 우표만 해집니다. 대화 중심 사용에 맞춰 기본 60%이며,
+  전사가 사라지고 높은 창에서는 대화 칸이 우표만 해집니다. 전사 3/4 요청에 맞춰 기본 25%이며,
   경계를 끌면 ListeningScreen 이 인라인 height 로 20~85% 사이의 다른 값을 얹습니다.
 
   min-height 가 min(180px, 45%) 인 까닭: 180px 는 글 칸 한 줄(36px)과 문답 두어 줄이 함께
@@ -189,9 +189,9 @@ body {
 */
 .cm-chat {
   flex: none;
-  height: 60%;
-  min-height: min(180px, 45%);
-  max-height: 60%;
+  height: 25%;
+  min-height: min(120px, 25%);
+  max-height: 85%;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -1017,6 +1017,36 @@ body {
   overflow-wrap: anywhere;
   line-height: 1.8;
   font-size: 14px;
+}
+
+.cm-inline-detail {
+  margin: 12px 0;
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+  padding: 12px;
+  background: var(--surface-card);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.cm-inline-detail__heading {
+  color: var(--text-secondary);
+  font: var(--type-caption);
+  margin-bottom: 8px;
+}
+
+.cm-inline-detail__body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.cm-inline-detail .cm-ans {
+  margin: 0;
+}
+
+.cm-inline-detail__bar {
+  margin-top: 12px;
 }
 
 .cm-chat__suggestions {

@@ -197,7 +197,7 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("여기에 적어 물으면 답이 이 칸에 쌓여요");
     // 경계는 끌 수 있는 구분선입니다(기본 1/3).
     expect(html).toContain('role="separator"');
-    expect(html).toContain('aria-valuenow="60"');
+    expect(html).toContain('aria-valuenow="25"');
     // 자세히 화면 같은 고정 바닥바를 만들지는 않습니다.
     expect(html).not.toContain("cm-screen__bar");
     // 안내 글과 Alt+S 는 전사 칸 맨 아래에 그대로 남습니다.

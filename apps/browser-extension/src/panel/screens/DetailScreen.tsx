@@ -24,6 +24,8 @@ import { useStickToBottom } from "../use-stick-to-bottom";
 import { AnswerStream } from "./AnswerStream";
 
 export interface DetailScreenProps {
+  /** 전사 옆에 설명·후속 질문·입력창을 그대로 펼치는 라이브 모드입니다. */
+  readonly inline?: boolean;
   readonly view: DetailView;
   readonly onBack: () => void;
   readonly onFollowUp: (followUpId: string) => void;
@@ -47,7 +49,7 @@ export function streamingLine(stream: AnswerStreamView | null, idle: string): st
   return `${idle} · ${stream.chars}자`;
 }
 
-export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenProps): React.JSX.Element {
+export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false }: DetailScreenProps): React.JSX.Element {
   const [typed, setTyped] = useState("");
   // 이 화면은 답을 위에서부터 읽는 곳이라 열자마자 바닥으로 내리지 않습니다(startStuck: false).
   // 이어 물은 줄이 하나 늘면 그때 바닥으로 내려가(pinOn), 답이 한 글자씩 길어지는 동안 따라갑니다.
@@ -67,10 +69,10 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
   };
 
   return (
-    <div className="cm-screen">
-      <PanelHeader onBack={onBack} strong title={view.term} subtitle={`${view.time} 붙잡음`} />
-      <div className="cm-screen__body" ref={body.ref}>
-        {view.line === null ? null : <TranscriptFlow size="md" lines={[view.line]} marked={[...view.marked]} showTimes />}
+    <div className={inline ? "cm-inline-detail" : "cm-screen"}>
+      {inline ? <div className="cm-inline-detail__heading">{view.term} · {view.time}</div> : <PanelHeader onBack={onBack} strong title={view.term} subtitle={`${view.time} 붙잡음`} />}
+      <div className={inline ? "cm-inline-detail__body" : "cm-screen__body"} ref={inline ? undefined : body.ref}>
+        {inline || view.line === null ? null : <TranscriptFlow size="md" lines={[view.line]} marked={[...view.marked]} showTimes />}
         {view.loading ? (
           // 답이 흐르고 있으면 뼈대 카드의 **대기 한 줄** 자리에 자라는 결론을 보여 줍니다.
           // 결론 자리(`cm-ans__c`)가 아니라서 쓸어내림이 계속 돌고, 다 쓴 답과 헷갈리지 않습니다.
@@ -80,7 +82,7 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
           <AnswerCard
             conclusion={view.conclusion}
             evidence={[...view.evidence]}
-            sections={[...view.sections]}
+            sections={view.sections.map((section) => inline ? { ...section, defaultOpen: true } : section)}
             followUps={[...view.followUps]}
             onFollowUp={onFollowUp}
             followUpLabel={null}
@@ -128,8 +130,8 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
           </div>
         ) : null}
       </div>
-      <div className="cm-screen__bar">
-        {view.nowLine === null ? null : (
+      <div className={inline ? "cm-inline-detail__bar" : "cm-screen__bar"}>
+        {inline || view.nowLine === null ? null : (
           <NowLine variant="plain" style={{ marginBottom: 10 }}>
             {`${view.nowPrefix} ${view.nowLine.replace(/^지금 · /, "")}`}
           </NowLine>
@@ -152,9 +154,9 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk }: DetailScreenPr
             trailing={<IconButton icon="arrow-up" label="보내기" size="sm" disabled={!ready} onClick={send} />}
           />
         </div>
-        <Button variant="primary" size="lg" full icon="arrow-left" onClick={onBack}>
+        {inline ? null : <Button variant="primary" size="lg" full icon="arrow-left" onClick={onBack}>
           {view.returnLabel}
-        </Button>
+        </Button>}
       </div>
     </div>
   );

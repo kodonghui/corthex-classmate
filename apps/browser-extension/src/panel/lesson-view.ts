@@ -665,7 +665,7 @@ export function sectionsOf(bundle: GoldenBundle, answer: Answer, line: Transcrip
     sections.push({ id: "cmp", label: "내 코드와 비교", icon: "git-compare", meta: file, content: details.compareMyCode });
   }
   if (details.screenCode !== undefined) {
-    if (copy.includesEditor) {
+    if (copy.includesEditor && bundle.editor.excerpt.trim().length > 0) {
       sections.push({
         id: "code",
         label: copy.screenSection,
@@ -679,7 +679,7 @@ export function sectionsOf(bundle: GoldenBundle, answer: Answer, line: Transcrip
         content: details.screenCode,
       });
     } else {
-      // 시험·회의에는 IntelliJ 자리표시를 코드 근거인 것처럼 보여 주지 않습니다.
+      // 코드가 없으면 빈 IntelliJ 상자로 화면 설명을 가리지 않습니다.
       sections.push({ id: "code", label: copy.screenSection, icon: "monitor", content: details.screenCode });
     }
   }
@@ -701,11 +701,12 @@ export function sectionsOf(bundle: GoldenBundle, answer: Answer, line: Transcrip
  *     재생(fixture)  더 쉽게 · 왜 필요한데? · 방금 내용 (fixture 의 details 로 그 자리에서 답합니다)
  *     라이브         위 셋 + **모델이 답에 실어 준 칩**(`answer.chips`) — 누르면 그 문장을 그대로 묻습니다
  *
- * 지난 순간(기록에서 연 것)에는 칩을 두지 않습니다. 칩 답은 상태기계가 든 답으로 만드는데,
- * 지난 순간에 붙이면 엉뚱한 답이 옵니다. 이어 묻기(맨 아래 입력창)는 지난 순간에도 됩니다.
+ * 라이브의 이전 카드도 자기 questionId로 후속 질문을 보냅니다. fixture 재생에서만
+ * 이전 순간의 칩을 숨겨 현재 상태의 모의 답과 섞이지 않게 합니다.
  */
 function followUpsOf(state: ReplayState, answer: Answer | null, current: boolean): FollowUp[] {
-  if (!current) return [];
+  // 라이브에서는 각 카드의 questionId로 요청하므로 이전 카드에서도 안전하게 이어 묻습니다.
+  if (!current && !state.live) return [];
   if (!state.live || answer === null) return [...FOLLOW_UPS];
   const fromModel = answer.chips.map<FollowUp>((label, index) => ({
     id: `${MODEL_CHIP_PREFIX}${index}`,

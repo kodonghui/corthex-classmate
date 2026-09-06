@@ -388,6 +388,10 @@ export function PanelApp({
       ? detailViewFor(store.bundle, state, lines, openedMoment)
       : null;
   const detail = overlay === "none" && state.screen === "detail" ? detailView(store.bundle, state, lines) : null;
+  const inlineDetails = store.isLive
+    ? [...new Set([...state.carried, ...(state.machine.questionId === null ? [] : [state.machine.questionId])])]
+      .flatMap((id) => { const item = detailViewFor(store.bundle, state, lines, id); return item === null ? [] : [item]; })
+    : [];
 
   const label =
     overlay === "settings"
@@ -474,6 +478,10 @@ export function PanelApp({
         />
       ) : (
         <ListeningScreen
+          inlineDetails={inlineDetails}
+          activeQuestionId={state.machine.questionId}
+          onAskAt={(questionId, text) => store.askTyped(questionId, text)}
+          onFollowUpAt={(questionId, id) => store.followUp(questionId, id)}
           view={listeningView(store.bundle, state, lines, store.isLive)}
           onTerm={(lineId, segmentIndex, word) => store.catchTerm(lineId, segmentIndex, word)}
           onSentence={(lineId) => store.catchSentence(lineId)}

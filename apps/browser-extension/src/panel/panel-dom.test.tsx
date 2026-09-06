@@ -649,16 +649,16 @@ describe("듣는 중 화면의 대화 칸", () => {
 
   it("경계를 화살표로 움직여 대화 칸 높이를 바꾼다", async () => {
     await liveRig();
-    // 연속 대화를 주로 쓰므로 기본은 60%입니다.
-    expect(grip().getAttribute("aria-valuenow")).toBe("60");
+    // 전사 약 3/4, 대화 약 1/4이 기본입니다.
+    expect(grip().getAttribute("aria-valuenow")).toBe("25");
 
     act(() => {
       grip().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
     });
-    expect(grip().getAttribute("aria-valuenow")).toBe("65");
+    expect(grip().getAttribute("aria-valuenow")).toBe("30");
 
     // 위끝(85%)을 넘지 않습니다 — 전사가 사라지면 안 됩니다.
-    for (let i = 0; i < 10; i += 1) {
+    for (let i = 0; i < 15; i += 1) {
       act(() => {
         grip().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
       });

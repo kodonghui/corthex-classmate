@@ -38,11 +38,12 @@ import { GuessList, MarginNote, NowLine, SourceFooter, SourceStatus, TranscriptF
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { MAX_ASK_QUESTION_BYTES, utf8ByteLength } from "../ask-text";
-import type { FooterWarnView, ListeningView } from "../lesson-view";
+import type { DetailView, FooterWarnView, ListeningView } from "../lesson-view";
 import type { ReconnectTarget } from "../ports";
 import { FOLLOW_UP_WAITING_LINE } from "../replay-store";
 import { useStickToBottom } from "../use-stick-to-bottom";
 import { AnswerStream } from "./AnswerStream";
+import { DetailScreen } from "./DetailScreen";
 
 /** 밀려난 질문이 답을 기다리는 동안 그 줄 옆에 뜨는 글입니다(U-34). */
 const CARRIED_WAITING = "기다리는 중 · 답이 오면 여기에 채워요";
@@ -64,6 +65,10 @@ function withBody(conclusion: React.ReactNode, body: string | null): React.React
 }
 
 export interface ListeningScreenProps {
+  readonly inlineDetails?: readonly DetailView[];
+  readonly activeQuestionId?: string | null;
+  readonly onAskAt?: (questionId: string, text: string) => void;
+  readonly onFollowUpAt?: (questionId: string, followUpId: string) => void;
   readonly view: ListeningView;
   readonly onTerm: (lineId: string, segmentIndex: number, word: string) => void;
   readonly onSentence: (lineId: string) => void;
@@ -91,7 +96,7 @@ const CHAT_EMPTY_LINE = "여기에 적어 물으면 답이 이 칸에 쌓여요"
 const HINT_BELOW_BYTES = 200;
 
 /**
- * 연속 대화가 주 사용 흐름이므로 기본 60%, 조절 범위는 20~85%입니다.
+ * 전사 3/4, 대화 1/4을 기본으로 합니다. 조절 범위는 20~85%입니다.
  *
  * 비율로 다루는 까닭: 사이드패널 높이는 창 크기와 함께 늘 바뀝니다. px 로 못 박으면 낮은
  * 창에서는 전사가 사라지고 높은 창에서는 대화 칸이 우표만 해집니다.
@@ -99,7 +104,7 @@ const HINT_BELOW_BYTES = 200;
  * style.css 의 `min-height: min(180px, 45%)` 가 **픽셀 바닥**을 지킵니다 — 글 칸 한 줄(36px)과
  * 문답 두어 줄이 함께 보이는 최소 높이입니다.
  */
-const DEFAULT_CHAT_RATIO = 0.6;
+const DEFAULT_CHAT_RATIO = 0.25;
 const MIN_CHAT_RATIO = 0.2;
 const MAX_CHAT_RATIO = 0.85;
 
@@ -129,6 +134,10 @@ function clampRatio(ratio: number): number {
 
 export function ListeningScreen({
   view,
+  inlineDetails = [],
+  activeQuestionId = null,
+  onAskAt,
+  onFollowUpAt,
   onTerm,
   onSentence,
   onGuess,
@@ -140,6 +149,12 @@ export function ListeningScreen({
   onReconnect,
   onAsk,
 }: ListeningScreenProps): React.JSX.Element {
+  const inline = (questionId: string): React.ReactNode => {
+    const detail = inlineDetails.find((item) => item.questionId === questionId);
+    if (detail === undefined || detail.loading || onAskAt === undefined || onFollowUpAt === undefined) return null;
+    return <DetailScreen key={questionId} inline view={detail} onBack={() => {}}
+      onAsk={(text) => onAskAt(questionId, text)} onFollowUp={(id) => onFollowUpAt(questionId, id)} />;
+  };
   const chatRef = useRef<HTMLElement>(null);
   /** 바로 앞 렌더에서 맨 아래에 있던 줄 id 입니다. 바뀌면 새 문장이 온 것입니다. */
   const lastLineRef = useRef<string | null>(null);
@@ -275,7 +290,7 @@ export function ListeningScreen({
   const renderCarried = (lineId: string): React.ReactNode => {
     const rows = view.carried.filter((item) => item.lineId === lineId);
     if (rows.length === 0) return null;
-    return rows.map((row) =>
+    return rows.map((row) => inline(row.questionId) ?? (
       row.conclusion === null ? (
         <MarginNote
           key={row.questionId}
@@ -304,7 +319,7 @@ export function ListeningScreen({
           conclusion={withBody(row.conclusion, row.body)}
           evidence={[...row.evidence]}
         />
-      ),
+      )),
     );
   };
 
@@ -325,6 +340,10 @@ export function ListeningScreen({
     }
     const after = view.noteNow === null ? null : <NowLine style={{ marginTop: 12 }}>{view.noteNow}</NowLine>;
     const block = ((): React.ReactNode => {
+      if ((note.kind === "ready" || note.kind === "collapsed") && activeQuestionId !== null) {
+        const expanded = inline(activeQuestionId);
+        if (expanded !== null) return expanded;
+      }
       switch (note.kind) {
         case "choosing":
           return (
