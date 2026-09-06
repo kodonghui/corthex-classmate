@@ -1211,7 +1211,7 @@ describe("흐르는 조각", () => {
 // 계속 문단을 눌렀습니다. 스토어는 멀쩡했고 `noteOf` 가 짐작을 안 내주고 있었습니다.
 // ─────────────────────────────────────────────────────────────────────────────
 
-describe("답을 기다리는 중에 다음 문단 붙잡기", () => {
+describe("다음 문단을 붙잡아도 이전 질문 보존", () => {
   function rigWithTwoLines(): ReturnType<typeof rig> {
     const bench = rig();
     bench.store.pushSegment(segment(1, "객체를 직접 new로 만들면", 5));
@@ -1339,7 +1339,40 @@ describe("답을 기다리는 중에 다음 문단 붙잡기", () => {
     expect(home(bench.store).carried[0]).toMatchObject({ conclusion: null, failure: ASK_TIMEOUT_MESSAGE });
   });
 
-  it("앞 질문이 답을 이미 받았으면 어느 자리로도 옮기지 않는다", () => {
+  it("실패 안내도 다음 문단 질문 뒤 원래 자리에 남는다", () => {
+    const bench = rigWithTwoLines();
+    bench.store.catchTerm("ts-live-001", 1, "new");
+    const first = bench.store.getState().machine.questionId ?? "";
+    bench.store.pushEvent(event("ev-failed-before-next", 9, "answer.failed", {
+      questionId: first, provider: "claude", message: ASK_TIMEOUT_MESSAGE,
+    }));
+    bench.store.catchTerm("ts-live-002", 0, "context.getBean");
+    expect(home(bench.store).carried).toEqual([
+      expect.objectContaining({ questionId: first, lineId: "ts-live-001", failure: ASK_TIMEOUT_MESSAGE }),
+    ]);
+  });
+
+  it("같은 문단에 다시 질문해도 완료된 답들을 ID별로 보존한다", () => {
+    const bench = rigWithTwoLines();
+    const ids: string[] = [];
+    for (let index = 0; index < 3; index += 1) {
+      bench.store.catchTerm("ts-live-001", 1, "new");
+      const id = bench.store.getState().machine.questionId ?? "";
+      ids.push(id);
+      bench.store.pushEvent(event(`ev-repeat-${index}`, 9 + index, "answer.completed", {
+        questionId: id, answerId: `an-repeat-${index}`,
+        answer: answerBody(`an-repeat-${index}`, id, `설명 ${index}`, 9 + index),
+      }));
+    }
+    expect(new Set(ids).size).toBe(3);
+    expect(bench.store.getState().carried).toEqual(ids.slice(0, 2));
+    expect(home(bench.store).carried.map((item) => [item.lineId, item.conclusion])).toEqual([
+      ["ts-live-001", "설명 0"], ["ts-live-001", "설명 1"],
+    ]);
+    expect(bench.store.getState().machine.questionId).toBe(ids[2]);
+  });
+
+  it("앞 질문이 답을 이미 받았어도 원래 문단에 보존한다", () => {
     const bench = rigWithTwoLines();
     bench.store.catchTerm("ts-live-001", 1, "new");
     const first = bench.store.getState().machine.questionId ?? "";
@@ -1353,10 +1386,16 @@ describe("답을 기다리는 중에 다음 문단 붙잡기", () => {
 
     bench.store.catchTerm("ts-live-002", 0, "context.getBean");
 
-    // 답이 이미 화면에 떴던 질문입니다. 어느 자리에도 한 번 더 적을 까닭이 없습니다.
+    // 선택만 다음 질문으로 이동하고 완료된 답은 원래 문단에 남습니다.
     const view = home(bench.store);
     expect(view.asks).toHaveLength(0);
-    expect(view.carried).toHaveLength(0);
+    expect(view.carried).toHaveLength(1);
+    expect(view.carried[0]).toMatchObject({
+      questionId: first,
+      lineId: "ts-live-001",
+      conclusion: "한 줄 결론",
+      failure: null,
+    });
   });
 });
 

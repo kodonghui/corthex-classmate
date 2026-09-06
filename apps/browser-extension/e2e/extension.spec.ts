@@ -556,6 +556,79 @@ test('20 이전 자리에 남은 카드에서도 같은 질문에 이어 묻는�
   await live.close();
 });
 
+test('21 완료된 답과 후속 대화가 다음 문단 질문 뒤에도 원래 자리에 남는다', async () => {
+  const live = await context.newPage();
+  await live.setViewportSize({ width: 790, height: 1000 });
+  await live.goto(`chrome-extension://${extensionId}/sidepanel.html`);
+  await live.waitForFunction(() => window.classmateReplay?.live === true);
+  await live.evaluate(() => {
+    const handle = window.classmateReplay!;
+    const at = new Date().toISOString();
+    for (const seq of [1, 2]) handle.pushSegment({ id: `ts-completed-${seq}`, periodId: 'e2e-live', seq,
+      text: seq === 1 ? '빈은 스프링이 관리하는 객체예요.' : '컨테이너가 빈을 연결합니다.',
+      state: 'final', arrivedAt: at, source: 'tiro-share' });
+    handle.catchTerm('ts-completed-1', 0, '빈');
+    const asked = handle.state().emitted.findLast((e) => e.type === 'question.asked')!;
+    const questionId = asked.payload['questionId'] as string;
+    handle.push({ id: 'ev-completed-first', periodId: asked.periodId, at, type: 'answer.completed', payload: {
+      questionId, answerId: 'a-completed-first', answer: {
+        id: 'a-completed-first', questionId, createdAt: at, provider: 'claude', status: 'answered', evidence: 'inferred',
+        conclusion: '첫 문단의 빈 설명', chips: ['빈 예시를 더 알려 주세요', '다시 설명해 주세요'],
+        details: { why: '빈 설명은 다음 질문을 해도 이 문단에 남아야 합니다.' },
+      },
+    } });
+  });
+  const first = live.locator('.cm-inline-detail').filter({ hasText: '첫 문단의 빈 설명' });
+  await first.getByRole('button', { name: '빈 예시를 더 알려 주세요', exact: true }).click();
+  await live.evaluate(() => {
+    const handle = window.classmateReplay!;
+    const at = new Date().toISOString();
+    const reply = handle.state().emitted.findLast((e) => e.type === 'question.asked')!;
+    const questionId = reply.payload['questionId'] as string;
+    handle.push({ id: 'ev-completed-followup', periodId: reply.periodId, at, type: 'answer.completed', payload: {
+      questionId, answerId: 'a-completed-followup', answer: {
+        id: 'a-completed-followup', questionId, createdAt: at, provider: 'claude', status: 'answered', evidence: 'inferred',
+        conclusion: '주문 서비스도 빈이 될 수 있어요', chips: ['더 쉽게', '예시로'],
+        details: { why: '첫 질문에 이어 나눈 예시 대화입니다.' },
+      },
+    } });
+  });
+  await expect(first).toContainText('첫 질문에 이어 나눈 예시 대화입니다.');
+  await live.evaluate(() => {
+    const handle = window.classmateReplay!;
+    const at = new Date().toISOString();
+    handle.catchTerm('ts-completed-2', 0, '컨테이너');
+    const asked = handle.state().emitted.findLast((e) => e.type === 'question.asked')!;
+    const questionId = asked.payload['questionId'] as string;
+    handle.push({ id: 'ev-completed-second', periodId: asked.periodId, at, type: 'answer.completed', payload: {
+      questionId, answerId: 'a-completed-second', answer: {
+        id: 'a-completed-second', questionId, createdAt: at, provider: 'claude', status: 'answered', evidence: 'inferred',
+        conclusion: '둘째 문단의 컨테이너 설명', chips: ['컨테이너 예시를 알려 주세요', '다시 설명해 주세요'],
+        details: { why: '컨테이너 설명도 두 번째 문단 아래에 남습니다.' },
+      },
+    } });
+  });
+  const cards = live.locator('.cm-inline-detail');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.nth(0)).toContainText('첫 문단의 빈 설명');
+  await expect(cards.nth(0)).toContainText('빈 예시를 더 알려 주세요');
+  await expect(cards.nth(0)).toContainText('첫 질문에 이어 나눈 예시 대화입니다.');
+  await expect(cards.nth(1)).toContainText('둘째 문단의 컨테이너 설명');
+  // 이전 카드에서 후속 질문을 추가해도 새 문단 답을 대체하지 않습니다.
+  await first.getByPlaceholder('이어서 물어볼 말을 적어요').fill('이 빈 예시만 다시 알려 주세요');
+  await first.getByPlaceholder('이어서 물어볼 말을 적어요').press('Enter');
+  await expect(first.locator('.cm-reply__q').last()).toContainText('이 빈 예시만 다시 알려 주세요');
+  await expect(cards).toHaveCount(2);
+  await expect(cards.nth(1)).toContainText('둘째 문단의 컨테이너 설명');
+  for (const width of [380, 790]) {
+    await live.setViewportSize({ width, height: 1000 });
+    expect(await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+    await live.locator('.cm-screen__body--flow').evaluate((el) => { el.scrollTop = 0; });
+    await live.screenshot({ path: test.info().outputPath(`preserved-0.0.6-${width}.png`) });
+  }
+  await live.close();
+});
+
 test('콘솔 오류와 페이지 오류가 없다', async () => {
   expect(pageErrors).toEqual([]);
   expect(consoleErrors).toEqual([]);

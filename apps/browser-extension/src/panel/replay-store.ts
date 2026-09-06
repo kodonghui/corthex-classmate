@@ -1242,18 +1242,16 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   }
 
   /**
-   * 새 질문이 앞 질문을 밀어내기 **직전에**, 아직 답을 기다리던 앞 질문을 대화 칸으로 옮깁니다.
+   * 선택을 새 질문으로 넘기기 직전에 앞 질문을 원래 문단에 보존합니다.
    *
    * ```text
-   *   Q1 붙잡음(답 기다리는 중) ──▶ Q2 붙잡음
-   *        │                          └─ 기계는 Q2 하나만 듭니다 (questionId 가 갈립니다)
-   *        └─ 여기서 Q1 을 threads[교시] 한 줄로 옮겨 둡니다
-   *              └─▶ 나중에 Q1 의 답이 오면 `#threadsAfter` 가 그 줄을 채웁니다
+   *   Q1 붙잡음(완료·대기·실패) ──▶ Q2 붙잡음
+   *        │                       └─ 기계의 현재 선택은 Q2
+   *        └─ carried 에 Q1 ID 유지 → 원래 문단에 답과 후속 대화 표시
    * ```
    *
-   * 왜 지우면 안 되는가: 옮겨 두지 않으면 Q1 의 답이 `#isStaleAnswer` 에 걸려 화면 어디에도
-   * 뜨지 않습니다(기록 화면에만 남습니다). 학습자 입장에서는 물어본 것이 조용히 사라진
-   * 것입니다. 그러니 이 함수는 남습니다 — 바뀌는 것은 **옮기는 자리**뿐입니다.
+   * 완료된 답은 워치독에서 이미 빠졌더라도 남겨야 합니다. 보존 여부를 답 도착 여부와
+   * 결합하면 Q2 를 물을 때 읽던 Q1 설명이 사라집니다. 늦게 온 답도 같은 ID로 채웁니다.
    *
    * 어디로 옮기나(U-34 에서 정한 것): **물어본 그 문장 옆, 그 줄의 메모 자리**입니다.
    * 아래 대화 칸이 아닙니다. 학습자 말 그대로 「대화창은 내가 따로 질문하는거면 좋겠는데」 —
@@ -1264,11 +1262,10 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
    *
    * 재생(fixture) 모드에서는 아무 일도 하지 않습니다 — 골든 9장면을 지킵니다.
    */
-  #carryOverPending(): void {
+  #carryOverMoment(): void {
     if (this.#live === null) return;
     const previous = this.#state.machine.questionId;
-    // 워치독에 걸려 있다 = 밖에 물었고 아직 답 사건이 하나도 안 왔다.
-    if (previous === null || !this.#watching.has(previous)) return;
+    if (previous === null) return;
     if (this.#isThreadQuestion(previous)) return;
     if (this.#state.carried.includes(previous)) return;
     // 그 질문의 순간이 있어야 어느 줄 옆에 그릴지 압니다. 없으면 그릴 자리가 없습니다.
@@ -1277,8 +1274,8 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   }
 
   #stuck({ lineId, term, segKey, time, question, word }: StuckOptions): void {
-    // 앞 질문이 아직 답을 기다리는 중이면 대화 칸으로 옮겨 두고 나서 자리를 넘깁니다.
-    this.#carryOverPending();
+    // 답 도착 여부와 무관하게 이전 문단의 설명과 후속 대화를 남깁니다.
+    this.#carryOverMoment();
     const now = this.#state.now;
     const questionId = this.#nextQuestionId();
     // 붙잡은 그 줄이 봉인 창의 중심입니다. "지금 시각의 최근 몇 개" 가 아닙니다.
