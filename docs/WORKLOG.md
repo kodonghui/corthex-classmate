@@ -465,3 +465,9 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 - 읽기 전용 Cowork 내보내기 도구와 테스트 2개를 추가했다. 사용자 요청에 따라 현재 세션의 사본(464순간/81화면)을 Git 바깥 Documents/Classmate-Blog에 준비했다. 원본 수정·AI 호출·외부 게시 없음. 실제 개인 자료는 커밋에 포함하지 않는다.
 - 80개 실제 저장 질문의 완료 지연 중앙값 18초/최근20건 20초. 사용자 설정 medium, Classmate effort 지정 없음. 결론만 스트리밍되는 구조를 확인했다. 계측/본문 스트리밍/문맥 선별 후 effort A/B를 추천하며 지금은 설정을 변경하지 않는다.
 - 세부 설계/제한/공식 링크: docs/inline-qa-and-cowork.md. 공개 ZIP 0.1.0은 이번 변경과 구별한다.
+# 2026-09-07 — 0.1.1 공개 배포와 현재 PC 정식 빌드 동기화
+
+- 사용자 GitHub 업로드 요청 및 현재 PC 업데이트 요청에 따라 비공개 소스 646f1f6 push, 공개 classmate 저장소 0909445 README/합성 화면/변경 안내 push를 완료했다. 개인 세션/블로그 사본과 별도 report worker 수정은 제외했다.
+- 깨끗한 worktree 빌드 0.1.1+g646f1f68558e. 호스트 코드가 0.1.0과 같음을 diff로 확인해 검증된 동일 EXE를 재사용했다. 포장 테스트 23개, 라이선스 158개. ZIP 6,525,147 bytes, SHA-256 713cd1fe7accea3ab1e7caccccc0524fecb7a3c2e509db984984d27a876d0d6a.
+- https://github.com/kodonghui/classmate/releases/tag/v0.1.1 에 자산을 먼저 게시한 뒤 인증 없는 다운로드 HTTP 200/해시 일치/압축 해제 Setup Validate 432파일 통과를 확인하고 README 링크를 전환했다.
+- 현재 PC 확장 폴더도 정식 빌드로 동기화: 215파일 해시 일치, 이전 개발 빌드 extension.backup-0.1.1-preview-20260907-1312 보존. 기존 도우미/학습 DB 변경 및 실행 중 연결 강제 종료 없음. Chrome 확장 새로고침은 사용자에게 안내하며 현재 로드된 화면까지 변경됐다고 주장하지 않는다.
