@@ -56,6 +56,11 @@ function collectLicenses(stage) {
   const append = (ecosystem, name, version, license, folder) => {
     let found = licenseFiles(folder);
     if (!found.length && name.startsWith('@wxt-dev/') && license === 'MIT') found = licenseFiles(join(root, 'installer/windows/third-party/wxt'));
+    // These published packages ship the complete MIT notice in README, not a LICENSE file.
+    if (!found.length && ['fastdom', 'strictdom'].includes(name) && license === 'MIT') {
+      const notice = join(folder, 'README.md');
+      if (existsSync(notice) && /## License[\s\S]*Copyright[\s\S]*Permission is hereby granted[\s\S]*THE SOFTWARE IS PROVIDED/.test(readFileSync(notice, 'utf8'))) found = [notice];
+    }
     if (!found.length) throw new Error(`License text missing: ${name}@${version}`);
     const slug = `${ecosystem}-${name.replace(/[^a-zA-Z0-9.-]/g, '-')}-${version}`;
     found.forEach((file, i) => put(stage, `licenses/${slug}/${i}-${file.split(/[\\/]/).at(-1)}`, readFileSync(file)));
