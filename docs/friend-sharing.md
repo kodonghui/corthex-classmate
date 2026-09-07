@@ -1,6 +1,27 @@
 # Windows 친구 공유용 베타
 
-최근 업데이트: 2026-09-07. 패키지 `0.0.6-beta1`, 확장 `0.0.6`, Windows x64 전용.
+최근 업데이트: 2026-09-07. 최신 패키지 `0.0.6-beta2`, 확장 `0.0.6`, Windows x64 전용.
+
+## beta2 — 질문 자료와 자동 연결 안내 보강
+
+`out/share/Classmate-0.0.6-beta2/`의 ZIP·Guide.html을 전달합니다. beta1은 이전 기록으로 보존합니다.
+ZIP 5,129,775 bytes, SHA-256 `596fd5c76eb119f2c14b40714bd131dcb67f06ecff4b2eab7c4748604524f960`.
+프로그램 파일은 beta1과 전부 해시 동일합니다. 기존 사용자는 재설치하지 말고 새 안내만 읽으세요.
+아래 beta1의 파일명·기본 설치 경로는 신규 beta2 설치에서 beta2로 바뀝니다.
+
+- 질문 본문/선택한 문장 + 중심 대목 주변 전사(약 2,000자 예산, 중심 문단은 유지) + 화면 + 같은 교시 최근 완료 문답 최대 6쌍/12,000자.
+- 뒤 전사는 질문 시 이미 도착한 것 중 중심 문단 도착 시각에서 30초 이내 조각입니다. 미래 발언을 기다리지 않습니다.
+- 질문 화면 캡처는 최대 1.5초 기다립니다. 실패 시 이전 선택 프레임 또는 화면 없음으로 진행합니다. 이미지 경로 전달과 AI가 실제 이미지를 읽은 성공은 구별합니다.
+- 이어 묻기는 원래 질문의 전사 맥락을 유지하되 화면은 현재 것일 수 있습니다. 예전 문단/현재 화면의 시간 불일치를 안내합니다.
+- 실제 받은 편집기 발췌만 선택적으로 포함합니다. IntelliJ, Notion, PDF, 로컬 폴더 전체, 하루치 기록 전체를 자동 탐색해 넣는 것은 아닙니다.
+- 자동 연결은 같은 PC/Windows 사용자의 Claude Code 실행 파일 탐색과 로컬 등록입니다. 웹·데스크톱 앱 로그인, WSL 전용 설치, 다른 물리적 PC의 CLI는 해당하지 않습니다. 로그인과 Chrome 추가는 직접 해야 합니다.
+
+확인한 코드: `apps/browser-extension/src/panel/replay-store.ts`의 contextWindow/followUpSeal,
+`src/background/router.ts`의 attachScreen, `apps/native-host/src/tutor/{materials,conversation,prompt}.rs`,
+`installer/windows/portable/Setup.ps1`의 Find-Claude. 소스 `7a0be50` 기준 2026-09-07 확인.
+390px/1100px HTML 가로 넘침 없음·흐름도 시각 확인, 패키징 테스트 4개 및 최종 ZIP 재추출 체크섬 통과.
+
+이후 사용자 요청으로 GitHub 다운로드 배포를 진행합니다. 기존 저장소는 비공개이며 전체 공개 전환은 하지 않습니다.
 
 ## 무엇을 전달하나요?
 

@@ -98,7 +98,7 @@ function collectLicenses(stage) {
 export function main() {
   if (process.platform !== 'win32') throw new Error('Build this Windows beta on Windows.');
   const version = JSON.parse(readFileSync(join(root, 'apps/browser-extension/package.json'), 'utf8')).version;
-  const bundleId = `${version}-beta1`;
+  const bundleId = `${version}-beta2`;
   const extension = join(root, 'apps/browser-extension/.output/chrome-mv3');
   const manifest = JSON.parse(readFileSync(join(extension, 'manifest.json'), 'utf8'));
   const extensionId = validateExtension(manifest, version);

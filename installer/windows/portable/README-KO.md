@@ -2,6 +2,12 @@
 
 먼저 **Guide.html**을 열어 주세요.
 
+안내 보강판 0.0.6-beta2입니다. 확장 기능은 0.0.6과 같으므로 beta1 사용자는 재설치하지 말고 새 안내만 읽으세요.
+Guide.html에 질문 자료 흐름도와 Claude 자동 연결 조건을 추가했습니다.
+AI에는 내 질문, 질문 대목 주변 전사, 가능하면 화면 한 장, 같은 교시의 최근 완료 문답 최대 6쌍을 전달합니다.
+앞 질문의 이어 묻기는 원래 전사 맥락을 유지합니다. 미래 발언이나 하루 전체를 자동으로 읽는 것은 아닙니다.
+Claude 자동 탐색은 Classmate를 설치하는 바로 그 PC의 Windows Claude Code에 한합니다. 본인 로그인과 Chrome 확장 추가는 직접 해야 합니다.
+
 1. 본인 Windows native Claude Code를 설치하고 로그인합니다. Tiro·Chrome도 준비합니다.
 2. ZIP 전체를 압축 해제하고 **Install.cmd**를 더블클릭합니다.
 3. Chrome을 완전히 다시 열고 `chrome://extensions`에서 개발자 모드 → 압축해제된 확장 로드 → 설치 마지막에 표시된 `app/extension` 폴더를 선택합니다.
