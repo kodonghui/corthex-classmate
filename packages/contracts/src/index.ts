@@ -29,6 +29,7 @@ import transcriptSegmentSchema from "../schemas/transcript-segment.schema.json";
 import tutorResponseV2Schema from "../schemas/tutor-response-v2.schema.json";
 
 export type * from "./generated/index";
+export { isAnswerDiagram } from "./diagram";
 
 /** 근거 단계를 화면에 쓰는 한국어 문구입니다. 색만으로 구분하지 않기 위한 정본입니다. */
 export const EVIDENCE_LABELS_KO = {

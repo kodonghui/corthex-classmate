@@ -41,7 +41,16 @@ pub fn render(events: &[StoredEvent], current_question_id: &str) -> String {
                         .and_then(Value::as_str)
                         .unwrap_or("");
                     if !conclusion.is_empty() || !body.is_empty() {
-                        answers.insert(id, format!("{conclusion}\n{body}"));
+                        let diagram = answer
+                            .get("diagram")
+                            .map(|diagram| {
+                                format!(
+                                    "\n[앞서 표시한 그림 데이터 · 길면 생략됨]\n{}",
+                                    bounded(&diagram.to_string(), 2000)
+                                )
+                            })
+                            .unwrap_or_default();
+                        answers.insert(id, format!("{conclusion}{diagram}\n{body}"));
                     }
                 }
             }
@@ -150,5 +159,26 @@ mod tests {
         assert!(render(&[], "new").is_empty());
         let long = "가😀".repeat(20_000);
         assert_eq!(bounded(&long, 100).chars().count(), 100);
+    }
+
+    #[test]
+    fn previous_diagram_is_context_for_followup_questions() {
+        let events = vec![
+            event(
+                1,
+                "question.asked",
+                json!({"questionId":"q1","question":{"text":"그림으로 보여줘"}}),
+            ),
+            event(
+                2,
+                "answer.completed",
+                json!({"questionId":"q1","answer":{"conclusion":"순서예요","details":{"why":"설명"},
+                "diagram":{"kind":"sequence","nodes":[{"id":"a","label":"컨트롤러"},{"id":"b","label":"서비스"}],"edges":[{"from":"a","to":"b","label":"호출"}]}}}),
+            ),
+        ];
+        let result = render(&events, "q2");
+        assert!(result.contains("앞서 표시한 그림 데이터"));
+        assert!(result.contains("컨트롤러"));
+        assert!(result.contains("서비스"));
     }
 }

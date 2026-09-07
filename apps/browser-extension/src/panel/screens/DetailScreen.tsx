@@ -23,8 +23,11 @@ import type { AnswerStreamView, DetailView } from "../lesson-view";
 import { FOLLOW_UP_WAITING_LINE } from "../replay-store";
 import { useStickToBottom } from "../use-stick-to-bottom";
 import { AnswerStream } from "./AnswerStream";
+import { DiagramCard } from "./DiagramCard";
+import { diagramRequest } from "../diagrams";
 
 export interface DetailScreenProps {
+  readonly hideComposer?: boolean;
   /** 전사 옆에 설명·후속 질문·입력창을 그대로 펼치는 라이브 모드입니다. */
   readonly inline?: boolean;
   readonly active?: boolean;
@@ -51,7 +54,7 @@ export function streamingLine(stream: AnswerStreamView | null, idle: string): st
   return `${idle} · ${stream.chars}자`;
 }
 
-export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false, active = false }: DetailScreenProps): React.JSX.Element {
+export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false, active = false, hideComposer = false }: DetailScreenProps): React.JSX.Element {
   const [typed, setTyped] = useState("");
   // 이 화면은 답을 위에서부터 읽는 곳이라 열자마자 바닥으로 내리지 않습니다(startStuck: false).
   // 이어 물은 줄이 하나 늘면 그때 바닥으로 내려가(pinOn), 답이 한 글자씩 길어지는 동안 따라갑니다.
@@ -82,7 +85,7 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false, 
       ) : <PanelHeader onBack={onBack} strong title={view.term} subtitle={`${view.time} 붙잡음`} />}
       <div className={inline ? "cm-inline-detail__body" : "cm-screen__body"} ref={inline ? undefined : body.ref}>
         {inline || view.line === null ? null : <TranscriptFlow size="md" lines={[view.line]} marked={[...view.marked]} showTimes />}
-        {view.loading ? (
+        {view.failure ? <p className="cm-reply__wait" role="status">{view.failure}<button type="button" onClick={() => onAsk("이 내용을 다시 설명해 주세요")}>다시 질문</button></p> : view.loading ? (
           // 답이 흐르고 있으면 뼈대 카드의 **대기 한 줄** 자리에 자라는 결론을 보여 줍니다.
           // 결론 자리(`cm-ans__c`)가 아니라서 쓸어내림이 계속 돌고, 다 쓴 답과 헷갈리지 않습니다.
           // `AnswerCard.loadingText` 는 문자열만 받으므로 여기서는 한 줄로 이어 붙입니다.
@@ -97,6 +100,8 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false, 
             followUpLabel={inline ? "한 걸음 더 이해하기" : null}
           />
         )}
+        {view.diagram ? <DiagramCard diagram={view.diagram} /> : null}
+        {!view.loading ? <button className="cm-draw-request" type="button" onClick={() => onAsk(diagramRequest())}>그림으로 이해하기</button> : null}
         {view.reply === null ? null : (
           <div className="cm-reply">
             <div className="cm-reply__q">{view.reply.q}</div>
@@ -125,6 +130,7 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false, 
                   <strong>{thread.conclusion}</strong>
                   {thread.body === null ? null : <div className="cm-reply__body">{thread.body}</div>}
                 </div>
+                {thread.diagram ? <DiagramCard diagram={thread.diagram} /> : null}
                 {thread.evidence.length === 0 ? null : (
                   <div className="cm-reply__ev">
                     {(inline ? compactEvidence(thread.evidence) : thread.evidence).map((item, index) => (
@@ -143,7 +149,7 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false, 
           </div>
         ) : null}
       </div>
-      <div className={inline ? "cm-inline-detail__bar" : "cm-screen__bar"}>
+      {hideComposer ? null : <div className={inline ? "cm-inline-detail__bar" : "cm-screen__bar"}>
         {inline ? <div className="cm-inline-detail__input-label">이 설명에 이어 묻기</div> : null}
         {inline || view.nowLine === null ? null : (
           <NowLine variant="plain" style={{ marginBottom: 10 }}>
@@ -171,7 +177,7 @@ export function DetailScreen({ view, onBack, onFollowUp, onAsk, inline = false, 
         {inline ? null : <Button variant="primary" size="lg" full icon="arrow-left" onClick={onBack}>
           {view.returnLabel}
         </Button>}
-      </div>
+      </div>}
     </div>
   );
 }

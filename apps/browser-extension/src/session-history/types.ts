@@ -6,6 +6,7 @@
  * JSON Schema 정본과 같은 모양을 확인하지만 확장 런타임 번들에는 Ajv를 싣지 않습니다.
  */
 
+import { isAnswerDiagram } from '@classmate/contracts/diagram';
 import type {
   ActivitySetV2,
   AssetRef,
@@ -85,6 +86,7 @@ const MOMENT_KEYS = [
 const TRANSCRIPT_KEYS = ['segmentId', 'revision', 'isFinal', 'speaker', 'confidence', 'words'] as const;
 const WORD_KEYS = ['text', 'startMs', 'endMs', 'confidence'] as const;
 const RESPONSE_KEYS = [
+  'diagram',
   'id',
   'questionId',
   'createdAt',
@@ -319,6 +321,7 @@ function isTutorResponseSectionV2(value: unknown): boolean {
 
 function isTutorResponseV2(value: unknown): boolean {
   if (!isRecord(value) || !hasOnlyKeys(value, RESPONSE_KEYS)) return false;
+  if (value['diagram'] !== undefined && !isAnswerDiagram(value['diagram'])) return false;
   if (!isNonEmptyString(value['id']) || !isNonEmptyString(value['questionId'])) return false;
   if (!isIsoDateTime(value['createdAt'])) return false;
   if (!isNonEmptyString(value['conclusion']) || !isNonEmptyString(value['providerId'])) return false;

@@ -11,7 +11,7 @@
 //   detail ───▶ 자세히 화면 (F) — 홈에서는 ready 와 같게 그립니다
 //   folded ───▶ MarginNote collapsed (E)
 
-import type { Answer, Id, SessionProfileV2 } from "@classmate/contracts";
+import type { Answer, AnswerDiagram, Id, SessionProfileV2 } from "@classmate/contracts";
 import { answerView, foldNotice, parseIso, WAITING_FOOTER_LINE, WAITING_NOTE_LINE } from "@classmate/tutor-core";
 import type {
   AnswerSection,
@@ -184,6 +184,7 @@ export interface CarriedNoteView {
 
 /** 자세히 화면에서 이어 물은 한 줄입니다(질문 → 대기 · 답 · 실패). */
 export interface ThreadView {
+  readonly diagram?: AnswerDiagram;
   readonly id: string;
   /** 화면에 보일 질문 줄입니다. */
   readonly question: string;
@@ -201,6 +202,8 @@ export interface ThreadView {
 }
 
 export interface DetailView {
+  readonly diagram?: AnswerDiagram;
+  readonly failure?: string | null;
   /** 이 화면이 보고 있는 붙잡은 순간의 질문 id 입니다. 이어 묻기가 이 id 에 매답니다. */
   readonly questionId: Id;
   readonly term: string;
@@ -659,7 +662,7 @@ export function sectionsOf(bundle: GoldenBundle, answer: Answer, line: Transcrip
   const file = basename(bundle.editor.filePath);
   const sections: AnswerSection[] = [];
   if (details.why !== undefined) {
-    sections.push({ id: "why", label: "왜 그런가요", content: details.why, defaultOpen: true });
+    sections.push({ id: "why", label: "설명", content: details.why, defaultOpen: true });
   }
   if (copy.includesEditor && details.compareMyCode !== undefined) {
     sections.push({ id: "cmp", label: "내 코드와 비교", icon: "git-compare", meta: file, content: details.compareMyCode });
@@ -766,6 +769,7 @@ function threadsOf(bundle: GoldenBundle, state: ReplayState, questionId: Id): Th
       stream: item.state === "waiting" ? streamOf(state, item.id) : null,
       conclusion: answer?.conclusion ?? "",
       body: answer?.details?.why?.trim() || null,
+      ...(answer?.diagram === undefined ? {} : { diagram: answer.diagram }),
       evidence: answer === null ? [] : evidenceOf(answer, null, bundle.profile),
       failure: item.state === "failed" ? item.message : null,
     };
@@ -793,6 +797,8 @@ export function detailViewFor(
   const loading = answer === null || (current && (view.phase === "preparing" || view.phase === "waiting"));
   return {
     questionId,
+    ...(answer?.diagram === undefined ? {} : { diagram: answer.diagram }),
+    failure: loading ? failureOf(state, questionId) : null,
     term: moment.term,
     time: moment.time,
     line,

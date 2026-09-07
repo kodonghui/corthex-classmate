@@ -44,6 +44,7 @@ import { FOLLOW_UP_WAITING_LINE } from "../replay-store";
 import { useStickToBottom } from "../use-stick-to-bottom";
 import { AnswerStream } from "./AnswerStream";
 import { DetailScreen } from "./DetailScreen";
+import { ClassroomScreen } from "./ClassroomScreen";
 
 /** 밀려난 질문이 답을 기다리는 동안 그 줄 옆에 뜨는 글입니다(U-34). */
 const CARRIED_WAITING = "기다리는 중 · 답이 오면 여기에 채워요";
@@ -132,7 +133,12 @@ function clampRatio(ratio: number): number {
   return Math.min(MAX_CHAT_RATIO, Math.max(MIN_CHAT_RATIO, ratio));
 }
 
-export function ListeningScreen({
+export function ListeningScreen(props: ListeningScreenProps): React.JSX.Element {
+  return props.view.canAsk ? <ClassroomScreen {...props} /> : <LegacyListeningScreen {...props} />;
+}
+
+/** Historical fixture playback keeps its original layout; live 0.1.0 uses ClassroomScreen. */
+function LegacyListeningScreen({
   view,
   inlineDetails = [],
   activeQuestionId = null,

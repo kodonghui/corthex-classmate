@@ -12,7 +12,7 @@ export type { TranscriptSegment } from "./transcript-segment";
 export type { ScreenFrame } from "./screen-frame";
 export type { EditorContext, VisibleRange } from "./editor-context";
 export type { Question, QuestionAnchor, QuestionSnapshot } from "./question";
-export type { Answer, AnswerDetails } from "./answer";
+export type { Answer, AnswerDetails, AnswerDiagram } from "./answer";
 export type { SessionEvent } from "./session-event";
 export type { SessionProfileV2 } from "./session-profile-v2";
 export type { VerificationStatusV2, MaterialRef, VerificationMetadataV2 } from "./material-ref";

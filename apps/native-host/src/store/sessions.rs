@@ -94,6 +94,8 @@ pub struct AssetRefV2 {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TutorResponseV2 {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diagram: Option<Value>,
     pub id: String,
     pub question_id: String,
     pub created_at: String,
@@ -1040,6 +1042,7 @@ fn response_moment(
         text: None,
         transcript: None,
         response: Some(TutorResponseV2 {
+            diagram: answer.get("diagram").cloned(),
             id: answer_id.to_string(),
             question_id: question_id.to_string(),
             created_at: answer
@@ -1159,7 +1162,8 @@ mod tests {
                 json!({
                     "questionId":"q-1",
                     "answerId":"ans-1",
-                    "answer":{"id":"ans-1","questionId":"q-1","conclusion":"갈아 끼우기 쉬워져요","provider":"mock","details":{"why":"구현을 바꿀 수 있어요"}}
+                    "answer":{"id":"ans-1","questionId":"q-1","conclusion":"갈아 끼우기 쉬워져요","provider":"mock","details":{"why":"구현을 바꿀 수 있어요"},
+                        "diagram":{"version":1,"kind":"flowchart","title":"의존 관계","summary":"서비스가 저장소에 요청해요", "nodes":[{"id":"a","label":"서비스"},{"id":"b","label":"저장소"}],"edges":[{"from":"a","to":"b"}]}}
                 }),
             ),
         ];
@@ -1245,6 +1249,16 @@ mod tests {
             ["material-sf-p3-001", "tiro-share"]
         );
         assert_eq!(question.asset_ref_ids, ["sf-p3-001"]);
+
+        let response = bundle
+            .moments
+            .iter()
+            .find_map(|m| m.response.as_ref())
+            .unwrap();
+        assert_eq!(
+            response.diagram.as_ref().unwrap()["nodes"][0]["label"],
+            "서비스"
+        );
 
         let json = serde_json::to_value(&bundle).expect("번들 직렬화");
         validate(SchemaKind::SessionBundleV2, &json)

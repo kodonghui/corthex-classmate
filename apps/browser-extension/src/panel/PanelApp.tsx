@@ -411,6 +411,7 @@ export function PanelApp({
     >
       {overlay === "settings" ? (
         <SettingsScreen
+          liveLayout={store.isLive}
           values={settings}
           count={state.moments.length}
           releaseIdentity={releaseIdentity}

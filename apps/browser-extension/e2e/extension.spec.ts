@@ -90,7 +90,7 @@ const STEPS: readonly Step[] = [
     check: async (page) => {
       await expect(page.locator('[data-screen-label="자세히"][data-note="detail"]')).toBeVisible();
       await expect(page.getByText('10:32:18 붙잡음')).toBeVisible();
-      await expect(page.getByText('왜 그런가요')).toBeVisible();
+      await expect(page.getByText('설명')).toBeVisible();
       await expect(page.getByText('선생님 화면 코드')).toBeVisible();
       await expect(page.getByRole('button', { name: /수업으로 돌아가기/ })).toBeVisible();
     },
@@ -152,6 +152,10 @@ test.beforeAll(async () => {
     args: [`--disable-extensions-except=${EXTENSION_PATH}`, `--load-extension=${EXTENSION_PATH}`],
   });
   const [existing] = context.serviceWorkers();
+  await context.addInitScript(() => {
+    chrome.runtime.connect = (() => ({ postMessage() {}, disconnect() {}, name: 'isolated-regression',
+      onMessage: { addListener() {}, removeListener() {} }, onDisconnect: { addListener() {}, removeListener() {} } })) as unknown as typeof chrome.runtime.connect;
+  });
   const worker = existing ?? (await context.waitForEvent('serviceworker'));
   extensionId = new URL(worker.url()).host;
 
@@ -378,11 +382,11 @@ test('17 라이브 대화 칸 — 누르지 않아도 글 칸이 보이고 전�
   });
 
   // ① 누르는 동작 없이 글 칸이 이미 보입니다. 예전에는 접힌 한 줄을 눌러야 나왔습니다.
-  const field = live.getByPlaceholder('지금 궁금한 걸 적어요');
+  const field = live.getByRole('textbox', { name: '바로 묻기' });
   await expect(field).toBeVisible();
   await expect(field).toBeEditable();
   await expect(live.locator('.cm-chat__log')).toBeVisible();
-  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '25');
+  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '40');
   expect(
     await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth),
   ).toBe(true);
@@ -400,7 +404,7 @@ test('17 라이브 대화 칸 — 누르지 않아도 글 칸이 보이고 전�
     await field.fill(question);
     await field.press('Enter');
   }
-  await expect(live.locator('.cm-chat__log .cm-reply__q')).toHaveCount(questions.length);
+  await expect(live.locator('.cm-chat__log .cm-question')).toHaveCount(questions.length);
   await expect(live.getByText('답을 만들고 있어요').first()).toBeVisible();
   await expect(field).toHaveValue('');
 
@@ -416,7 +420,7 @@ test('17 라이브 대화 칸 — 누르지 않아도 글 칸이 보이고 전�
         const el = document.querySelector(selector);
         return el === null ? { top: -1, room: -1 } : { top: el.scrollTop, room: el.scrollHeight - el.clientHeight };
       };
-      const body = box('.cm-screen__body--flow');
+      const body = box('.cm-lecture__scroll');
       const log = box('.cm-chat__log');
       return { bodyTop: body.top, logTop: log.top, bodyRoom: body.room, logRoom: log.room };
     });
@@ -439,7 +443,7 @@ test('17 라이브 대화 칸 — 누르지 않아도 글 칸이 보이고 전�
 
   // ④ 전사를 위로 올려도 대화 칸은 제자리입니다.
   await live.evaluate(() => {
-    const body = document.querySelector('.cm-screen__body--flow');
+    const body = document.querySelector('.cm-lecture__scroll');
     if (body !== null) body.scrollTop = 0;
   });
   const afterBody = await measure();
@@ -456,8 +460,8 @@ test('18 대화 답의 전체 설명과 이어 묻기 버튼이 좁은 화면에
   await live.setViewportSize({ width: 380, height: 800 });
   await live.goto(`chrome-extension://${extensionId}/sidepanel.html`);
   await live.waitForFunction(() => window.classmateReplay?.live === true);
-  await live.getByPlaceholder('지금 궁금한 걸 적어요').fill('스프링이 왜 필요한지 쉽게 설명해 주세요');
-  await live.getByPlaceholder('지금 궁금한 걸 적어요').press('Enter');
+  await live.getByRole('textbox', { name: '바로 묻기' }).fill('스프링이 왜 필요한지 쉽게 설명해 주세요');
+  await live.getByRole('textbox', { name: '바로 묻기' }).press('Enter');
   await live.evaluate(() => {
     const handle = window.classmateReplay!;
     const asked = handle.state().emitted.findLast((e) => e.type === 'question.asked')!;
@@ -476,11 +480,11 @@ test('18 대화 답의 전체 설명과 이어 묻기 버튼이 좁은 화면에
   });
   const explanation = live.locator('.cm-chat__log .cm-reply__body');
   await expect(explanation).toContainText('스프링 없이도 프로그램은 만들 수 있어요.');
-  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '25');
+  await expect(live.locator('[role="separator"]')).toHaveAttribute('aria-valuenow', '40');
   expect(await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
   await live.screenshot({ path: test.info().outputPath('conversation-0.0.4.png') });
   await live.getByRole('button', { name: '더 쉽게', exact: true }).click();
-  await expect(live.locator('.cm-chat__log .cm-reply__q').last()).toContainText('더 쉽게 설명해 주세요');
+  await expect(live.locator('.cm-chat__log .cm-question').last()).toContainText('더 쉽게 설명해 주세요');
   await live.close();
 });
 
@@ -512,13 +516,13 @@ test('19 전사 옆에서 상세 설명과 후속 질문을 바로 사용한다'
   await expect(card).toContainText('선생님은 빈을');
   await expect(card.getByRole('button', { name: '빈이랑 컨테이너 관계가 뭔데?', exact: true })).toBeVisible();
   await expect(live.getByText('자세히 보기', { exact: false })).toHaveCount(0);
-  await expect(card.getByPlaceholder('이어서 물어볼 말을 적어요')).toBeVisible();
+  await expect(live.getByRole('textbox', { name: '바로 묻기' })).toBeVisible();
   await card.getByRole('button', { name: '빈이랑 컨테이너 관계가 뭔데?', exact: true }).click();
   await expect(card.locator('.cm-reply__q')).toContainText('빈이랑 컨테이너 관계가 뭔데?');
   await expect(card).not.toContainText('fixture');
   for (const width of [380, 790]) {
     await live.setViewportSize({ width, height: 1000 });
-    await live.locator('.cm-screen__body--flow').evaluate((el) => { el.scrollTop = 0; });
+    await live.locator('.cm-lecture__scroll').evaluate((el) => { el.scrollTop = 0; });
     expect(await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
     await live.screenshot({ path: test.info().outputPath(`inline-0.0.5-${width}.png`) });
   }
@@ -547,12 +551,12 @@ test('20 이전 자리에 남은 카드에서도 같은 질문에 이어 묻는�
     } });
     return questionId;
   });
-  const card = live.locator('.cm-inline-detail');
+  const card = live.locator('.cm-inline-detail').filter({ hasText: '첫 번째 질문의 답이에요' });
   await expect(card).toContainText('이전 자리에 남은 카드의 자세한 설명');
   await card.getByRole('button', { name: '첫 번째 답을 예시로 풀어 주세요', exact: true }).click();
   await expect(card.locator('.cm-reply__q')).toContainText('첫 번째 답을 예시로 풀어 주세요');
   expect(await live.evaluate((id) => window.classmateReplay!.state().threads[id]?.length, originalId)).toBe(1);
-  await expect(card.getByPlaceholder('이어서 물어볼 말을 적어요')).toBeVisible();
+  await expect(live.getByRole('textbox', { name: '바로 묻기' })).toBeVisible();
   await live.close();
 });
 
@@ -580,7 +584,7 @@ test('21 완료된 답과 후속 대화가 다음 문단 질문 뒤에도 원래
   });
   const first = live.locator('.cm-inline-detail').filter({ hasText: '첫 문단의 빈 설명' });
   await expect(first.locator('.cm-ans__ev .cm-ev')).toHaveCount(1);
-  await expect(first.getByText('최근 질문', { exact: true })).toBeVisible();
+  await expect(first).toHaveClass(/cm-inline-detail--active/);
   expect(await first.locator('.cm-ans__con').evaluate((el) => getComputedStyle(el).fontSize)).toBe('18px');
   expect(await first.locator('.cm-ans__p').first().evaluate((el) => getComputedStyle(el).fontSize)).toBe('16px');
   expect(await first.locator('.cm-ans').evaluate((el) => getComputedStyle(el).borderTopWidth)).toBe('0px');
@@ -619,20 +623,21 @@ test('21 완료된 답과 후속 대화가 다음 문단 질문 뒤에도 원래
   await expect(cards.nth(0)).toContainText('빈 예시를 더 알려 주세요');
   await expect(cards.nth(0)).toContainText('첫 질문에 이어 나눈 예시 대화입니다.');
   await expect(cards.nth(1)).toContainText('둘째 문단의 컨테이너 설명');
-  await expect(first.getByText('최근 질문', { exact: true })).toHaveCount(0);
-  await expect(cards.nth(1).getByText('최근 질문', { exact: true })).toBeVisible();
+  await expect(first).not.toHaveClass(/cm-inline-detail--active/);
+  await expect(cards.nth(1)).toHaveClass(/cm-inline-detail--active/);
   // 이전 카드에서 후속 질문을 추가해도 새 문단 답을 대체하지 않습니다.
-  await first.getByPlaceholder('이어서 물어볼 말을 적어요').fill('이 빈 예시만 다시 알려 주세요');
-  await first.getByPlaceholder('이어서 물어볼 말을 적어요').press('Tab');
-  await expect(first.getByRole('button', { name: '보내기', exact: true })).toBeFocused();
-  await first.getByRole('button', { name: '보내기', exact: true }).press('Enter');
+  await live.locator('.cm-study__thread').first().getByRole('button', { name: '이 대화에 이어 묻기' }).click();
+  await live.getByRole('textbox', { name: '바로 묻기' }).fill('이 빈 예시만 다시 알려 주세요');
+  await live.getByRole('textbox', { name: '바로 묻기' }).press('Tab');
+  await expect(live.getByRole('button', { name: '보내기', exact: true })).toBeFocused();
+  await live.getByRole('button', { name: '보내기', exact: true }).press('Enter');
   await expect(first.locator('.cm-reply__q').last()).toContainText('이 빈 예시만 다시 알려 주세요');
   await expect(cards).toHaveCount(2);
   await expect(cards.nth(1)).toContainText('둘째 문단의 컨테이너 설명');
   for (const width of [320, 380, 790]) {
     await live.setViewportSize({ width, height: 1000 });
     expect(await live.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
-    await live.locator('.cm-screen__body--flow').evaluate((el) => { el.scrollTop = 0; });
+    await live.locator('.cm-lecture__scroll').evaluate((el) => { el.scrollTop = 0; });
     await live.screenshot({ path: test.info().outputPath(`preserved-0.0.6-${width}.png`) });
     await cards.nth(1).scrollIntoViewIfNeeded();
     await live.screenshot({ path: test.info().outputPath(`preserved-second-0.0.6-${width}.png`) });

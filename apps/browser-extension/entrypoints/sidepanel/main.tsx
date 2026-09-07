@@ -10,6 +10,7 @@ import '@classmate/design-tokens/styles.css';
 import '@classmate/ui-base/styles.css';
 import '@classmate/ui-classmate/styles.css';
 import './style.css';
+import './classroom.css';
 
 import { App } from './App';
 

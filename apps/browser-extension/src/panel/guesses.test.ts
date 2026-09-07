@@ -153,8 +153,8 @@ describe("4096바이트 상한", () => {
 });
 
 describe("normalizeAskText", () => {
-  it("줄바꿈과 이어진 공백을 한 칸으로 줄이고 앞뒤를 턴다", () => {
-    expect(normalizeAskText("  그럼\n  언제   써요?  ")).toBe("그럼 언제 써요?");
+  it("앞뒤를 정리하되 코드의 줄바꿈과 들여쓰기는 보존한다", () => {
+    expect(normalizeAskText("  그럼\n  언제   써요?  ")).toBe("그럼\n  언제   써요?");
     expect(normalizeAskText("   ")).toBe("");
   });
 });

@@ -116,8 +116,13 @@ function liveScreen(drive: (store: ReplayStore) => void): string {
   drive(store);
   const state = store.getState();
   const view = listeningView(store.bundle, state, store.lines(state.now), true);
+  const details = state.moments.flatMap((m) => { const d = detailViewFor(store.bundle, state, store.lines(state.now), m.questionId); return d ? [d] : []; });
   return renderToStaticMarkup(
     <ListeningScreen
+      inlineDetails={details}
+      activeQuestionId={state.machine.questionId}
+      onAskAt={noop}
+      onFollowUpAt={noop}
       view={view}
       onTerm={noop}
       onSentence={noop}
@@ -184,25 +189,25 @@ describe("듣는 중 화면", () => {
   it("라이브: 전사 아래에 대화 칸이 늘 서 있고 글 칸은 처음부터 열려 있다", () => {
     const html = liveHomeHtml();
     // 전사(구르는 상자 하나)와 대화(구르는 상자 둘)가 서로 다른 상자로 나뉩니다.
-    expect(html).toContain("cm-screen__body--flow");
+    expect(html).toContain("cm-lecture__scroll");
     expect(html).toContain("cm-chat__log");
-    expect(html).toContain("cm-chat__bar");
+    expect(html).toContain("cm-study__composer");
     // 누르는 동작 없이 글 칸이 이미 있습니다 — 접힌 줄은 이제 없습니다.
-    expect(html).toContain("cm-input");
-    expect(html).toContain("지금 궁금한 걸 적어요");
+    expect(html).toContain("<textarea");
+    expect(html).toContain("지금 궁금한 걸 적어 주세요");
     expect(html).toContain('aria-label="바로 묻기"');
     expect(html).toContain("보내기");
     expect(html).not.toContain("궁금한 건 여기에 바로 물어보세요");
     // 아직 물은 것이 없으면 이 칸이 무엇을 하는 자리인지 한 줄로 말합니다.
-    expect(html).toContain("여기에 적어 물으면 답이 이 칸에 쌓여요");
+    expect(html).toContain("설명과 그림은 이곳에 차곡차곡 남아요");
     // 경계는 끌 수 있는 구분선입니다(기본 1/3).
     expect(html).toContain('role="separator"');
-    expect(html).toContain('aria-valuenow="25"');
+    expect(html).toContain('aria-valuenow="40"');
     // 자세히 화면 같은 고정 바닥바를 만들지는 않습니다.
     expect(html).not.toContain("cm-screen__bar");
     // 안내 글과 Alt+S 는 전사 칸 맨 아래에 그대로 남습니다.
-    expect(html).toContain("걸리는 말을 누르세요");
-    expect(html).toContain("Alt");
+    expect(html).toContain("문장이나 단어를 눌러 질문");
+    expect(html).toContain("그림 요청");
     // 듣는 중 화면의 "행동 버튼은 없다" 규칙은 라이브에서도 같습니다.
     expect(html).not.toContain("cm-btn");
   });
@@ -215,12 +220,12 @@ describe("듣는 중 화면", () => {
     });
 
     // 대기 자리(cm-note__wait)에 그립니다. 다 쓴 답 자리(cm-note__c)가 아닙니다.
-    expect(html).toContain("cm-note__wait");
+    expect(html).toContain("cm-ans__load");
     expect(html).toContain("생성 책임을 컨테이너에");
     expect(html).not.toContain("cm-note__c");
     // 아직 완성이 아니라는 표시 — 깜빡이는 커서와 쓸어내리는 띠.
-    expect(html).toContain("cm-stream__caret");
-    expect(html).toContain("cm-note__sweep");
+    expect(html).toContain("cm-ans__load-t");
+    expect(html).toContain("cm-ans__sweep");
     // 완성된 답의 자리(근거·칩·자세히 보기)는 아직 열리지 않습니다.
     expect(html).not.toContain("자세히 보기");
   });
@@ -234,7 +239,7 @@ describe("듣는 중 화면", () => {
 
     expect(html).toContain("128자");
     // 메모 안에서는 MarginNote 가 이미 띠를 그리므로 그 띠 하나만 돕니다(둘이 겹치지 않습니다).
-    expect(html).toContain("cm-note__sweep");
+    expect(html).toContain("cm-ans__sweep");
     expect(html).not.toContain("cm-stream__sweep");
   });
 
@@ -245,7 +250,7 @@ describe("듣는 중 화면", () => {
       store.pushDelta({ questionId: asked, seq: 0, chars: 40, text: "갈아 끼우기 쉬워져요" });
     });
 
-    expect(html).toContain("cm-reply__wait");
+    expect(html).toContain("cm-stream");
     expect(html).toContain("갈아 끼우기 쉬워져요");
     // 다 쓴 답의 자리(cm-reply__a)로 올라가지 않습니다.
     expect(html).not.toContain("cm-reply__a");
@@ -279,7 +284,7 @@ describe("듣는 중 화면", () => {
     });
 
     // 앞 질문의 대기 메모가 남아 있고,
-    expect(html).toContain("cm-note__wait");
+    expect(html).toContain("cm-ans__load");
     // 방금 누른 문단의 짐작 목록도 함께 보입니다(예전에는 이것이 아예 안 나왔습니다).
     expect(html).toContain("cm-gl");
     expect(html).toContain("혹시 이게 막혔나요?");
@@ -366,13 +371,14 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("자세히 보기");
   });
 
-  it("밀려난 질문이 대화 칸이 아니라 전사 옆 「기다리는 중」으로 그려진다 (U-34)", () => {
+  it("밀려난 질문도 아래 대화에 남고 전사에는 대화 이동 표시만 남는다", () => {
     const html = liveScreen((store) => {
       store.catchTerm("ts-live-001", 1, "new");
       store.catchTerm("ts-live-002", 0, "context.getBean");
     });
     // 밀려난 앞 질문은 그 줄 옆에서 답을 기다립니다.
-    expect(html).toContain("기다리는 중 · 답이 오면 여기에 채워요");
+    expect(html.match(/data-question-id=/g)).toHaveLength(2);
+    expect(html).toContain("답변 준비 중");
     // 대화 칸에는 그 질문 줄이 생기지 않습니다(옛 자리에서는 이 글이 떴습니다).
     expect(html).not.toContain("new 이 무슨 뜻이에요?");
   });
@@ -413,7 +419,7 @@ describe("자세히 화면", () => {
     const html = detailHtml("detail");
     expect(html).toContain("10:32:18 붙잡음");
     expect(html).toContain("cm-ans__con");
-    expect(html).toContain("왜 그런가요");
+    expect(html).toContain("설명");
     expect(html).toContain("내 코드와 비교");
     expect(html).toContain("선생님 화면 코드");
     expect(html).toContain("선생님이 말한 부분");
@@ -431,8 +437,8 @@ describe("자세히 화면", () => {
 
   it("튜터가 멈춘 동안의 자세히는 loading 카드다", () => {
     const html = detailHtml("waiting");
-    expect(html).toContain("cm-ans__load");
-    expect(html).toContain("튜터가 돌아오면 여기에 나타나요 · 순간은 저장됐어요");
+    expect(html).toContain("튜터 답변이 잠시 멈췄어요");
+    expect(html).toContain("다시 질문");
   });
 
   it("기록에서 연 지난 순간도 같은 자세히 화면으로 그려진다", () => {

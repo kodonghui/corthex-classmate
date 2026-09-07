@@ -1,5 +1,7 @@
 # Windows 친구 공유용 베타
 
+> 아래 내용은 0.0.6 배포 이력입니다. 현재 0.1.0 설치·휴대폰/PC 녹음·설정·활용은 [README](../README.md), 공개 배포는 [classmate](https://github.com/kodonghui/classmate)를 따르세요. 0.1.0은 확장과 로컬 도우미를 함께 업데이트합니다.
+
 최근 업데이트: 2026-09-07. 최신 패키지 `0.0.6-beta2`, 확장 `0.0.6`, Windows x64 전용.
 
 ## beta2 — 질문 자료와 자동 연결 안내 보강

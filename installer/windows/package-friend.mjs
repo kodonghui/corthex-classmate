@@ -98,7 +98,7 @@ function collectLicenses(stage) {
 export function main() {
   if (process.platform !== 'win32') throw new Error('Build this Windows beta on Windows.');
   const version = JSON.parse(readFileSync(join(root, 'apps/browser-extension/package.json'), 'utf8')).version;
-  const bundleId = `${version}-beta2`;
+  const bundleId = version;
   const extension = join(root, 'apps/browser-extension/.output/chrome-mv3');
   const manifest = JSON.parse(readFileSync(join(extension, 'manifest.json'), 'utf8'));
   const extensionId = validateExtension(manifest, version);
@@ -116,6 +116,10 @@ export function main() {
     put(stage, 'app/extension/' + name, readFileSync(join(extension, name)));
   }
   put(stage, 'app/host/classmate-host.exe', readFileSync(host));
+  put(stage, 'README.md', readFileSync(join(root, 'README.md')));
+  for (const name of ['classroom-0.1.0.png', 'manual-extension-0.1.0.png', 'manual-settings-0.1.0.png', 'manual-diagram-0.1.0.png']) {
+    put(stage, `docs/screenshots/${name}`, readFileSync(join(root, 'docs/screenshots', name)));
+  }
   for (const name of ['Setup.ps1', 'Install.cmd', 'Diagnose.cmd', 'Disconnect.cmd', 'Guide.html', 'README-KO.md']) {
     let content = readFileSync(join(root, 'installer/windows/portable', name), 'utf8');
     if (name.endsWith('.cmd')) content = content.replace(/\r?\n/g, '\r\n');

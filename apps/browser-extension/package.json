@@ -1,6 +1,6 @@
 {
   "name": "@classmate/browser-extension",
-  "version": "0.0.6",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "description": "Corthex Classmate Chrome 확장 (WXT · React · MV3 · Side Panel)",
@@ -21,6 +21,8 @@
     "@classmate/tutor-core": "workspace:*",
     "@classmate/ui-base": "workspace:*",
     "@classmate/ui-classmate": "workspace:*",
+    "dompurify": "^3.4.14",
+    "mermaid": "11.17.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },

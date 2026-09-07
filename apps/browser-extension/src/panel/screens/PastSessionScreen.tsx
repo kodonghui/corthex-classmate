@@ -1,4 +1,5 @@
 import { PanelHeader } from '@classmate/ui-base';
+import { DiagramCard } from './DiagramCard';
 
 import type { SessionBundleV2 } from '../../session-history/types';
 import { isReviewableActivitySetV2 } from '../activity-review';
@@ -136,6 +137,7 @@ export function PastSessionScreen({
                   <span>{moment.label}</span>
                 </div>
                 <p className="cm-session-moment__body">{moment.body}</p>
+                {moment.diagram ? <DiagramCard diagram={moment.diagram} /> : null}
                 {moment.sections.map((section, sectionIndex) => (
                   <section key={`section-${momentIndex}-${sectionIndex}`} className="cm-session-moment__section">
                     <h3>{section.title}</h3>

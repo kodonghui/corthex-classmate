@@ -17,6 +17,7 @@ import type { Settings } from "../settings-store";
 import { PRIVACY_CELLS, subjectInput, TEXT_SCALE_STEPS, textScaleInput } from "../settings-store";
 
 export interface SettingsScreenProps {
+  readonly liveLayout?: boolean;
   readonly values: Settings;
   /** 오늘 붙잡은 순간 수입니다. 지우기 확인 문구에 들어갑니다. */
   readonly count: number;
@@ -69,6 +70,7 @@ export function SettingsScreen({
   onBack,
   onChange,
   onClearToday,
+  liveLayout = false,
 }: SettingsScreenProps): React.JSX.Element {
   const [confirm, setConfirm] = useState(false);
   const profile = sessionProfileCopy(values.profile);
@@ -79,7 +81,7 @@ export function SettingsScreen({
       <div className="cm-screen__body cm-screen__body--flush">
         <section className="cm-set">
           <div className="cm-set__h">답변</div>
-          <RadioGroup
+          {liveLayout ? <p className="cm-set__note">0.1.0 대화는 전체 설명을 펼쳐 두며 자동으로 접지 않아요. 그림은 필요할 때 AI가 먼저 만들고, 대화 입력창에서 종류를 골라 직접 요청할 수도 있어요.</p> : <><RadioGroup
             name="answer-length"
             value={values.answerLength}
             onChange={(value) => onChange("answerLength", value === "full" ? "full" : "short")}
@@ -93,6 +95,7 @@ export function SettingsScreen({
             onChange={(event) => onChange("autoFold", event.target.checked)}
             style={{ width: "100%" }}
           />
+          </>}
           <div className="cm-set__sub">답변을 만드는 곳</div>
           <RadioGroup
             name="provider"

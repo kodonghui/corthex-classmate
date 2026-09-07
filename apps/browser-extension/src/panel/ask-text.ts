@@ -47,14 +47,14 @@ export function clampAskQuestion(text: string, maxBytes: number = MAX_ASK_QUESTI
   return `${text.slice(0, cut)}${ELLIPSIS}`;
 }
 
-/** 사람이 적은 글에서 앞뒤 공백과 줄바꿈을 걷어 한 줄로 만듭니다. */
+/** 앞뒤 공백만 정리하고 코드의 줄바꿈·들여쓰기는 보존합니다(0.1.0 여러 줄 질문). */
 export function normalizeAskText(text: string): string {
-  return text.replace(/\s+/g, " ").trim();
+  return text.replace(/\r\n?/g, "\n").trim();
 }
 
 /** 인용할 문장입니다. 큰따옴표는 작은따옴표로 바꿔 바깥 인용이 깨지지 않게 합니다. */
 function quoted(sentence: string): string {
-  return normalizeAskText(sentence).replaceAll('"', "'");
+  return normalizeAskText(sentence).replace(/\s+/g, " ").replaceAll('"', "'");
 }
 
 /** 붙잡은 문장 안의 낱말 하나를 묻는 문장입니다. */

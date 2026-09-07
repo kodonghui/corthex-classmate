@@ -954,6 +954,9 @@ fn check_pattern(spec: &Value, value: &Value, path: &str, out: &mut Vec<Violatio
 /// 아는 정규식이면 맞는지 아닌지, 모르는 정규식이면 `None` 입니다.
 fn matches_known_pattern(pattern: &str, text: &str) -> Option<bool> {
     match pattern {
+        "^[a-zA-Z][a-zA-Z0-9_]{0,23}$" => Some(!text.is_empty() && text.len() <= 24
+            && text.as_bytes()[0].is_ascii_alphabetic()
+            && text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')),
         PERIOD_ID_PATTERN => Some(is_period_id(text)),
         LOWER_HEX_PATTERN => Some(is_lower_hex(text)),
         LOWER_HEX_64_PATTERN => Some(text.len() == 64 && is_lower_hex(text)),

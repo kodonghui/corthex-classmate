@@ -2,7 +2,7 @@
 
 ## 친구에게 전달할 때 — 2026-09-07 추가
 
-아래 기존 개발자 도구 대신 `pnpm package:friend`로 만든 **0.0.6-beta2 Windows x64 ZIP**을 전달합니다.
+아래 기존 개발자 도구 대신 `pnpm package:friend`로 만든 **0.1.0 Windows x64 ZIP**을 전달합니다.
 수신자는 Git/Node/Rust 없이 압축 해제 → `Install.cmd` → Chrome 확장 추가로 진행합니다.
 자기 Windows Claude Code CLI·로그인과 Tiro는 필요합니다. Codex는 현재 지원하지 않습니다.
 자세한 경계·검증·빌드 순서는 [친구 공유 안내](../../docs/friend-sharing.md), 수신자 안내는 `portable/Guide.html`입니다.

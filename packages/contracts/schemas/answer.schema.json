@@ -53,6 +53,44 @@
       },
       "additionalProperties": false
     },
+    "diagram": {
+      "title": "AnswerDiagram",
+      "description": "0.1.0 선택적 설명 그림. 실행 코드가 아닌 노드/관계 데이터이며 원래 답과 함께 저장합니다.",
+      "type": "object",
+      "properties": {
+        "version": { "type": "integer", "enum": [1] },
+        "kind": { "type": "string", "enum": ["flowchart", "sequence", "swimlane", "state", "concept", "hierarchy", "timeline", "comparison"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "summary": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "nodes": {
+          "type": "array", "minItems": 2, "maxItems": 12,
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,23}$" },
+              "label": { "type": "string", "minLength": 1, "maxLength": 100 },
+              "detail": { "type": "string", "maxLength": 500 },
+              "group": { "type": "string", "maxLength": 60 }
+            },
+            "required": ["id", "label"], "additionalProperties": false
+          }
+        },
+        "edges": {
+          "type": "array", "maxItems": 24,
+          "items": {
+            "type": "object",
+            "properties": {
+              "from": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,23}$" },
+              "to": { "type": "string", "pattern": "^[a-zA-Z][a-zA-Z0-9_]{0,23}$" },
+              "label": { "type": "string", "maxLength": 100 }
+            },
+            "required": ["from", "to"], "additionalProperties": false
+          }
+        }
+      },
+      "required": ["version", "kind", "title", "summary", "nodes", "edges"],
+      "additionalProperties": false
+    },
     "provider": {
       "description": "이 답을 만든 AI 제공자입니다.",
       "type": "string",

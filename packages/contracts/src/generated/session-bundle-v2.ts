@@ -258,6 +258,7 @@ export interface TutorResponseV2 {
    */
   warnings?: string[];
   verification?: VerificationMetadataV2;
+  diagram?: AnswerDiagram;
 }
 /**
  * 튜터 응답의 동적 상세 절 한 개입니다.
@@ -279,6 +280,41 @@ export interface TutorResponseSectionV2 {
    * 이 절만 뒷받침하는 선택적 근거 식별자입니다.
    */
   evidenceRefIds?: Id[];
+}
+/**
+ * 0.1.0 선택적 설명 그림. 실행 코드가 아닌 노드/관계 데이터이며 원래 답과 함께 저장합니다.
+ */
+export interface AnswerDiagram {
+  version: 1;
+  kind:
+    | "flowchart"
+    | "sequence"
+    | "swimlane"
+    | "state"
+    | "concept"
+    | "hierarchy"
+    | "timeline"
+    | "comparison";
+  title: string;
+  summary: string;
+  /**
+   * @minItems 2
+   * @maxItems 12
+   */
+  nodes: {
+    id: string;
+    label: string;
+    detail?: string;
+    group?: string;
+  }[];
+  /**
+   * @maxItems 24
+   */
+  edges: {
+    from: string;
+    to: string;
+    label?: string;
+  }[];
 }
 /**
  * 다섯 학습 슬롯 중 한 자리를 채우는 근거 기반 활동입니다.

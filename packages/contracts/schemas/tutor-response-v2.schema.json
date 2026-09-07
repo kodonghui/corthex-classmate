@@ -47,7 +47,8 @@
     },
     "verification": {
       "$ref": "material-ref.schema.json#/definitions/VerificationMetadataV2"
-    }
+    },
+    "diagram": { "$ref": "answer.schema.json#/properties/diagram" }
   },
   "required": [
     "id",

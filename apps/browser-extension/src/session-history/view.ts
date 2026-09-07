@@ -1,6 +1,7 @@
 /** 과거 세션 계약을 사이드패널에 그릴 작은 읽기 모델로 바꿉니다. */
 
 import { clockOfIso, dateTimeOfIso } from '../panel/clock';
+import type { AnswerDiagram } from '@classmate/contracts';
 import { sanitizeHistoryDisplayText, sanitizeHistoryDisplayTexts } from './sanitize';
 import type { SessionBundleV2, SessionMomentV2, SessionProfileV2, SessionSummaryV2 } from './types';
 
@@ -20,6 +21,7 @@ export type SessionLibraryView =
   | { readonly status: 'ready'; readonly rows: readonly SessionListRowView[] };
 
 export interface SessionMomentRowView {
+  readonly diagram?: AnswerDiagram;
   readonly id: string;
   readonly time: string;
   readonly type: SessionMomentV2['type'];
@@ -149,6 +151,7 @@ export function pastSessionDetailView(
     counts: summaryCounts(summary),
     moments: bundle.moments.map((moment) => ({
       id: moment.id,
+      ...(moment.response?.diagram === undefined ? {} : { diagram: moment.response.diagram }),
       time: clockOfIso(moment.at).slice(0, 5),
       type: moment.type,
       label: momentLabel(moment.type),

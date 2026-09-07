@@ -418,11 +418,42 @@ pub fn finish(
         Value::String(status.as_str().to_string()),
     );
 
+    // 그림의 실패로 올바른 설명까지 버리지 않습니다. 우선 그림 없이 답 계약을 검사하고,
+    // 선택적 그림만 잘못되었으면 해당 필드만 제외합니다. 원문/민감 자료를 로그에 쓰지 않습니다.
+    if let Some(diagram) = body.remove("diagram") {
+        let base = Value::Object(body.clone());
+        if schema::validate(SchemaKind::Answer, &base).is_ok() {
+            body.insert("diagram".to_string(), diagram.clone());
+            let candidate = Value::Object(body.clone());
+            if schema::validate(SchemaKind::Answer, &candidate).is_err()
+                || !diagram_references_valid(&diagram)
+            {
+                body.remove("diagram");
+            }
+        } else {
+            body.insert("diagram".to_string(), diagram);
+        }
+    }
     let value = Value::Object(body);
     match schema::validate(SchemaKind::Answer, &value) {
         Ok(()) => Ok(value),
         Err(violations) => Err(AnswerError::Invalid(schema::describe(&violations))),
     }
+}
+
+fn diagram_references_valid(diagram: &Value) -> bool {
+    let Some(nodes) = diagram["nodes"].as_array() else {
+        return false;
+    };
+    let Some(edges) = diagram["edges"].as_array() else {
+        return false;
+    };
+    let ids: std::collections::HashSet<_> = nodes.iter().filter_map(|n| n["id"].as_str()).collect();
+    ids.len() == nodes.len()
+        && edges.iter().all(|edge| {
+            edge["from"].as_str().is_some_and(|id| ids.contains(id))
+                && edge["to"].as_str().is_some_and(|id| ids.contains(id))
+        })
 }
 
 /// 답이 멈췄을 때 자리만 잡아 두는 답입니다. fixture `answer-queued.json` 과 같은 모양입니다.
@@ -473,6 +504,30 @@ pub fn evidence_of(answer: &Value) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn diagrams_survive_but_bad_diagrams_do_not_erase_good_prose() {
+        let mut body = parse_body(good_body()).unwrap();
+        let diagram = json!({"version":1,"kind":"sequence","title":"요청 순서","summary":"사용자가 서버에 요청해요",
+            "nodes":[{"id":"a","label":"사용자"},{"id":"b","label":"서버"}],"edges":[{"from":"a","to":"b","label":"요청"}]});
+        body.insert("diagram".into(), diagram.clone());
+        assert!(
+            schema::validate_pointer(SchemaKind::Answer, "/properties/diagram", &diagram).is_ok(),
+            "{:?}",
+            schema::validate_pointer(SchemaKind::Answer, "/properties/diagram", &diagram)
+        );
+        let saved = finish(body.clone(), ids(), "claude", AnswerStatus::Answered).unwrap();
+        assert_eq!(saved["diagram"], diagram);
+        body["diagram"]["edges"][0]["to"] = json!("missing");
+        let fallback = finish(body.clone(), ids(), "claude", AnswerStatus::Answered).unwrap();
+        assert!(fallback.get("diagram").is_none());
+        assert_eq!(saved["conclusion"], fallback["conclusion"]);
+        body.insert("diagram".into(), json!({"html":"<script>bad</script>"}));
+        assert!(finish(body, ids(), "claude", AnswerStatus::Answered)
+            .unwrap()
+            .get("diagram")
+            .is_none());
+    }
 
     fn ids() -> AnswerIds<'static> {
         AnswerIds {

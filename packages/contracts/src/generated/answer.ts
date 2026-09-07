@@ -43,6 +43,7 @@ export interface Answer {
    */
   chips: string[];
   details?: AnswerDetails;
+  diagram?: AnswerDiagram;
   /**
    * 이 답을 만든 AI 제공자입니다.
    */
@@ -72,4 +73,39 @@ export interface AnswerDetails {
    * 선생님이 말한 부분 자리입니다.
    */
   teacherSaid?: string;
+}
+/**
+ * 0.1.0 선택적 설명 그림. 실행 코드가 아닌 노드/관계 데이터이며 원래 답과 함께 저장합니다.
+ */
+export interface AnswerDiagram {
+  version: 1;
+  kind:
+    | "flowchart"
+    | "sequence"
+    | "swimlane"
+    | "state"
+    | "concept"
+    | "hierarchy"
+    | "timeline"
+    | "comparison";
+  title: string;
+  summary: string;
+  /**
+   * @minItems 2
+   * @maxItems 12
+   */
+  nodes: {
+    id: string;
+    label: string;
+    detail?: string;
+    group?: string;
+  }[];
+  /**
+   * @maxItems 24
+   */
+  edges: {
+    from: string;
+    to: string;
+    label?: string;
+  }[];
 }
