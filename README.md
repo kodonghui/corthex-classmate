@@ -10,6 +10,10 @@ Java·Spring 부트캠프 수업 중 학습자가 막힌 순간을 **한 번의 
 
 ### 현재 친구 공유용 베타 — Windows x64 · 0.0.6-beta2
 
+**[친구에게 보낼 공개 다운로드 페이지](https://github.com/kodonghui/corthex-classmate-downloads)** · **[Windows 설치 ZIP 바로 받기](https://github.com/kodonghui/corthex-classmate-downloads/releases/download/v0.0.6-beta2/Corthex-Classmate-0.0.6-beta2-windows-x64.zip)**
+
+소스 저장소는 비공개로 유지하고 공개 배포 저장소에는 설치 파일·안내만 제공합니다.
+
 개발자가 아닌 사용자는 저장소를 빌드하지 않고 **프로그램 전용 ZIP을 풀고 `Install.cmd`를 실행**합니다.
 Chrome에서 확장을 한 번 직접 추가해야 합니다. [친구 공유 안내](docs/friend-sharing.md)를 먼저 읽으세요.
 

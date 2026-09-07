@@ -1,5 +1,13 @@
 # 작업 기록
 
+## 2026-09-07 — 공개 다운로드 배포 완료
+
+- 권한: 사용자 GitHub push·다운로드 요청, 비공개 저장소 상태 설명 후 설치 파일 전용 공개 저장소 생성에 대한 명시적 승인.
+- 결과: `kodonghui/corthex-classmate` 소스는 비공개 유지. 원격 지침 커밋 2개를 별도 worktree에서 병합해 `7da8f8b`로 main push 후 원래 작업 공간도 fast-forward했다. 기존 report-ui 미커밋/미추적 파일은 제외·보존했다.
+- 공개 저장소: `https://github.com/kodonghui/corthex-classmate-downloads`. Git에는 README 안내만, `v0.0.6-beta2` 사전 릴리스에는 설치 ZIP·Guide.html·체크섬 3개만 게시했다. 공개 작성자 이메일은 GitHub noreply를 사용했다.
+- 검증: 공개 전 앱 JS/JSON/HTML의 실제 Tiro 공유 URL·토큰 패턴·개인 경로/메일 패턴 점검에서 일치 없음. GitHub 업로드 해시 일치, 인증 없는 HTTP로 공개 ZIP 다운로드 후 SHA-256 `596fd5c76eb119f2c14b40714bd131dcb67f06ecff4b2eab7c4748604524f960` 일치.
+- 경계: 사용자 수업 DB·캡처·인증은 업로드하지 않았다. 서명 없는 베타이며 별도 PC 첫 사용 전체 검증은 남는다. beta1 사용자 재설치는 불필요하고 안내만 바뀌었다. 다음은 친구 PC에서 실제 전사·질문 확인이다.
+
 ## 2026-09-07 — beta2 질문 자료·Claude 자동 연결 안내
 
 - 사용자 요청: 질문 시 참고 자료와 친구 PC의 Claude 자동 연결 조건을 설명에 넣기. 실제 라이브 전사 창, 후속 질문 봉인, 질문 화면 캡처, 호스트 자료·최근 문답, 설치기 탐색 코드를 확인했다.

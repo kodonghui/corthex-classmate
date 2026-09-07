@@ -21,7 +21,10 @@ ZIP 5,129,775 bytes, SHA-256 `596fd5c76eb119f2c14b40714bd131dcb67f06ecff4b2eab7c
 `installer/windows/portable/Setup.ps1`의 Find-Claude. 소스 `7a0be50` 기준 2026-09-07 확인.
 390px/1100px HTML 가로 넘침 없음·흐름도 시각 확인, 패키징 테스트 4개 및 최종 ZIP 재추출 체크섬 통과.
 
-이후 사용자 요청으로 GitHub 다운로드 배포를 진행합니다. 기존 저장소는 비공개이며 전체 공개 전환은 하지 않습니다.
+사용자 승인으로 [설치 파일 전용 공개 저장소](https://github.com/kodonghui/corthex-classmate-downloads)와
+[beta2 릴리스](https://github.com/kodonghui/corthex-classmate-downloads/releases/tag/v0.0.6-beta2)를 배포했습니다.
+기존 소스 저장소는 비공개로 유지합니다. 공개 자산은 설치 ZIP·Guide.html·체크섬 3개입니다.
+인증 없는 HTTP 다운로드 후 ZIP의 SHA-256 일치를 확인했습니다. 친구는 소스 접근 권한이나 GitHub 로그인 없이 받을 수 있습니다.
 
 ## 무엇을 전달하나요?
 
