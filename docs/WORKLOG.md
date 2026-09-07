@@ -1,5 +1,14 @@
 # 작업 기록
 
+## 2026-09-07 — 0.1.2 배포·로컬 파일 반영 완료
+
+- 깨끗한 출시 worktree의 소스 빌드 식별자 `0.1.2+g907eef6a7dc6`. Vitest 1,371 + Cargo 381 + Node 163 = 1,915개 통과; Chromium classroom 16개 별도 통과. 타입 검사와 Clippy 통과. 이미지·안내서는 합성 자료만 사용한다.
+- https://github.com/kodonghui/classmate/releases/tag/v0.1.2 게시. ZIP 6,546,112 bytes, 432개 파일, 라이선스 158개. SHA-256 `21e2e51a5230582d7a6ec94f6c2892b074d498875797d509168f8108cd4f100e`. 공개 자산을 먼저 올린 후 익명 다운로드 HTTP 200·동일 해시 확인을 거쳐 README를 전환했다. 공개 안내 커밋 `2ffbaaf`.
+- ZIP 재추출·파일 검증·PowerShell 격리 설치·설치된 호스트 ping 0.1.2·CLI 없는 상태 진단을 검증했다. 격리 검사는 등록/환경변수를 바꾸거나 실제 AI를 호출하지 않는다. 재사용 검사 도구는 installer/windows/verify-release.mjs.
+- 사용자가 확장 사용 중지 및 지금 적용을 확인한 후, Chrome Default 프로필이 실제로 로드하는 `Downloads/Corthex-Classmate-0.1.0-windows-x64 (1)/Corthex-Classmate-0.1.0-windows-x64/app/extension`에 215개 파일을 교체했다. 원본은 같은 부모의 `extension.backup-before-0.1.2-20260907-1432`로 보존했다. 폴더의 옛 이름과 내부 실제 버전은 별개다.
+- 등록된 도우미 `installer/windows/dist/classmate-host.exe`도 0.1.2로 교체하고 `.backup-before-0.1.2-20260907-1432`로 원본 보존했다. 확장/도우미는 배포본과 해시 일치. 새 설치 도우미에 명시 CLI 환경변수 없이 provider.check를 보내 자동 탐색·공식 auth 상태 ready 및 CLI 2.1.252를 확인했다.
+- 학습 저장소 97개 파일의 전체 내용 해시는 전후 동일하다. 삭제한 수업 자료가 없다. Chrome 사용 스위치는 사용자 재활성화가 남았다. 친구 PC 전체 E2E 및 장시간 사용은 미검증이다.
+
 ## 2026-09-07 — 0.1.2 공식 인증·인라인 질문 안정화
 
 - 모두 승인 및 접기 요청을 반영했다. 최신 요청에 따라 Windows VM을 필수로 요구하지 않는다. 공식 Claude Code auth login/auth status 명령을 확인하고 자체 OAuth·자격증명 복사 없이 로컬 원본 CLI를 사용한다.
