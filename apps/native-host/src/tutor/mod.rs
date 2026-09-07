@@ -921,13 +921,16 @@ impl Worker {
             json!({
                 "questionId": question_id,
                 "provider": self.provider_name,
+                "reason": reason,
                 "message": events::FAILED_MESSAGE,
             }),
         );
 
         self.emit_queued_once(question_id);
         self.mark_provider_off(reason);
-        self.schedule_auto_retry(question_id, manual);
+        if !matches!(reason, "provider-auth" | "provider-limit" | "provider-spawn" | "provider-not-implemented") {
+            self.schedule_auto_retry(question_id, manual);
+        }
     }
 
     /// 멈춘 자리 답은 질문마다 한 번만 놓습니다. 되풀이하면 화면에 같은 자리가 여러 개 생깁니다.
@@ -1129,7 +1132,15 @@ fn provider_reason(error: &ProviderError) -> &'static str {
         ProviderError::Timeout { .. } => "provider-timeout",
         ProviderError::Spawn(_) => "provider-spawn",
         ProviderError::Protocol(_) => "provider-protocol",
-        ProviderError::NonZeroExit { .. } => "provider-exit",
+        ProviderError::NonZeroExit { stderr_tail, .. } => {
+            // Classify a few known failures locally; never expose raw stderr or credentials.
+            let text = stderr_tail.to_lowercase();
+            if ["not logged in", "authentication failed", "invalid api key", "please run /login", "please run claude auth login"].iter().any(|p| text.contains(p)) {
+                "provider-auth"
+            } else if ["rate limit", "usage limit", "credit balance is too low"].iter().any(|p| text.contains(p)) {
+                "provider-limit"
+            } else { "provider-exit" }
+        },
         ProviderError::NotImplemented => "provider-not-implemented",
         ProviderError::Queue(_) => "provider-queue",
     }

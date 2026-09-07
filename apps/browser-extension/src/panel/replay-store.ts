@@ -63,6 +63,7 @@ import { termsInText } from "./live-terms";
 import type { AnswerDelta, AskPort, AskRequest, PanelInbox, PanelOutbox } from "./ports";
 import { foldSegments, resolveAlias, segmentKeyOfWord, toTranscriptLines } from "./transcript-lines";
 import { normalizeSessionProfile, sessionProfileCopy } from "../session-profile";
+import { providerFailureText } from "./provider-failure";
 
 export type Screen = "home" | "detail";
 
@@ -344,6 +345,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   readonly #askedIds = new Set<Id>();
   /** 질문 id → 이 시각(ms)까지 답이 없으면 멈춘 것으로 봅니다. */
   readonly #watching = new Map<Id, number>();
+  readonly #watchStarted = new Map<Id, number>();
   /** 이미 받은 사건 id 입니다. 같은 id 는 두 번 처리하지 않습니다. */
   readonly #seen = new Set<Id>();
   /**
@@ -450,6 +452,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     this.#asked.clear();
     this.#askedIds.clear();
     this.#watching.clear();
+    this.#watchStarted.clear();
     this.#seen.clear();
     this.#snapshots.clear();
     this.#state = this.#fresh();
@@ -684,6 +687,14 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
   /** 짐작 고르기를 그만둡니다. */
   cancelChoosing(): void {
     this.#set({ choosing: null });
+  }
+
+  /** Direct questions preserve the selected paragraph, not the latest incoming transcript. */
+  askSentence(lineId: Id, text: string): void {
+    const question = normalizeAskText(text);
+    if (!question || !this.lines().some((line) => line.id === lineId)) return;
+    this.#set({ choosing: null });
+    this.#stuck({ lineId, term: question, segKey: null, time: clockOfMs(this.#state.now), question });
   }
 
   /** 메모의 칩을 눌렀습니다. 같은 칩을 다시 누르면 결론으로 돌아갑니다. 접힘 시계는 18초로 되돌아갑니다. */
@@ -1018,6 +1029,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     for (const [questionId, deadline] of [...this.#watching]) {
       if (deadline > t) continue;
       this.#watching.delete(questionId);
+      this.#watchStarted.delete(questionId);
       this.pushEvent({
         id: this.#nextEventId(),
         periodId: this.#bundle.periodId,
@@ -1087,6 +1099,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     if (this.#askedIds.has(questionId)) return;
     this.#askedIds.add(questionId);
     this.#watching.set(questionId, nowMs + this.#askTimeoutMs);
+    this.#watchStarted.set(questionId, nowMs);
     const port = this.#live.askPort;
     if (port === undefined) return;
     port.ask(this.#askRequest(questionId, effect));
@@ -1172,11 +1185,14 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
           // 줄 세워 뒀다는 알림은 답이 아닙니다. 시계를 풀어 버리면 아무 안내도 없이 영영
           // 기다리게 되므로 여기서 다시 겁니다. 멈춤 안내가 이미 떠 있으면 걸지 않습니다 —
           // 같은 멈춤을 60초마다 한 번 더 적을 까닭이 없습니다.
-          this.#watching.set(questionId, this.#state.now + this.#askTimeoutMs);
+          const started = this.#watchStarted.get(questionId) ?? this.#state.now;
+          this.#watchStarted.set(questionId, started);
+          this.#watching.set(questionId, Math.min(this.#state.now + this.#askTimeoutMs, started + 2 * this.#askTimeoutMs));
           return;
         }
         // 그 밖의 답 사건이 하나라도 오면 그 질문은 더 기다리지 않습니다.
         this.#watching.delete(questionId);
+        this.#watchStarted.delete(questionId);
         return;
       }
     }
@@ -1436,6 +1452,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
     // 재생 모드에는 물을 곳이 없습니다. 대기 줄만 남기고 끝냅니다(골든 장면 13).
     this.#askedIds.add(questionId);
     this.#watching.set(questionId, now + this.#askTimeoutMs);
+    this.#watchStarted.set(questionId, now);
     this.#live.askPort?.ask({
       questionId,
       provider: this.#env.provider,
@@ -1466,7 +1483,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
         return {
           ...item,
           state: "failed",
-          message: stringOf(event.payload, "message") ?? ASK_TIMEOUT_MESSAGE,
+          message: stringOf(event.payload, "reason") !== null ? providerFailureText(stringOf(event.payload, "reason")!) : stringOf(event.payload, "message") ?? ASK_TIMEOUT_MESSAGE,
         };
       }
       // `answer.queued` — "줄 세워 뒀다" 는 알림이지 답이 아닙니다. 이미 떠 있는 멈춤 안내를

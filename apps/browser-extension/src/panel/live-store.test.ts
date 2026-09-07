@@ -132,6 +132,21 @@ function home(store: ReplayStore) {
   return listeningView(store.bundle, state, store.lines(state.now));
 }
 
+describe("문단 안 직접 질문과 취소", () => {
+  it("고른 문단을 봉인하고 선택 취소는 기존 질문을 지우지 않는다", () => {
+    const { store, asks } = rig();
+    for (let n = 1; n <= 20; n++) store.pushSegment(segment(n, `수업 ${n}`, n));
+    store.catchSentence("ts-live-001");
+    store.askSentence("ts-live-001", "첫 문장의 의미가 뭐예요?");
+    expect(asks[0]?.snapshot?.transcriptSegmentIds).toContain("ts-live-001");
+    const before = store.getState().moments.length;
+    store.catchSentence("ts-live-002"); store.cancelChoosing();
+    expect(store.getState().choosing).toBeNull();
+    expect(store.getState().moments).toHaveLength(before);
+    expect(asks).toHaveLength(1);
+  });
+});
+
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe("id 규칙", () => {
@@ -929,6 +944,18 @@ describe("자세히 화면에서 이어 묻기", () => {
     expect(threadsOf(store, parentId)[0]).toMatchObject({ loading: false, failure: ASK_TIMEOUT_MESSAGE });
     // 시계를 한참 밀어도 "답을 만들고 있어요" 로 되돌아가지 않습니다.
     bench.tickAt(200);
+    expect(threadsOf(store, parentId)[0]).toMatchObject({ loading: false, failure: ASK_TIMEOUT_MESSAGE });
+  });
+
+  it("반복 queued가 와도 질문 후 120초 이상 로딩을 연장하지 않는다", () => {
+    const { bench, parentId } = opened();
+    const { store } = bench;
+    store.askTyped(parentId, "언제 써요?");
+    const followId = "q-2026-09-02-p9-xtesttok0-002";
+    for (const second of [30, 60, 90, 119]) {
+      store.pushEvent(event(`ev-loop-${second}`, second, "answer.queued", { questionId: followId }));
+    }
+    bench.tickAt(150);
     expect(threadsOf(store, parentId)[0]).toMatchObject({ loading: false, failure: ASK_TIMEOUT_MESSAGE });
   });
 

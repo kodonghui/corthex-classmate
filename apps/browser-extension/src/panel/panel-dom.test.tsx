@@ -577,7 +577,7 @@ describe("듣는 중 화면의 대화 칸", () => {
     expect(document.body.textContent).toContain("답을 만들고 있어요");
   });
 
-  it("답이 오면 결론으로 바뀌고 새 질문을 눌러도 기록은 유지된다", async () => {
+  it("답이 오면 결론으로 바뀌고 새 질문을 작성해도 기록은 유지된다", async () => {
     const rig = await liveRig();
     typeInto(askField(), "지금 그게 왜 필요해요?");
     press(askField(), "Enter");
@@ -586,7 +586,7 @@ describe("듣는 중 화면의 대화 칸", () => {
     expect(document.body.textContent).toContain("바꿔 끼울 자리를 남겨 두려고요");
     expect(document.body.textContent).not.toContain("답을 만들고 있어요");
 
-    click(buttonNamed("새 질문"));
+    typeInto(askField(), "다음 질문을 적고 있어요");
     expect(document.body.textContent).toContain("바꿔 끼울 자리를 남겨 두려고요");
   });
 

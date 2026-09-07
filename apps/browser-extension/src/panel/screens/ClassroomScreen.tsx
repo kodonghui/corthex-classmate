@@ -1,35 +1,29 @@
 import { Evidence, IconButton, PanelHeader } from "@classmate/ui-base";
 import { GuessList, SourceFooter, TranscriptFlow } from "@classmate/ui-classmate";
-import { useEffect, useRef, useState } from "react";
-import { MAX_ASK_QUESTION_BYTES, utf8ByteLength } from "../ask-text";
+import { useEffect, useState } from "react";
 import { compactEvidence } from "../answer-presentation";
-import { DIAGRAM_KINDS, diagramRequest } from "../diagrams";
+import { diagramRequest } from "../diagrams";
 import { useStickToBottom } from "../use-stick-to-bottom";
 import { AnswerStream } from "./AnswerStream";
 import { DetailScreen } from "./DetailScreen";
 import { DiagramCard } from "./DiagramCard";
+import { QuestionComposer } from "./QuestionComposer";
+import { ConnectionStatus } from "./ConnectionStatus";
 import type { ListeningScreenProps } from "./ListeningScreen";
 
 /** Questions stay below their sealed transcript paragraph; records are never moved or deleted. */
 export function ClassroomScreen({ view, inlineDetails = [], activeQuestionId = null, onAskAt, onFollowUpAt,
-  onTerm, onSentence, onGuess, onSettings, onHistory, onReconnect, onAsk }: ListeningScreenProps): React.JSX.Element {
+  onTerm, onSentence, onGuess, onCancelChoosing, onAskSentence, onSettings, onHistory, onReconnect, onAsk, connectionCheck }: ListeningScreenProps): React.JSX.Element {
   const [typed, setTyped] = useState("");
   const [target, setTarget] = useState<string | null>(activeQuestionId);
-  const [diagramKind, setDiagramKind] = useState("auto");
-  const input = useRef<HTMLTextAreaElement>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [folded, setFolded] = useState<Record<string, boolean>>({});
+  const setDraft = (id: string, text: string) => setDrafts((old) => ({ ...old, [id]: text }));
   const complete = [...inlineDetails.map((d) => `${d.questionId}:${d.loading}:${d.threads.filter((t) => !t.loading).length}`),
     ...view.asks.map((a) => `${a.id}:${a.loading}`)].join("|");
-  const body = useStickToBottom<HTMLDivElement>({ preserveOn: complete });
-  const selected = inlineDetails.find((d) => d.questionId === target);
   const choosing = view.choosing ?? (view.note.kind === "choosing" ? view.note : null);
-  const quote = selected?.line?.segments.map((s) => s.text).join("");
-  const left = MAX_ASK_QUESTION_BYTES - utf8ByteLength(typed);
-  const ready = typed.trim().length > 0 && left >= 0;
+  const body = useStickToBottom<HTMLDivElement>({ preserveOn: `${complete}:${choosing?.lineId ?? ""}:${target}:${JSON.stringify(folded)}`, suspend: choosing !== null || target !== null });
   useEffect(() => { setTarget(activeQuestionId); }, [activeQuestionId]);
-  const ask = (text: string) => {
-    if (selected && onAskAt) onAskAt(selected.questionId, text); else onAsk(text);
-  };
-  const send = () => { if (ready) { ask(typed); setTyped(""); } };
   const rows = [
     ...inlineDetails.map((detail, index) => ({ key: detail.questionId, time: detail.time, index, detail, ask: null })),
     ...view.asks.map((item, index) => ({ key: item.id, time: item.time, index: inlineDetails.length + index, detail: null, ask: item })),
@@ -40,6 +34,12 @@ export function ClassroomScreen({ view, inlineDetails = [], activeQuestionId = n
   const unplaced = rows.filter((row) => !visible.has(anchorOf(row) ?? ""));
   const renderRow = (row: (typeof rows)[number]) => <article className={`cm-study__thread${row.key === target ? " cm-study__thread--selected" : ""}`}
             key={row.key} data-question-id={row.key}>
+            <div className="cm-thread-controls"><button type="button" aria-expanded={!folded[row.key]}
+              onClick={() => setFolded((old) => ({ ...old, [row.key]: !old[row.key] }))}>
+              {folded[row.key] ? "펼치기" : "접기"}</button></div>
+            {folded[row.key] ? <div className="cm-folded-summary"><strong>{row.detail?.term ?? row.ask?.question}</strong>
+              <p>{row.detail?.failure ?? row.ask?.failure ?? (row.detail?.loading || row.ask?.loading ? "답변을 기다리는 중" : row.detail?.conclusion ?? row.ask?.conclusion)}</p></div> : null}
+            <div hidden={!!folded[row.key]}>
             {row.detail ? <>
               <div className="cm-question"><span className="cm-question__label">내가 짚은 부분</span><time>{row.time}</time>
                 <strong>{row.detail.term}</strong></div>
@@ -47,7 +47,9 @@ export function ClassroomScreen({ view, inlineDetails = [], activeQuestionId = n
               <DetailScreen inline hideComposer active={row.key === target} view={row.detail} onBack={() => {}}
                 onAsk={(text) => { setTarget(row.key); onAskAt?.(row.key, text); }}
                 onFollowUp={(id) => { setTarget(row.key); onFollowUpAt?.(row.key, id); }} />
-              <button className="cm-context-select" type="button" onClick={() => { setTarget(row.key); input.current?.focus(); }}>이 대화에 이어 묻기</button>
+              {row.key !== target ? <button className="cm-context-select" type="button" onClick={() => setTarget(row.key)}>이 대화에 이어 묻기</button> : null}
+              {row.key === target ? <QuestionComposer label="이 설명에 이어 묻기" value={drafts[row.key] ?? ""}
+                onChange={(text) => setDraft(row.key, text)} onSend={(text) => onAskAt?.(row.key, text)} onCancel={() => setTarget(null)} /> : null}
             </> : row.ask ? <>
               <div className="cm-question"><span className="cm-question__label">내 질문</span><time>{row.time}</time><strong>{row.ask.question}</strong></div>
               {row.ask.loading ? <AnswerStream stream={row.ask.stream} idle="답을 만들고 있어요" />
@@ -60,7 +62,7 @@ export function ClassroomScreen({ view, inlineDetails = [], activeQuestionId = n
                   <div className="cm-study__suggestions">{["더 쉽게", "예시로", "왜 필요한가요?"].map((label, i) =>
                     <button type="button" key={label} onClick={() => { setTarget(null); onAsk(`앞선 질문 '${row.ask!.question}'의 설명 '${row.ask!.conclusion}'에 대해 ${["더 쉽게 설명해 주세요", "구체적인 예를 들어 주세요", "왜 필요한지 설명해 주세요"][i]!}`); }}>{label}</button>)}</div>
                 </div>}
-            </> : null}
+            </> : null}</div>
           </article>;
   const footerWarn = view.footer.warn;
   const { reconnect, ...warn } = footerWarn ?? {};
@@ -68,6 +70,7 @@ export function ClassroomScreen({ view, inlineDetails = [], activeQuestionId = n
     <PanelHeader status={view.header.status} title={view.header.title} subtitle={view.header.subtitle} time={view.header.time}
       actions={<><button className="cm-nav-records" type="button" onClick={onHistory}>기록</button><IconButton icon="settings-2" label="설정" size="sm" onClick={onSettings} /></>} />
     <div className="cm-classroom__workspace">
+      {connectionCheck ? <ConnectionStatus check={connectionCheck} /> : null}
       <section className="cm-lecture" aria-label="선생님 전사와 질문 답변">
         <header className="cm-zone-heading"><div><span className="cm-zone-number">01</span><h2>수업 · 질문과 함께 읽기</h2></div>
           <span>{view.tiroPaused ? "전사 일시정지" : "문장이나 단어를 눌러 질문"}</span></header>
@@ -79,34 +82,26 @@ export function ClassroomScreen({ view, inlineDetails = [], activeQuestionId = n
             onTerm={(line, index, segment) => onTerm(line, index, segment.text)} onSentence={onSentence}
             renderAfter={(line) => {
               const linked = rows.filter((row) => anchorOf(row) === line);
-              return linked.length ? <div className="cm-inline-conversation" data-source-line-id={line}
-                aria-label="이 문장에 대한 질문과 답변">{linked.map(renderRow)}</div> : null;
+              const selectedLine = choosing?.lineId === line;
+              return linked.length || selectedLine ? <div className="cm-inline-conversation" data-source-line-id={line}
+                aria-label="이 문장에 대한 질문과 답변">{linked.map(renderRow)}
+                {selectedLine ? <div className="cm-study__choosing" onKeyDown={(e) => {
+                  if (e.key === "Escape" && !e.nativeEvent.isComposing) { e.preventDefault(); e.stopPropagation(); onCancelChoosing?.(); }
+                }}><strong>이 문장에서 어떤 부분이 궁금한가요?</strong>
+                  <button type="button" className="cm-selection-cancel" onClick={onCancelChoosing}>선택 취소 · Esc</button>
+                  <GuessList options={[...choosing.options]} {...(choosing.value === undefined ? {} : { value: choosing.value })} onChange={onGuess} />
+                  <QuestionComposer label="이 문장에 직접 질문" value={drafts[`line:${line}`] ?? ""}
+                    onChange={(text) => setDraft(`line:${line}`, text)} onSend={(text) => onAskSentence?.(line, text)} />
+                </div> : null}</div> : null;
             }} />
           {unplaced.length ? <section className="cm-inline-unplaced" aria-label="이전 자료에 대한 질문">
             <h3>이전 자료에 대한 질문</h3><p>해당 전사가 현재 화면에 없어도 질문과 답변은 남아 있어요.</p>
             {unplaced.map(renderRow)}</section> : null}
-          {choosing ? <div className="cm-study__choosing"><strong>이 문장에서 어떤 부분이 궁금한가요?</strong>
-            <blockquote>{view.lines.find((l) => l.id === choosing.lineId)?.segments.map((s) => s.text).join("")}</blockquote>
-            <GuessList options={[...choosing.options]} {...(choosing.value === undefined ? {} : { value: choosing.value })} onChange={onGuess} /></div> : null}
         </div>
-        {body.hasNew ? <button className="cm-lecture__catch" type="button" onClick={body.toBottom}>새 수업 · 답변으로 이동 ↓</button> : null}
+        {body.hasNew ? <button className="cm-lecture__catch" type="button" onClick={() => { setTarget(null); onCancelChoosing?.(); body.toBottom(); }}>새 수업 · 답변으로 이동 ↓</button> : null}
       </section>
       <section className="cm-study cm-study--composer" aria-label="질문 작성">
-        <div className="cm-study__composer">
-          <div className="cm-composer-context"><span>{selected ? `이어서 질문 · ${selected.term}` : "새 질문 · 최근 수업 맥락"}</span>
-            <button type="button" onClick={() => { setTarget(null); input.current?.focus(); }}>새 질문</button></div>
-          {quote ? <div className="cm-composer-quote" title={quote}>{quote}</div> : null}
-          <div className="cm-composer-field"><textarea ref={input} value={typed} rows={2} aria-label="바로 묻기" aria-invalid={left < 0}
-            placeholder={selected ? "이 설명에서 더 궁금한 점을 적어 주세요" : "지금 궁금한 걸 적어 주세요"}
-            onChange={(e) => setTyped(e.target.value)} onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing && e.nativeEvent.keyCode !== 229) { e.preventDefault(); send(); }
-            }} /><IconButton icon="arrow-up" label="보내기" disabled={!ready} onClick={send} /></div>
-          <div className="cm-composer-tools"><label><span className="cm-sr-only">요청할 그림 종류</span><select aria-label="그림 종류" value={diagramKind} onChange={(e) => setDiagramKind(e.target.value)}>
-            <option value="auto">그림 · AI가 선택</option>{DIAGRAM_KINDS.map((item) => <option key={item.kind} value={item.kind}>{item.label}</option>)}</select></label>
-            <button type="button" onClick={() => { setTyped((value) => `${value}${value.trim() ? "\n" : ""}${diagramRequest(diagramKind)}`); input.current?.focus(); }}>그림 요청</button>
-            <span>Enter 전송 · Shift+Enter 줄바꿈</span></div>
-          {left < 200 ? <p className="cm-composer-limit" role="status">{left >= 0 ? `${left}바이트 남았어요` : "질문이 길어요. 내용을 나눠서 보내 주세요."}</p> : null}
-        </div>
+        <QuestionComposer label="바로 묻기" value={typed} onChange={setTyped} onSend={onAsk} />
       </section>
     </div>
     <SourceFooter sources={[...view.footer.sources]} count={view.footer.count} onCount={onHistory}

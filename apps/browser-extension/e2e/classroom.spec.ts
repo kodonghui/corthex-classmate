@@ -76,9 +76,10 @@ test("inline source, direct diagram choice and IME", async () => {
   await panel.locator(".cm-study__thread").first().getByRole("button", { name: "이 대화에 이어 묻기" }).click();
   await expect(panel.locator(".cm-study__thread").first()).toHaveClass(/selected/);
   await expect(panel.getByRole("separator")).toHaveCount(0);
-  await panel.getByLabel("그림 종류").selectOption("swimlane");
-  await panel.getByRole("button", { name: "그림 요청", exact: true }).click();
-  const field = panel.getByRole("textbox", { name: "바로 묻기" });
+  const composer = panel.locator(".cm-study__thread").first();
+  await composer.getByLabel("그림 종류").selectOption("swimlane");
+  await composer.getByRole("button", { name: "그림 요청", exact: true }).click();
+  const field = composer.getByRole("textbox", { name: "이 설명에 이어 묻기" });
   await expect(field).toHaveValue(/스윔레인/);
   const before = await panel.evaluate(() => window.classmateReplay!.state().emitted.length);
   await field.dispatchEvent("keydown", { key: "Enter", isComposing: true, bubbles: true });
@@ -97,11 +98,34 @@ for (const width of [320, 380, 790]) test(`readability at ${width}px and 200% te
   expect(await panel.locator(".cm-lecture__scroll").evaluate((el) => el.clientHeight)).toBeGreaterThan(80);
   await expect(panel.locator(".cm-study__scroll")).toHaveCount(0);
 });
+
+test("choose, cancel, draft restore and collapse stay with the original paragraph", async () => {
+  await panel.setViewportSize({ width: 380, height: 950 });
+  await panel.evaluate(() => document.documentElement.style.setProperty("--text-scale", "1"));
+  const line = panel.locator('.cm-tf__ln').first();
+  await line.focus(); await line.press('Enter');
+  const selection = panel.locator('.cm-study__choosing');
+  await expect(selection.locator('xpath=..')).toHaveAttribute('data-source-line-id', 'ts-v010-1');
+  const field = selection.getByRole('textbox', { name: '이 문장에 직접 질문' });
+  await field.fill('취소해도 남아야 하는 질문'); await field.press('Escape');
+  await expect(selection).toHaveCount(0);
+  await line.focus(); await line.press('Enter');
+  await expect(field).toHaveValue('취소해도 남아야 하는 질문');
+  await selection.getByRole('button', { name: '선택 취소 · Esc' }).click();
+  const row = panel.locator('.cm-study__thread').first();
+  const before = await panel.evaluate(() => window.classmateReplay!.state().moments.length);
+  await row.getByRole('button', { name: '접기', exact: true }).click();
+  await expect(row.locator('.cm-folded-summary')).toBeVisible();
+  await expect(row.locator('.cm-inline-detail')).not.toBeVisible();
+  await row.getByRole('button', { name: '펼치기', exact: true }).click();
+  await expect(row.locator('.cm-inline-detail')).toBeVisible();
+  expect(await panel.evaluate(() => window.classmateReplay!.state().moments.length)).toBe(before);
+});
 test("release preview and no remote diagram dependencies", async () => {
   await panel.setViewportSize({ width: 790, height: 1000 });
   await panel.evaluate(() => document.documentElement.style.setProperty("--text-scale", "1"));
   await panel.locator(".cm-study__thread").first().evaluate(el => el.closest(".cm-tf__after")?.previousElementSibling?.scrollIntoView({ block: "start" }));
-  await panel.screenshot({ path: path.join(root, "docs/screenshots/classroom-0.1.1.png") });
+  await panel.screenshot({ path: path.join(root, "docs/screenshots/classroom-0.1.2.png") });
   expect(errors).toEqual([]); expect(remote).toEqual([]);
 });
 
@@ -109,16 +133,16 @@ test("public manual screenshots use synthetic content only", async () => {
   await panel.setViewportSize({ width: 790, height: 1100 });
   const diagram = panel.locator(".cm-study__thread").nth(2).locator(".cm-diagram");
   await diagram.scrollIntoViewIfNeeded();
-  await panel.screenshot({ path: path.join(root, "docs/screenshots/manual-diagram-0.1.1.png") });
+  await panel.screenshot({ path: path.join(root, "docs/screenshots/manual-diagram-0.1.2.png") });
   await panel.getByRole("button", { name: "설정", exact: true }).click();
   await panel.setViewportSize({ width: 790, height: 1850 });
-  await panel.screenshot({ path: path.join(root, "docs/screenshots/manual-settings-0.1.1.png"), fullPage: true });
+  await panel.screenshot({ path: path.join(root, "docs/screenshots/manual-settings-0.1.2.png"), fullPage: true });
   const manager = await context.newPage();
   await manager.setViewportSize({ width: 1000, height: 1300 });
   await manager.goto(`chrome://extensions/?id=${extensionId}`);
   await expect(manager.locator("extensions-manager")).toBeVisible();
   await expect(manager.getByRole("heading", { name: "Corthex Classmate", level: 1 })).toBeVisible();
-  await manager.screenshot({ path: path.join(root, "docs/screenshots/manual-extension-0.1.1.png") });
+  await manager.screenshot({ path: path.join(root, "docs/screenshots/manual-extension-0.1.2.png") });
   await manager.close();
 });
 
@@ -145,7 +169,7 @@ test("long technical labels fit the expanded diagram", async () => {
   await dialog.getByRole("button", { name: "맞춤", exact: true }).click();
   await expect.poll(() => canvas.evaluate((el) => el.scrollLeft)).toBe(0);
   expect(await canvas.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
-  await panel.screenshot({ path: path.join(root, "docs/screenshots/diagram-fit-0.1.1.png") });
+  await panel.screenshot({ path: path.join(root, "docs/screenshots/diagram-fit-0.1.2.png") });
   await panel.keyboard.press("Escape");
 
 });

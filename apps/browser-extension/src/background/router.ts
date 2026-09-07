@@ -62,6 +62,7 @@ import type {
   TranscriptSegment,
 } from '@classmate/contracts';
 import type { AskRequest, ReconnectTarget } from '../panel/ports';
+import { providerFailureText } from '../panel/provider-failure';
 import type {
   CaptureErrorMessage,
   CaptureState,
@@ -821,6 +822,17 @@ export class Router {
     };
 
     const result = await this.host.send(envelope);
+    const rejection = result.status === 'replied'
+      ? (isHostErrorMessage(result.message) ? result.message.reason : null)
+      : result.status === 'dropped' ? result.reason : 'host-offline';
+    if (rejection !== null) {
+      // End this question immediately, even when the native host cannot persist anything.
+      // The bounded period log replays this event after reopening the panel.
+      await this.publish(this.makeEvent(periodId, 'answer.failed', {
+        questionId: request.questionId, provider: envelope.provider,
+        reason: rejection, message: providerFailureText(rejection),
+      }), false);
+    }
     if (result.status === 'dropped') {
       // 도우미가 꺼져 있어 질문이 그 자리에서 버려졌습니다(`tutor.ask` 는 사람이 기다리는
       // 부탁이라 들고 있지 않습니다). 온라인일 때는 호스트 기록본이 정본이므로 붙이지

@@ -85,6 +85,7 @@ export const ASK_TIMEOUT_MS = 60_000;
 export function buildSmokeEnv(baseEnv, dataDir) {
   const env = { ...baseEnv };
   for (const name of SCRUBBED_ENV_NAMES) delete env[name];
+  env.CLASSMATE_DISABLE_CLI_DISCOVERY = '1';
   if (dataDir) env.CLASSMATE_DATA_DIR = dataDir;
   return env;
 }

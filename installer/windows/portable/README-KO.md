@@ -2,13 +2,13 @@
 
 먼저 **Guide.html**을 열어 주세요. 초심자용 전체 설명서는 같은 폴더의 **README.md** 또는 [온라인 사용설명서](https://github.com/kodonghui/classmate#readme)를 보세요. PC 시스템 사운드, 휴대폰 현장 녹음, Tiro 공유 링크 연결, 설정·질문·그림·복습·문제 해결을 순서대로 설명합니다. 실제 앱 화면 예제는 docs/screenshots에 포함되어 있습니다.
 
-0.1.1은 전사 문단 바로 아래 질문·답변 표시, 이전 답변 보존, 그림 확대·맞춤 보강을 포함합니다. AI 자동·직접 요청 그림 8종을 그대로 사용할 수 있습니다. 0.1.0 대비 로컬 도우미는 동일하며 설치 묶음에 함께 들어 있습니다. 이전 공식 ZIP 설치자는 이전 Disconnect.cmd로 연결만 해제하고 새 Install.cmd를 실행한 다음 새 app/extension 경로를 Chrome에서 로드하세요. 자료는 삭제하지 않습니다. 기존 개발용 설치는 유지보수 담당자가 업데이트합니다.
+0.1.2는 누른 문단 바로 아래 질문창, 선택 취소/Esc, 답변 접기/펼치기, 자동 Claude 연결 점검, 질문별 오류 안내를 추가합니다. 확장과 로컬 도우미가 모두 바뀝니다. 이전 공식 ZIP 설치자는 이전 Disconnect.cmd로 연결만 해제하고 새 Install.cmd를 실행한 다음 새 app/extension 경로를 Chrome에서 로드하세요. 자료는 삭제하지 않습니다.
 Guide.html에 질문 자료 흐름도와 Claude 자동 연결 조건을 추가했습니다.
 AI에는 내 질문, 질문 대목 주변 전사, 가능하면 화면 한 장, 같은 교시의 최근 완료 문답 최대 6쌍을 전달합니다.
 앞 질문의 이어 묻기는 원래 전사 맥락을 유지합니다. 미래 발언이나 하루 전체를 자동으로 읽는 것은 아닙니다.
 Claude 자동 탐색은 Classmate를 설치하는 바로 그 PC의 Windows Claude Code에 한합니다. 본인 로그인과 Chrome 확장 추가는 직접 해야 합니다.
 
-1. 본인 Windows native Claude Code를 설치하고 로그인합니다. Tiro·Chrome도 준비합니다.
+1. 본인 Windows native Claude Code를 설치하고 PowerShell에서 `claude auth login`으로 공식 로그인합니다. `claude auth status --text`로 확인합니다. Tiro·Chrome도 준비합니다.
 2. ZIP 전체를 압축 해제하고 **Install.cmd**를 더블클릭합니다.
 3. Chrome을 완전히 다시 열고 `chrome://extensions`에서 개발자 모드 → 압축해제된 확장 로드 → 설치 마지막에 표시된 `app/extension` 폴더를 선택합니다.
 4. 본인 Tiro 공유 전사 페이지를 열고, 강의 영상 탭에서 Classmate 아이콘을 눌러 질문합니다.
@@ -16,7 +16,7 @@ Claude 자동 탐색은 Classmate를 설치하는 바로 그 PC의 Windows Claud
 - 현재 AI 연결: Claude Code만 지원. Codex는 아직 사용할 수 없습니다.
 - 수업·시험 공부·회의 모드는 있지만 전문 도메인 최신 정보 검증은 보장하지 않습니다.
 - 이 패키지는 무료 무제한 AI가 아닙니다. 본인 구독/인증과 사용량 제한이 적용됩니다.
-- 진단: Diagnose.cmd. 연결 해제: Disconnect.cmd. 연결 해제는 공부 기록을 삭제하지 않습니다.
+- 패널 상단의 연결 점검으로 설치·공식 로그인 상태를 먼저 확인합니다. 실제 질문 한 번으로 답변까지 확인하세요. 보조 설치 진단: Diagnose.cmd. 연결 해제: Disconnect.cmd. 연결 해제는 공부 기록을 삭제하지 않습니다.
 - 서명되지 않은 베타입니다. 배포자의 ZIP SHA-256을 확인하고 백신/조직 보안 정책을 끄지 마세요.
 - 관리자 권한·Classmate 개발용 Git/Node/Rust는 필요 없습니다.
 - 자동 업데이트·기존 설치의 자동 마이그레이션·macOS는 이 묶음에 포함되지 않습니다.

@@ -34,6 +34,7 @@ import { LIVE_EDITOR_PLACEHOLDER_ID } from "./golden-bundle";
 import type { ReconnectTarget } from "./ports";
 import type { Moment, Reply, ReplayState } from "./replay-store";
 import { MODEL_CHIP_PREFIX } from "./replay-store";
+import { providerFailureText } from "./provider-failure";
 
 export type EvidenceItem = NonNullable<MarginNoteProps["evidence"]>[number];
 
@@ -753,6 +754,7 @@ function failureOf(state: ReplayState, questionId: Id): string | null {
     const event = state.received[i];
     if (event === undefined || event.type !== "answer.failed") continue;
     if (event.payload["questionId"] !== questionId) continue;
+    if (typeof event.payload["reason"] === "string") return providerFailureText(event.payload["reason"]);
     const message = event.payload["message"];
     return typeof message === "string" ? message : null;
   }

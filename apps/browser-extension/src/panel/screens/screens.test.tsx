@@ -18,6 +18,12 @@ import { SettingsScreen } from "./SettingsScreen";
 
 const noop = (): void => {};
 
+it("선택 메뉴와 직접 질문은 고른 문단 바로 아래에 둡니다", () => {
+  const html = liveScreen((store) => store.catchSentence("ts-live-001"));
+  expect(html).toContain("선택 취소 · Esc");
+  expect(html.indexOf("이 문장에 직접 질문")).toBeLessThan(html.indexOf('꺼내 씁니다'));
+});
+
 function homeHtml(checkpoint: Checkpoint): string {
   const store = new ReplayStore(GOLDEN_BUNDLE);
   store.goto(checkpoint);

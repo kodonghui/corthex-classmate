@@ -50,6 +50,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 export const STICK_TO_BOTTOM_SLACK_PX = 48;
 
 export interface StickToBottomOptions {
+  /** Do not move the reading position while selecting a paragraph or composing inline. */
+  readonly suspend?: boolean;
   /** 처음 그릴 때부터 바닥에 붙일지입니다. 기본값 true(전사처럼 아래에서 흐르는 곳). */
   readonly startStuck?: boolean;
   /**
@@ -80,7 +82,7 @@ export interface StickToBottom<T extends HTMLElement> {
  * 줄이 늘었는지 마지막 줄이 한 글자 자랐는지 구분할 필요가 없습니다.
  */
 export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOptions = {}): StickToBottom<T> {
-  const { startStuck = true, pinOn = 0, preserveOn = 0 } = options;
+  const { startStuck = true, pinOn = 0, preserveOn = 0, suspend = false } = options;
   const ref = useRef<T>(null);
   // 붙었나 풀렸나는 `scroll` 이벤트 안에서도 최신 값을 읽어야 해서 ref 에도 둡니다.
   const stuckRef = useRef(startStuck);
@@ -110,6 +112,14 @@ export function useStickToBottom<T extends HTMLElement>(options: StickToBottomOp
     const el = ref.current;
     if (el === null) return;
     const height = el.scrollHeight;
+    if (suspend) {
+      if (height > heightRef.current) setHasNew(true);
+      heightRef.current = height;
+      stuckRef.current = false;
+      setStuck(false);
+      preserveRef.current = preserveOn;
+      return;
+    }
 
     // `pinOn` 이 바뀌었으면(이어 물었으면) 여기서 다시 붙습니다. 이때는 사용자가 위를 읽고 있던
     // 중이라도 내려가는 것이 뜻이므로, 아래의 거리 재기를 건너뜁니다.

@@ -167,9 +167,9 @@ fn read_until_eof<R: Read>(reader: &mut R, out: Sender<Value>) -> io::Result<()>
 /// 튜터 파이프라인이 띄울 제공자 CLI 의 위치입니다.
 ///
 /// 실행 파일은 [`TutorSources::from_env`] 로 환경 변수를 읽고, 시험은 가짜 CLI 를 직접 넣습니다.
-/// **기본값도 PATH 탐색도 없습니다.** 경로가 없으면 `tutor.ask` 는 `provider-unavailable` 로 답하고
-/// 파이프라인을 띄우지 않습니다 — 실제 CLI 가 뜻하지 않게 불려 비용이 나가는 일을 막는 규칙입니다
-/// (`crates/providers/README.md` 의 비용 안전 규칙).
+/// 운영 환경에서는 명시한 경로 → 설치 기록 → Windows 일반 설치 위치/PATH 순으로 찾습니다.
+/// 발견은 로그인이나 모델 호출이 아닙니다. 시험은 `with_tutor_sources(Default::default())` 또는
+/// 가짜 CLI를 명시하여 실제 계정을 사용하지 않습니다.
 #[derive(Debug, Clone, Default)]
 pub struct TutorSources {
     /// Claude CLI 실행 파일의 절대 경로입니다(`CLASSMATE_CLAUDE_CLI`).
@@ -200,7 +200,10 @@ impl TutorSources {
     pub fn from_env() -> Self {
         let read = |name: &str| env::var_os(name).filter(|value| !value.is_empty());
         Self {
-            claude_cli: read(Self::CLAUDE_CLI_ENV).map(PathBuf::from),
+            claude_cli: read(Self::CLAUDE_CLI_ENV).map(PathBuf::from).filter(|p| p.is_file()).or_else(|| {
+                if read("CLASSMATE_DISABLE_CLI_DISCOVERY").is_some_and(|v| v == "1") { None }
+                else { crate::connection::discover() }
+            }),
             claude_prefix_args: Vec::new(),
             model: read(Self::MODEL_ENV).map(|value| value.to_string_lossy().into_owned()),
             reuse_session: read(Self::SESSION_ENV).is_some_and(|value| value == Self::SESSION_ON),
@@ -280,6 +283,7 @@ impl Router {
 
         match kind {
             "ping" => hello(),
+            "provider.check" => crate::connection::check(self.tutor_sources.claude_cli.as_deref()),
             "event.append" => self
                 .try_append(&msg)
                 .unwrap_or_else(|error| store_failure(kind, &error)),

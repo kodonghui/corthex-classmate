@@ -66,6 +66,7 @@ function withBody(conclusion: React.ReactNode, body: string | null): React.React
 }
 
 export interface ListeningScreenProps {
+  readonly connectionCheck?: import('../connection-check').ConnectionCheck;
   readonly inlineDetails?: readonly DetailView[];
   readonly activeQuestionId?: string | null;
   readonly onAskAt?: (questionId: string, text: string) => void;
@@ -74,6 +75,8 @@ export interface ListeningScreenProps {
   readonly onTerm: (lineId: string, segmentIndex: number, word: string) => void;
   readonly onSentence: (lineId: string) => void;
   readonly onGuess: (guessId: string) => void;
+  readonly onCancelChoosing?: () => void;
+  readonly onAskSentence?: (lineId: string, text: string) => void;
   readonly onChip: (chipId: string) => void;
   readonly onDetail: () => void;
   readonly onExpand: () => void;

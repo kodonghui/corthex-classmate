@@ -4,6 +4,7 @@ import type { LiveHandle } from '../../src/live/attach';
 import { attachLive } from '../../src/live/attach';
 import { GOLDEN_BUNDLE } from '../../src/panel/golden-bundle';
 import { PanelApp } from '../../src/panel/PanelApp';
+import { checkNativeConnection } from '../../src/panel/connection-check';
 import type { AskPort } from '../../src/panel/ports';
 import { ReplayStore } from '../../src/panel/replay-store';
 import type { Settings } from '../../src/panel/settings-store';
@@ -140,6 +141,7 @@ function LiveApp({ releaseIdentity }: { readonly releaseIdentity: string | null 
     <PanelApp
       store={setup.store}
       autoClock
+      connectionCheck={checkNativeConnection}
       settings={storage}
       onReconnect={(connector) => setup.live.reconnect(connector)}
       sessionHistory={sessionHistory}

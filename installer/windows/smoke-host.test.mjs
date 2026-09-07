@@ -91,6 +91,7 @@ describe('돈이 나가지 않게 하는 장치', () => {
       CLASSMATE_CODEX_CLI: 'C:/tools/codex.exe',
     };
     const child = buildSmokeEnv(parent, 'C:/Temp/classmate-smoke-abc');
+    assert.equal(child.CLASSMATE_DISABLE_CLI_DISCOVERY, '1');
 
     for (const name of ['CLASSMATE_CLAUDE_CLI', 'CLASSMATE_CODEX_CLI']) {
       assert.ok(!(name in child), `${name} 이 자식 환경에 남아 있어요`);

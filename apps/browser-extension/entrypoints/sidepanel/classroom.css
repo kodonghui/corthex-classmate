@@ -111,3 +111,23 @@
 .cm-diagram__surface { min-width:0; max-width:none; }
 .cm-diagram__surface .cm-diagram__svg { width:100%; min-width:0; }
 .cm-diagram__surface .cm-diagram__svg svg { width:100%; max-width:none!important; }
+
+/* 0.1.2: actions stay beside their source, with explicit non-destructive closing. */
+.cm-study__thread > [hidden] { display:none!important; }
+.cm-thread-controls { display:flex; justify-content:flex-end; margin-bottom:6px; }
+.cm-thread-controls button,.cm-selection-cancel,.cm-connection button { min-height:32px; padding:5px 10px; border:1px solid #c2d5cb; border-radius:7px; background:#f4f9f6; color:#285a47; cursor:pointer; }
+.cm-folded-summary strong { display:block; font-size:calc(16px * var(--text-scale,1)); overflow-wrap:anywhere; }
+.cm-folded-summary p { margin:8px 0; color:#50645a; font-size:calc(14px * var(--text-scale,1)); overflow-wrap:anywhere; }
+.cm-study__choosing { position:relative; padding:12px; border-radius:10px; background:#f2f8f5; }
+.cm-study__choosing > strong { display:block; line-height:1.7; margin-bottom:8px; }
+.cm-selection-cancel { margin-bottom:10px; }
+.cm-inline-conversation .cm-study__composer { margin-top:12px; padding:12px 0 0; border-top:1px solid #dce6df; }
+.cm-inline-conversation .cm-composer-tools { flex-wrap:wrap; }
+.cm-connection { flex:none; padding:8px 14px; border-bottom:1px solid #d7e4dc; background:#f5f9f6; font-size:12px; }
+.cm-connection > div:first-child { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.cm-connection small { display:block; margin-top:4px; line-height:1.6; color:#57685f; }
+.cm-connection--warning { background:#fff8e9; }
+.cm-connection__help { max-height:180px; overflow:auto; line-height:1.65; }
+.cm-connection__help p { margin:6px 0; }
+.cm-connection__help code { display:block; user-select:all; padding:6px; color:#223e31; background:#fff; }
+.cm-connection__help a { display:inline-block; margin-top:8px; text-decoration:underline; }

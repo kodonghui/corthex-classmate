@@ -13,5 +13,6 @@
 //! `src/protocol.rs` 를 지웠다).
 
 pub mod router;
+pub mod connection;
 pub mod store;
 pub mod tutor;

@@ -68,6 +68,7 @@ declare global {
 }
 
 export interface PanelAppProps {
+  readonly connectionCheck?: import('./connection-check').ConnectionCheck;
   readonly store: ReplayStore;
   /** true 면 1초마다 시계를 밉니다. E2E 는 false 로 열고 체크포인트로 조종합니다. */
   readonly autoClock: boolean;
@@ -101,6 +102,7 @@ export function PanelApp({
   onClearToday,
   sessionHistory,
   releaseIdentity,
+  connectionCheck,
 }: PanelAppProps): React.JSX.Element {
   const state = useSyncExternalStore(store.subscribe, store.getState, store.getState);
   const [overlay, setOverlay] = useState<Overlay>("none");
@@ -479,6 +481,7 @@ export function PanelApp({
         />
       ) : (
         <ListeningScreen
+          {...(connectionCheck ? { connectionCheck } : {})}
           inlineDetails={inlineDetails}
           activeQuestionId={state.machine.questionId}
           onAskAt={(questionId, text) => store.askTyped(questionId, text)}
@@ -487,6 +490,8 @@ export function PanelApp({
           onTerm={(lineId, segmentIndex, word) => store.catchTerm(lineId, segmentIndex, word)}
           onSentence={(lineId) => store.catchSentence(lineId)}
           onGuess={(guessId) => store.chooseGuess(guessId)}
+          onCancelChoosing={() => store.cancelChoosing()}
+          onAskSentence={(lineId, text) => store.askSentence(lineId, text)}
           onChip={(chipId) => store.chip(chipId)}
           onDetail={() => store.openDetail()}
           onExpand={() => store.expand()}

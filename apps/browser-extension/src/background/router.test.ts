@@ -627,6 +627,8 @@ describe('Router · 패널이 보내는 말', () => {
 
     const status = harness.appended().find((event) => event.type === 'connector.status');
     expect(status?.payload).toMatchObject({ state: 'off', reason: 'provider-unavailable' });
+    const failure = harness.panel.received.find((m) => m.type === LIVE_EVENT && m.event.type === 'answer.failed');
+    expect(failure).toMatchObject({ event: { payload: { questionId: 'q-p3-001', reason: 'provider-unavailable' } } });
   });
 
   it('그 밖의 거절(question-too-long)은 paused 입니다 — 제공자가 사라진 것은 아닙니다', async () => {
