@@ -26,6 +26,7 @@ export function DiagramCard({ diagram }: { readonly diagram: AnswerDiagram }): R
   const [scale, setScale] = useState(1);
   const modal = useRef<HTMLDialogElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  const canvas = useRef<HTMLDivElement>(null);
   const graphic = !["timeline", "comparison"].includes(diagram.kind);
   const valid = validDiagram(diagram);
   useEffect(() => {
@@ -59,8 +60,10 @@ export function DiagramCard({ diagram }: { readonly diagram: AnswerDiagram }): R
       <header><strong>{diagram.title}</strong><button type="button" onClick={() => modal.current?.close()}>닫기 · Esc</button></header>
       <div className="cm-diagram__zoom"><button type="button" disabled={scale <= 0.5} onClick={() => setScale((n) => n - 0.25)}>축소</button>
         <output>{Math.round(scale * 100)}%</output><button type="button" disabled={scale >= 3} onClick={() => setScale((n) => n + 0.25)}>확대</button>
-        <button type="button" onClick={() => setScale(1)}>맞춤</button></div>
-      <div className="cm-diagram__canvas"><div style={{ width: `${scale * 100}%`, minWidth: `${scale * 280}px` }}>{open ? content : null}</div></div>
+        <button type="button" onClick={() => { setScale(1); canvas.current?.scrollTo({ left: 0, top: 0 }); }}>맞춤</button></div>
+      <div className="cm-diagram__canvas" ref={canvas} tabIndex={0} aria-label="그림 보기 · 확대하면 가로로 이동할 수 있어요">
+        <div className="cm-diagram__surface" style={{ width: `${scale * 100}%` }}>{open ? content : null}</div>
+      </div>
       <p>{diagram.summary}</p>
     </dialog>
   </figure>;

@@ -498,11 +498,6 @@ describe("듣는 중 화면의 대화 칸", () => {
   }
 
   /** 전사와 대화 사이의 경계입니다. */
-  function grip(): HTMLElement {
-    const found = document.querySelector('[role="separator"]');
-    if (!(found instanceof HTMLElement)) throw new Error("경계를 찾지 못했어요");
-    return found;
-  }
 
   it("재생 모드에는 대화 칸이 없고 안내 글도 예전 그대로다", async () => {
     const store = new ReplayStore(GOLDEN_BUNDLE);
@@ -522,18 +517,20 @@ describe("듣는 중 화면의 대화 칸", () => {
     expect(askField().getAttribute("aria-label")).toBe("바로 묻기");
     expect(askField().getAttribute("placeholder")).toBe("지금 궁금한 걸 적어 주세요");
     // 아직 물은 것이 없으면 이 칸이 무엇을 하는 자리인지 한 줄로 말합니다.
-    expect(document.body.textContent).toContain("설명과 그림은 이곳에 차곡차곡 남아요");
+    expect(document.body.textContent).toContain("수업 · 질문과 함께 읽기");
   });
 
-  it("전사 칸과 대화 칸은 서로 다른 스크롤 상자다", async () => {
-    await liveRig();
+  it("전사와 문답은 한 읽기 영역에 있고 입력 칸은 독립적으로 남는다", async () => {
+    const rig = await liveRig();
+    typeInto(askField(), "이 문장에 대한 질문");
+    press(askField(), "Enter");
     const body = document.querySelector(".cm-lecture__scroll");
-    const log = document.querySelector(".cm-chat__log");
-    expect(body).not.toBeNull();
-    expect(log).not.toBeNull();
-    // 한쪽이 다른 쪽 안에 있으면 스크롤이 서로에게 새어 나갑니다.
-    expect(body?.contains(log as Node)).toBe(false);
-    expect(log?.contains(body as Node)).toBe(false);
+    const thread = document.querySelector(".cm-study__thread");
+    expect(body?.contains(thread)).toBe(true);
+    expect(thread?.closest(".cm-inline-conversation")).not.toBeNull();
+    expect(body?.contains(askField())).toBe(false);
+    expect(document.querySelector(".cm-chat__log")).toBeNull();
+    expect(rig.asks).toHaveLength(1);
   });
 
   it("Esc를 눌러도 작성 중인 질문을 버리지 않는다", async () => {
@@ -601,7 +598,7 @@ describe("듣는 중 화면의 대화 칸", () => {
     typeInto(askField(), "두 번째 질문이에요");
     press(askField(), "Enter");
 
-    const log = document.querySelector(".cm-chat__log");
+    const log = document.querySelector(".cm-lecture__scroll");
     expect(log?.textContent).toContain("첫 번째 질문이에요");
     expect(log?.textContent).toContain("첫 번째 답이에요");
     expect(log?.textContent).toContain("두 번째 질문이에요");
@@ -632,45 +629,35 @@ describe("듣는 중 화면의 대화 칸", () => {
 
     // 전사는 계속 흐르지만(줄은 화면에 있습니다) 읽던 자리를 바닥으로 끌지 않습니다.
     expect(document.body.textContent).toContain("그래서 스프링이 대신 만들어 줍니다");
-    expect(document.body.textContent).toContain("현재 수업으로 돌아가기");
+    expect(document.body.textContent).toContain("새 수업 · 답변으로 이동");
     expect(body.scrollTop).toBe(100);
 
     // 눌러서 따라가면 바닥으로 붙고 알림도 사라집니다.
-    click(buttonNamed("현재 수업으로 돌아가기"));
-    expect(document.body.textContent).not.toContain("현재 수업으로 돌아가기");
+    click(buttonNamed("새 수업 · 답변으로 이동"));
+    expect(document.body.textContent).not.toContain("새 수업 · 답변으로 이동");
     expect(body.scrollTop).toBe(900);
   });
 
   it("바닥에서 듣는 동안에는 새 문장이 그냥 따라옵니다", async () => {
     const rig = await liveRig();
     rig.push(2, "그래서 스프링이 대신 만들어 줍니다");
-    expect(document.body.textContent).not.toContain("현재 수업으로 돌아가기");
+    expect(document.body.textContent).not.toContain("새 수업 · 답변으로 이동");
   });
 
-  it("경계를 화살표로 움직여 대화 칸 높이를 바꾼다", async () => {
-    await liveRig();
-    // 전사 약 3/4, 대화 약 1/4이 기본입니다.
-    expect(grip().getAttribute("aria-valuenow")).toBe("40");
-
-    act(() => {
-      grip().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
-    });
-    expect(grip().getAttribute("aria-valuenow")).toBe("45");
-
-    // 위끝(85%)을 넘지 않습니다 — 전사가 사라지면 안 됩니다.
-    for (let i = 0; i < 15; i += 1) {
-      act(() => {
-        grip().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
-      });
-    }
-    expect(grip().getAttribute("aria-valuenow")).toBe("80");
-
-    // 아래끝(20%)도 마찬가지입니다 — 글 칸이 사라지면 안 됩니다.
-    for (let i = 0; i < 20; i += 1) {
-      act(() => {
-        grip().dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
-      });
-    }
-    expect(grip().getAttribute("aria-valuenow")).toBe("20");
+  it("뒤 문장이 도착해도 앞 질문은 원 문단 아래에 남는다", async () => {
+    const rig = await liveRig();
+    typeInto(askField(), "첫 문장 질문");
+    press(askField(), "Enter");
+    rig.answer("첫 문장 답");
+    const first = document.querySelector(".cm-study__thread");
+    const anchor = first?.closest("[data-source-line-id]")?.getAttribute("data-source-line-id");
+    expect(anchor).toBeTruthy();
+    rig.push(2, "새 수업 문장입니다");
+    typeInto(askField(), "두번째 문장 질문");
+    press(askField(), "Enter");
+    expect(document.querySelectorAll(".cm-study__thread")).toHaveLength(2);
+    expect(first?.textContent).toContain("첫 문장 답");
+    expect(first?.closest("[data-source-line-id]")?.getAttribute("data-source-line-id")).toBe(anchor);
+    expect(document.querySelector('[role="separator"]')).toBeNull();
   });
 });

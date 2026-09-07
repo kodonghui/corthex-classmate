@@ -29,8 +29,8 @@ test.beforeAll(async () => {
 });
 test.afterAll(async () => { await context?.close(); });
 
-async function answer(kind: AnswerDiagram["kind"], seq: number) {
-  await panel.evaluate(({ kind, seq }) => {
+async function answer(kind: AnswerDiagram["kind"], seq: number, longLabels = false) {
+  await panel.evaluate(({ kind, seq, longLabels }) => {
     const h = window.classmateReplay!;
     const now = new Date().toISOString();
     const lineId = `ts-v010-${seq}`;
@@ -44,13 +44,13 @@ async function answer(kind: AnswerDiagram["kind"], seq: number) {
         evidence: "inferred", chips: ["구체적인 예시", "쉽게 설명해 줘"], provider: "mock", status: "answered",
         details: { why: "컨트롤러는 안내 데스크와 비슷해요. 요청을 받은 뒤 담당 서비스를 불러 결과를 돌려줘요.\n\n이것은 일반적인 흐름을 이해하기 위한 학습 예시예요. 실제 코드의 호출과는 구분해서 보세요." },
         diagram: { version: 1, kind, title: `${kind}로 보는 요청 흐름`, summary: "사용자에서 컨트롤러, 서비스 순서로 요청을 전달해요.",
-          nodes: [{ id: "user", label: "사용자", detail: "요청을 보냅니다", group: "사용자 영역" },
-            { id: "controller", label: "컨트롤러", detail: "요청을 받아 담당 서비스를 호출합니다", group: "서버 영역" },
-            { id: "service", label: "서비스", detail: "실제 업무를 수행합니다", group: "서버 영역" }],
+          nodes: [{ id: "user", label: longLabels ? "ContextConfiguration 클래스" : "사용자", detail: "요청을 보냅니다", group: "사용자 영역" },
+            { id: "controller", label: longLabels ? "AnnotationConfigApplicationContext" : "컨트롤러", detail: "요청을 받아 담당 서비스를 호출합니다", group: "서버 영역" },
+            { id: "service", label: longLabels ? "Application.main() 실행" : "서비스", detail: "실제 업무를 수행합니다", group: "서버 영역" }],
           edges: [{ from: "user", to: "controller", label: "요청" }, { from: "controller", to: "service", label: "업무 위임" }] },
       },
     } });
-  }, { kind, seq });
+  }, { kind, seq, longLabels });
 }
 
 for (const [i, kind] of (["flowchart", "sequence", "swimlane", "state", "concept", "hierarchy", "timeline", "comparison"] as const).entries()) {
@@ -58,7 +58,7 @@ for (const [i, kind] of (["flowchart", "sequence", "swimlane", "state", "concept
     await answer(kind, i + 1);
     const row = panel.locator(".cm-study__thread").last();
     await expect(panel.locator(".cm-study__thread")).toHaveCount(i + 1);
-    await expect(panel.locator(".cm-lecture .cm-ans")).toHaveCount(0);
+    await expect(row.locator("xpath=..")).toHaveAttribute("data-source-line-id", `ts-v010-${i + 1}`);
     const graphic = !["timeline", "comparison"].includes(kind);
     if (graphic) {
       await expect(row.locator(".cm-diagram__preview svg")).toBeVisible({ timeout: 15000 });
@@ -72,12 +72,10 @@ for (const [i, kind] of (["flowchart", "sequence", "swimlane", "state", "concept
     await expect(row.getByRole("button", { name: "크게 보기" })).toBeFocused();
   });
 }
-test("selected source, keyboard resize, direct diagram choice and IME", async () => {
-  await panel.locator(".cm-lecture__links button").first().click();
+test("inline source, direct diagram choice and IME", async () => {
+  await panel.locator(".cm-study__thread").first().getByRole("button", { name: "이 대화에 이어 묻기" }).click();
   await expect(panel.locator(".cm-study__thread").first()).toHaveClass(/selected/);
-  const separator = panel.getByRole("separator");
-  await separator.focus(); await panel.keyboard.press("ArrowUp");
-  await expect(separator).toHaveAttribute("aria-valuenow", "45");
+  await expect(panel.getByRole("separator")).toHaveCount(0);
   await panel.getByLabel("그림 종류").selectOption("swimlane");
   await panel.getByRole("button", { name: "그림 요청", exact: true }).click();
   const field = panel.getByRole("textbox", { name: "바로 묻기" });
@@ -97,30 +95,57 @@ for (const width of [320, 380, 790]) test(`readability at ${width}px and 200% te
   expect(await panel.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await expect(panel.getByRole("textbox", { name: "바로 묻기" })).toBeVisible();
   expect(await panel.locator(".cm-lecture__scroll").evaluate((el) => el.clientHeight)).toBeGreaterThan(80);
-  expect(await panel.locator(".cm-study__scroll").evaluate((el) => el.clientHeight)).toBeGreaterThan(60);
+  await expect(panel.locator(".cm-study__scroll")).toHaveCount(0);
 });
 test("release preview and no remote diagram dependencies", async () => {
   await panel.setViewportSize({ width: 790, height: 1000 });
   await panel.evaluate(() => document.documentElement.style.setProperty("--text-scale", "1"));
-  await panel.locator(".cm-lecture__links button").first().click();
-  await panel.screenshot({ path: path.join(root, "docs/screenshots/classroom-0.1.0.png") });
+  await panel.locator(".cm-study__thread").first().evaluate(el => el.closest(".cm-tf__after")?.previousElementSibling?.scrollIntoView({ block: "start" }));
+  await panel.screenshot({ path: path.join(root, "docs/screenshots/classroom-0.1.1.png") });
   expect(errors).toEqual([]); expect(remote).toEqual([]);
 });
 
 test("public manual screenshots use synthetic content only", async () => {
   await panel.setViewportSize({ width: 790, height: 1100 });
-  await panel.getByRole("button", { name: "대화 넓게", exact: true }).click();
   const diagram = panel.locator(".cm-study__thread").nth(2).locator(".cm-diagram");
   await diagram.scrollIntoViewIfNeeded();
-  await panel.screenshot({ path: path.join(root, "docs/screenshots/manual-diagram-0.1.0.png") });
+  await panel.screenshot({ path: path.join(root, "docs/screenshots/manual-diagram-0.1.1.png") });
   await panel.getByRole("button", { name: "설정", exact: true }).click();
   await panel.setViewportSize({ width: 790, height: 1850 });
-  await panel.screenshot({ path: path.join(root, "docs/screenshots/manual-settings-0.1.0.png"), fullPage: true });
+  await panel.screenshot({ path: path.join(root, "docs/screenshots/manual-settings-0.1.1.png"), fullPage: true });
   const manager = await context.newPage();
   await manager.setViewportSize({ width: 1000, height: 1300 });
   await manager.goto(`chrome://extensions/?id=${extensionId}`);
   await expect(manager.locator("extensions-manager")).toBeVisible();
   await expect(manager.getByRole("heading", { name: "Corthex Classmate", level: 1 })).toBeVisible();
-  await manager.screenshot({ path: path.join(root, "docs/screenshots/manual-extension-0.1.0.png") });
+  await manager.screenshot({ path: path.join(root, "docs/screenshots/manual-extension-0.1.1.png") });
   await manager.close();
+});
+
+test("long technical labels fit the expanded diagram", async () => {
+  await panel.getByRole("button", { name: "뒤로", exact: true }).click();
+  await panel.setViewportSize({ width: 380, height: 900 });
+  await answer("flowchart", 99, true);
+  const row = panel.locator(".cm-study__thread").last();
+  await expect(row.locator(".cm-diagram__preview svg")).toBeVisible();
+  await row.getByRole("button", { name: "크게 보기" }).click();
+  const svg = panel.locator("dialog[open] svg");
+  const geometry = await svg.evaluate((element: SVGSVGElement) => {
+    const v = element.viewBox.baseVal; const b = element.getBBox();
+    return { view: { x:v.x, y:v.y, width:v.width, height:v.height }, box: { x:b.x, y:b.y, width:b.width, height:b.height } };
+  });
+
+  expect(geometry.box.x + geometry.box.width).toBeLessThanOrEqual(geometry.view.x + geometry.view.width + 2);
+
+  const dialog = panel.locator("dialog[open]");
+  for (let i = 0; i < 8; i++) await dialog.getByRole("button", { name: "확대", exact: true }).click();
+  const canvas = dialog.locator(".cm-diagram__canvas");
+  await canvas.evaluate((el) => { el.scrollLeft = el.scrollWidth; });
+  expect(await canvas.evaluate((el) => el.scrollLeft)).toBeGreaterThan(0);
+  await dialog.getByRole("button", { name: "맞춤", exact: true }).click();
+  await expect.poll(() => canvas.evaluate((el) => el.scrollLeft)).toBe(0);
+  expect(await canvas.evaluate((el) => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
+  await panel.screenshot({ path: path.join(root, "docs/screenshots/diagram-fit-0.1.1.png") });
+  await panel.keyboard.press("Escape");
+
 });

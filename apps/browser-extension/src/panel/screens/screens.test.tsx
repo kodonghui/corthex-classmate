@@ -188,9 +188,9 @@ describe("듣는 중 화면", () => {
 
   it("라이브: 전사 아래에 대화 칸이 늘 서 있고 글 칸은 처음부터 열려 있다", () => {
     const html = liveHomeHtml();
-    // 전사(구르는 상자 하나)와 대화(구르는 상자 둘)가 서로 다른 상자로 나뉩니다.
+    // 전사와 답변은 하나의 읽기 영역이며 입력기는 아래에 남습니다.
     expect(html).toContain("cm-lecture__scroll");
-    expect(html).toContain("cm-chat__log");
+    expect(html).not.toContain("cm-chat__log");
     expect(html).toContain("cm-study__composer");
     // 누르는 동작 없이 글 칸이 이미 있습니다 — 접힌 줄은 이제 없습니다.
     expect(html).toContain("<textarea");
@@ -199,10 +199,8 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("보내기");
     expect(html).not.toContain("궁금한 건 여기에 바로 물어보세요");
     // 아직 물은 것이 없으면 이 칸이 무엇을 하는 자리인지 한 줄로 말합니다.
-    expect(html).toContain("설명과 그림은 이곳에 차곡차곡 남아요");
-    // 경계는 끌 수 있는 구분선입니다(기본 1/3).
-    expect(html).toContain('role="separator"');
-    expect(html).toContain('aria-valuenow="40"');
+    expect(html).toContain("수업 · 질문과 함께 읽기");
+    expect(html).not.toContain('role="separator"');
     // 자세히 화면 같은 고정 바닥바를 만들지는 않습니다.
     expect(html).not.toContain("cm-screen__bar");
     // 안내 글과 Alt+S 는 전사 칸 맨 아래에 그대로 남습니다.
@@ -371,14 +369,15 @@ describe("듣는 중 화면", () => {
     expect(html).toContain("자세히 보기");
   });
 
-  it("밀려난 질문도 아래 대화에 남고 전사에는 대화 이동 표시만 남는다", () => {
+  it("여러 질문은 각각 원 전사 문단 아래에 남는다", () => {
     const html = liveScreen((store) => {
       store.catchTerm("ts-live-001", 1, "new");
       store.catchTerm("ts-live-002", 0, "context.getBean");
     });
     // 밀려난 앞 질문은 그 줄 옆에서 답을 기다립니다.
     expect(html.match(/data-question-id=/g)).toHaveLength(2);
-    expect(html).toContain("답변 준비 중");
+    expect(html.match(/data-source-line-id=/g)).toHaveLength(2);
+    expect(html).toContain("한 줄로 정리하고 있어요");
     // 대화 칸에는 그 질문 줄이 생기지 않습니다(옛 자리에서는 이 글이 떴습니다).
     expect(html).not.toContain("new 이 무슨 뜻이에요?");
   });

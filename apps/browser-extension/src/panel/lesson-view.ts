@@ -184,6 +184,8 @@ export interface CarriedNoteView {
 
 /** 자세히 화면에서 이어 물은 한 줄입니다(질문 → 대기 · 답 · 실패). */
 export interface ThreadView {
+  /** Sealed source ids for inline placement; never infer an anchor from the current live paragraph. */
+  readonly sourceLineIds?: readonly string[];
   readonly diagram?: AnswerDiagram;
   readonly id: string;
   /** 화면에 보일 질문 줄입니다. */
@@ -763,6 +765,7 @@ function threadsOf(bundle: GoldenBundle, state: ReplayState, questionId: Id): Th
     const answer = item.answerId === null ? null : (bundle.answers[item.answerId] ?? null);
     return {
       id: item.id,
+      sourceLineIds: bundle.questions[item.id]?.snapshot.transcriptSegmentIds ?? [],
       question: item.question,
       time: item.time,
       loading: item.state === "waiting",
