@@ -1,5 +1,13 @@
 # 결정 기록
 
+## 2026-09-08 — 공식 Claude 로그인 실행과 실제 응답 확인 분리
+
+- 사용자가 버튼형 연결 개선을 승인했다. 친구의 오류 화면 없이 개선하되 원인 확정·친구 PC 해결 완료로 표현하지 않는다.
+- 자체 OAuth/계정 중계 대신 설치된 공식 Claude Code의 auth login을 본인에게 열어 준다. 비밀번호·토큰·인증 코드·로그인 URL은 Classmate가 읽거나 저장하지 않는다. 기존 정상 로그인과 사용자 환경변수를 변경하지 않는다.
+- 로그인 확인과 응답 성공은 별개다. 고정된 짧은 실제 응답 시험은 사용량 안내 후 별도 클릭 때만 실행한다. 질문·저장이 있으면 재연결을 보류한다.
+- 공식 근거(2026-09-08 확인): https://code.claude.com/docs/en/cli-reference · https://code.claude.com/docs/en/authentication · https://code.claude.com/docs/en/troubleshoot-install · https://code.claude.com/docs/en/legal-and-compliance . 공식 CLI 사용이 제품에 대한 공식 인증이나 무료 무제한 사용 보장은 아니다.
+- 원문: https://app.notion.com/p/3d3bf16cc3ec8191ba91ea7979044dc7 . 최신 직접 승인과 코드·합성 검증을 구별한다. 04~06 자료는 사용자 완료 통보 전 합치거나 삭제하지 않는다.
+
 ## 2026-09-08 — 교시 대신 사용자 지정 영상 학습 묶음
 
 - 사용자 ‘묶음별로’ 선택과 구현 승인에 따라 04~06 같은 묶음을 저장 단위로 삼는다. 날짜가 바뀌어도 이어 공부하고 이름은 변경 가능하다.

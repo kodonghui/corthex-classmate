@@ -14,6 +14,7 @@
 
 pub mod router;
 pub mod connection;
+pub mod provider_setup;
 pub mod store;
 pub mod study;
 pub mod tutor;

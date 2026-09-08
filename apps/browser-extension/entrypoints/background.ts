@@ -655,6 +655,17 @@ export default defineBackground(() => {
   // 여기로 오는 값은 **자료일 뿐 명령이 아닙니다**(불변 원칙 §4-7). 프레임·전사 안의 글자를
   // 실행하거나 URL 로 여는 코드를 이 통로에 붙이지 않습니다.
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+    if (sender.tab === undefined && sender.id === chrome.runtime.id && message && typeof message === 'object' && 'type' in message && message.type === 'classmate.provider.reconnect') {
+      void restoreLog.then(async () => {
+        // Never interrupt a question or discard unacknowledged storage requests.
+        if (router.hasPendingQuestion || host.stats().waiting > 0) return { state: 'busy' };
+        host.reconnectNow();
+        const deadline = Date.now() + 12_000;
+        while (!host.connected && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 100));
+        return { state: host.connected ? 'connected' : 'failed' };
+      }).then(sendResponse).catch(() => sendResponse({ state: 'failed' }));
+      return true;
+    }
     // Only our extension pages may manage local study files. Never content scripts.
     if (sender.tab === undefined && sender.id === chrome.runtime.id &&
         typeof message === 'object' && message !== null &&

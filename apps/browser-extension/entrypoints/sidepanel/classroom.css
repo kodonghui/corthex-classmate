@@ -131,3 +131,8 @@
 .cm-connection__help p { margin:6px 0; }
 .cm-connection__help code { display:block; user-select:all; padding:6px; color:#223e31; background:#fff; }
 .cm-connection__help a { display:inline-block; margin-top:8px; text-decoration:underline; }
+.cm-connection__actions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+.cm-connection__actions button { min-height:36px; font-size:12px; }
+.cm-connection button:disabled { opacity:.55; cursor:default; }
+.cm-connection__notice { margin:8px 0 4px; line-height:1.65; overflow-wrap:anywhere; }
+.cm-connection button:focus-visible { outline:2px solid #26786a; outline-offset:2px; }

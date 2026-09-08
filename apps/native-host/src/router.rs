@@ -288,6 +288,7 @@ impl Router {
             },
             "ping" => hello(),
             "provider.check" => crate::connection::check(self.tutor_sources.claude_cli.as_deref()),
+            "provider.setup" => crate::provider_setup::handle(self.tutor_sources.claude_cli.as_deref(), &msg),
             "event.append" => self
                 .try_append(&msg)
                 .unwrap_or_else(|error| store_failure(kind, &error)),

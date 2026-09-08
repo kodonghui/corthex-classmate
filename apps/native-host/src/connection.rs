@@ -34,6 +34,11 @@ pub fn discover() -> Option<PathBuf> { first_executable(candidates()) }
 fn run(path: &Path, args: &[&str]) -> Result<(bool, String), &'static str> {
     let mut command = Command::new(path);
     command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::null());
+    run_command(command, Duration::from_secs(8))
+}
+
+/// Caller supplies a fixed command, never text obtained from a lesson or model.
+pub(crate) fn run_command(mut command: Command, timeout: Duration) -> Result<(bool, String), &'static str> {
     #[cfg(windows)] {
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
@@ -51,7 +56,7 @@ fn run(path: &Path, args: &[&str]) -> Result<(bool, String), &'static str> {
         }
         let _ = send.send(String::from_utf8_lossy(&kept).into_owned());
     });
-    let deadline = Instant::now() + Duration::from_secs(8);
+    let deadline = Instant::now() + timeout;
     loop {
         match child.try_wait() {
             Ok(Some(exit)) => return receive.recv_timeout(Duration::from_millis(500)).map(|out| (exit.success(), out)).map_err(|_| "check-timeout"),
@@ -76,7 +81,7 @@ pub fn check(path: Option<&Path>) -> Value {
 }
 
 fn check_with(path: Option<&Path>, mut execute: impl FnMut(&Path, &[&str]) -> Result<(bool, String), &'static str>) -> Value {
-    let reply = |state: &str| json!({"type":"provider.status", "state":state, "hostVersion":env!("CARGO_PKG_VERSION")});
+    let reply = |state: &str| json!({"type":"provider.status", "state":state, "hostVersion":env!("CARGO_PKG_VERSION"), "setupSupported":true});
     let Some(path) = path else { return reply("cli-missing"); };
     if !path.is_file() { return reply("cli-missing"); }
     let version = match execute(path, &["--version"]) {
