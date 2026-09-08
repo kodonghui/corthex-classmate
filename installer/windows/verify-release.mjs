@@ -19,11 +19,14 @@ powershell(['-Command', 'Expand-Archive -LiteralPath $env:CM_VERIFY_ZIP -Destina
 const unpacked = join(root, basename(zip, '.zip'));
 const release = JSON.parse(readFileSync(join(unpacked, 'release.json'), 'utf8'));
 powershell(['-File', join(unpacked, 'Setup.ps1'), '-Mode', 'Validate']);
-const isolated = join(root, 'isolated'); mkdirSync(isolated);
+const isolated = join(root, 'AppData', 'Local', 'Programs', 'CorthexClassmate'); mkdirSync(isolated, { recursive: true });
+powershell(['-Command', "$item = Get-Item -LiteralPath (Join-Path $env:CM_VERIFY_ROOT 'AppData'); $item.Attributes = $item.Attributes -bor [IO.FileAttributes]::Hidden"]);
 writeFileSync(join(isolated, '.classmate-test-root'), 'release fixture only');
 const fakeCli = join(root, 'claude.exe'); writeFileSync(fakeCli, 'Never execute this fixture');
 const install = powershell(['-File', join(unpacked, 'Setup.ps1'), '-Mode', 'Install', '-TestRoot', isolated, '-ClaudePath', fakeCli]);
 if (!install.includes('no registry/environment writes')) throw Error('Expected isolated installation');
+const hidden = powershell(['-Command', "[bool]((Get-Item -LiteralPath (Join-Path $env:CM_VERIFY_ROOT 'AppData') -Force).Attributes -band [IO.FileAttributes]::Hidden)"]);
+if (hidden.trim() !== 'True') throw Error('Installer changed hidden AppData attributes');
 const childEnv = { ...process.env, CLASSMATE_DATA_DIR: join(root, 'sessions'), CLASSMATE_DISABLE_CLI_DISCOVERY: '1' };
 delete childEnv.CLASSMATE_CLAUDE_CLI;
 const host = join(isolated, release.bundleId, 'app', 'host', 'classmate-host.exe');
@@ -34,4 +37,5 @@ const { frames, rest } = decodeFrames(r.stdout);
 if (rest.length || frames[0]?.version !== release.version || frames[1]?.state !== 'cli-missing') throw Error('Installed host contract mismatch');
 console.log(JSON.stringify({ version: release.version, extensionBuild: release.extensionBuild, files: release.files.length,
   sha256: createHash('sha256').update(readFileSync(zip)).digest('hex'), isolatedInstall: true,
-  installedHostPing: true, missingCliDiagnostic: true, registryWrites: false, aiRequests: 0, retainedTestDirectory: root }, null, 2));
+  installedHostPing: true, missingCliDiagnostic: true, hiddenAppDataInstall: true, hiddenAttributesPreserved: true,
+  registryWrites: false, aiRequests: 0, retainedTestDirectory: root }, null, 2));

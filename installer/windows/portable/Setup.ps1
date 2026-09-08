@@ -125,7 +125,9 @@ try {
   # Never overwrite a symlink/junction in the install ancestry.
   $ancestor = $installBase
   while ($ancestor) {
-    if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Linked install directory is not supported.' }
+    # AppData is normally hidden. -Force reads its attributes without changing them;
+    # junction/symlink rejection remains in place.
+    if ((Test-Path -LiteralPath $ancestor) -and ((Get-Item -LiteralPath $ancestor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Linked install directory is not supported.' }
     $ancestor = [IO.Path]::GetDirectoryName($ancestor)
   }
   New-Item -ItemType Directory -Path $target -Force | Out-Null
