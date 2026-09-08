@@ -136,3 +136,6 @@
 .cm-connection button:disabled { opacity:.55; cursor:default; }
 .cm-connection__notice { margin:8px 0 4px; line-height:1.65; overflow-wrap:anywhere; }
 .cm-connection button:focus-visible { outline:2px solid #26786a; outline-offset:2px; }
+.cm-connection-notice { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:4px 12px; border-bottom:1px solid var(--border, #ddd); font-size:12px; }
+.cm-connection-notice button { flex-shrink:0; min-height:32px; border:1px solid #b8cfca; border-radius:6px; background:transparent; color:inherit; padding:4px 8px; cursor:pointer; }
+.cm-connection-notice button:focus-visible { outline:2px solid #167c73; outline-offset:2px; }

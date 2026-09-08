@@ -11,6 +11,7 @@
 import { Button, Checkbox, Dialog, Input, RadioGroup, Select, Switch, PanelHeader } from "@classmate/ui-base";
 import { useState } from "react";
 import { StudyControls } from '../StudyControls';
+import { ConnectionStatus } from './ConnectionStatus';
 
 import { normalizeSessionProfile, sessionProfileCopy } from "../../session-profile";
 import { PERIOD_NUMBER_MAX, PERIOD_NUMBER_MIN } from "../../tiro/period";
@@ -18,6 +19,7 @@ import type { Settings } from "../settings-store";
 import { PRIVACY_CELLS, subjectInput, TEXT_SCALE_STEPS, textScaleInput } from "../settings-store";
 
 export interface SettingsScreenProps {
+  readonly connectionCheck?: import('../connection-check').ConnectionCheck;
   readonly currentStudy?: { sessionId: string; title: string };
   readonly liveLayout?: boolean;
   readonly values: Settings;
@@ -66,6 +68,7 @@ const PROVIDER_OPTIONS = [
 const TEXT_SCALE_OPTIONS = TEXT_SCALE_STEPS.map((step) => ({ value: step.value, label: step.label }));
 
 export function SettingsScreen({
+  connectionCheck,
   currentStudy,
   values,
   count,
@@ -82,6 +85,7 @@ export function SettingsScreen({
     <div className="cm-screen">
       <PanelHeader onBack={onBack} strong title="설정" />
       <div className="cm-screen__body cm-screen__body--flush">
+        {connectionCheck ? <section className="cm-set" aria-label="Claude 연결 설정"><h2 className="cm-set__h">Claude 연결</h2><ConnectionStatus check={connectionCheck} /></section> : null}
         {currentStudy && <StudyControls sessionId={currentStudy.sessionId} title={currentStudy.title} profile={values.profile} />}
         <section className="cm-set">
           <div className="cm-set__h">답변</div>

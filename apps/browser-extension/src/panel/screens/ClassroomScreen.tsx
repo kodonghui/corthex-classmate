@@ -8,7 +8,7 @@ import { AnswerStream } from "./AnswerStream";
 import { DetailScreen } from "./DetailScreen";
 import { DiagramCard } from "./DiagramCard";
 import { QuestionComposer } from "./QuestionComposer";
-import { ConnectionStatus } from "./ConnectionStatus";
+import { ConnectionNotice } from "./ConnectionStatus";
 import type { ListeningScreenProps } from "./ListeningScreen";
 
 /** Questions stay below their sealed transcript paragraph; records are never moved or deleted. */
@@ -70,7 +70,7 @@ export function ClassroomScreen({ view, inlineDetails = [], activeQuestionId = n
     <PanelHeader status={view.header.status} title={view.header.title} subtitle={view.header.subtitle} time={view.header.time}
       actions={<><button className="cm-nav-records" type="button" onClick={onHistory}>기록</button><IconButton icon="settings-2" label="설정" size="sm" onClick={onSettings} /></>} />
     <div className="cm-classroom__workspace">
-      {connectionCheck ? <ConnectionStatus check={connectionCheck} /> : null}
+      {connectionCheck ? <ConnectionNotice check={connectionCheck} onSettings={onSettings} /> : null}
       <section className="cm-lecture" aria-label="선생님 전사와 질문 답변">
         <header className="cm-zone-heading"><div><span className="cm-zone-number">01</span><h2>수업 · 질문과 함께 읽기</h2></div>
           <span>{view.tiroPaused ? "전사 일시정지" : "문장이나 단어를 눌러 질문"}</span></header>

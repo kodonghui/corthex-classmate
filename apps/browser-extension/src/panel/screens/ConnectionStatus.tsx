@@ -12,6 +12,17 @@ const copy: Record<ConnectionState, string> = {
   'test-timeout': '답변 테스트 시간이 초과됐어요', 'setup-invalid-request': '연결 요청을 다시 시작해 주세요',
   'setup-platform-unsupported': '공식 로그인 열기는 Windows에서 지원해요', 'setup-cancelled': '자동 확인을 중단했어요',
 };
+/** Keep healthy lessons unobstructed; setup controls live only in Settings. */
+export function ConnectionNotice({ check, onSettings }: { check: ConnectionCheck; onSettings: () => void }): React.JSX.Element | null {
+  const [report, setReport] = useState<ConnectionReport | null>(null);
+  useEffect(() => {
+    let alive = true;
+    void check().then(value => { if (alive) setReport(value); }, () => { if (alive) setReport({state:'host-unavailable'}); });
+    return () => { alive = false; };
+  }, [check]);
+  if (!report || report.state === 'ready' || report.state === 'answer-ready') return null;
+  return <div className="cm-connection-notice" role="status"><span>Claude 연결을 확인해 주세요</span><button type="button" onClick={onSettings}>연결 설정</button></div>;
+}
 export function ConnectionStatus({ check, setup = setupNativeProvider, reconnect = reconnectTutor }: {
   check: ConnectionCheck; setup?: typeof setupNativeProvider; reconnect?: typeof reconnectTutor;
 }): React.JSX.Element {

@@ -413,6 +413,7 @@ export function PanelApp({
     >
       {overlay === "settings" ? (
         <SettingsScreen
+          {...(connectionCheck ? { connectionCheck } : {})}
           {...(store.isLive ? { currentStudy: { sessionId: store.bundle.periodId, title: store.bundle.subject } } : {})}
           liveLayout={store.isLive}
           values={settings}

@@ -26,6 +26,8 @@ test('official connection: login polling, reconnect, explicit answer test, failu
       }) as unknown as typeof chrome.runtime.connectNative;
     });
     await panel.goto(`chrome-extension://${new URL(worker.url()).host}/sidepanel.html`);
+    await expect(panel.getByRole('button',{name:'Claude Code 연결하기',exact:true})).toHaveCount(0);
+    await panel.getByRole('button',{name:'연결 설정',exact:true}).click();
     await expect(panel.getByText('Claude Code 로그인이 필요해요',{exact:true})).toBeVisible();
     await panel.getByRole('button',{name:'Claude Code 연결하기',exact:true}).click();
     await expect(panel.getByRole('button',{name:'자동 확인 중단'})).toBeVisible();
@@ -37,12 +39,17 @@ test('official connection: login polling, reconnect, explicit answer test, failu
     await expect(panel.getByText('답변 테스트 성공 · 공부할 준비가 됐어요',{exact:true})).toBeVisible();
     for(const width of [320,380,790]){await panel.setViewportSize({width,height:1050});expect(await panel.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);}
     await panel.setViewportSize({width:380,height:1050});
-    await panel.screenshot({path:path.join(root,'docs/screenshots/connection-0.1.4.png')});
+    await panel.screenshot({path:path.join(root,'docs/screenshots/connection-0.1.6.png')});
     await panel.evaluate(()=>(window as unknown as {mockConnection:{fail:()=>void}}).mockConnection.fail());
     await panel.getByRole('button',{name:'답변 테스트 · 소량 사용',exact:true}).click();
     await expect(panel.getByText('로그인했지만 답변 테스트에 실패했어요',{exact:true})).toBeVisible();
     await panel.getByText('해결 방법 보기',{exact:true}).click();
     await expect(panel.getByText('로그인 확인과 답변 성공은 다릅니다.',{exact:false})).toBeVisible();
+    await panel.getByRole('button',{name:'뒤로',exact:true}).click();
+    await expect(panel.getByRole('button',{name:'설정',exact:true})).toBeVisible();
+    await expect(panel.locator('.cm-connection')).toHaveCount(0);
+    await expect(panel.locator('.cm-connection-notice')).toHaveCount(0);
+    await panel.screenshot({path:path.join(root,'docs/screenshots/classroom-0.1.6.png')});
     expect(errors).toEqual([]);
   } finally {await context.close();}
 });

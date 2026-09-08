@@ -122,7 +122,7 @@ export function main() {
   }
   put(stage, 'app/host/classmate-host.exe', readFileSync(host));
   put(stage, 'README.md', readFileSync(join(root, 'README.md')));
-  for (const name of ['classroom-0.1.2.png', 'manual-extension-0.1.2.png', 'manual-settings-0.1.2.png', 'manual-diagram-0.1.2.png', 'study-bundles.png', 'connection-0.1.4.png']) {
+  for (const name of ['classroom-0.1.2.png', 'manual-extension-0.1.2.png', 'manual-settings-0.1.2.png', 'manual-diagram-0.1.2.png', 'study-bundles.png', 'connection-0.1.6.png']) {
     put(stage, `docs/screenshots/${name}`, readFileSync(join(root, 'docs/screenshots', name)));
   }
   for (const name of ['Setup.ps1', 'Install.cmd', 'Diagnose.cmd', 'Disconnect.cmd', 'Guide.html', 'README-KO.md']) {

@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ConnectionStatus } from './screens/ConnectionStatus';
+import { ConnectionStatus, ConnectionNotice } from './screens/ConnectionStatus';
 import type { ConnectionReport } from './connection-check';
 let root: Root; let container: HTMLDivElement;
 beforeEach(() => {
@@ -14,6 +14,14 @@ const ready: ConnectionReport={state:'ready',setupSupported:true};
 function button(text: string) { const b=[...container.querySelectorAll('button')].find(b=>b.textContent===text); if(!b)throw Error(text); return b; }
 async function click(text:string) { await act(async()=>{button(text).click();}); }
 describe('official connection workflow',()=>{
+  it('keeps healthy lessons empty and routes failures to settings without setup controls', async()=>{
+    const onSettings=vi.fn();
+    await act(async()=>{root.render(<ConnectionNotice check={async()=>ready} onSettings={onSettings}/>);});
+    expect(container.textContent).toBe('');
+    await act(async()=>{root.render(<ConnectionNotice check={async()=>({state:'login-required'})} onSettings={onSettings}/>);});
+    expect(container.textContent).not.toContain('답변 테스트');
+    await click('연결 설정'); expect(onSettings).toHaveBeenCalledOnce();
+  });
   it('skips login when authenticated and never tests without a separate click', async()=>{
     const check=vi.fn(async()=>ready); const setup=vi.fn(async(_action: 'login' | 'test')=>({state:'answer-ready',setupSupported:true}) as ConnectionReport); const reconnect=vi.fn(async()=> 'connected' as const);
     await act(async()=>{root.render(<ConnectionStatus check={check} setup={setup} reconnect={reconnect}/>);});
