@@ -1139,6 +1139,7 @@ export class ReplayStore implements PanelInbox, PanelOutbox {
         this.#bundle = {
           ...this.#bundle,
           profile: normalizeSessionProfile(payload["profile"]),
+          ...(payload['studyBundle'] === true ? { studyBundle: true } : {}),
           ...(subject === null ? {} : { subject }),
           ...(index === null ? {} : { periodIndex: index }),
         };

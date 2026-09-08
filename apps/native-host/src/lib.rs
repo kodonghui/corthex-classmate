@@ -15,4 +15,5 @@
 pub mod router;
 pub mod connection;
 pub mod store;
+pub mod study;
 pub mod tutor;

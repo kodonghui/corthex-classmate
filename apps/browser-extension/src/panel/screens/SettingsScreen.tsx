@@ -10,6 +10,7 @@
 
 import { Button, Checkbox, Dialog, Input, RadioGroup, Select, Switch, PanelHeader } from "@classmate/ui-base";
 import { useState } from "react";
+import { StudyControls } from '../StudyControls';
 
 import { normalizeSessionProfile, sessionProfileCopy } from "../../session-profile";
 import { PERIOD_NUMBER_MAX, PERIOD_NUMBER_MIN } from "../../tiro/period";
@@ -17,6 +18,7 @@ import type { Settings } from "../settings-store";
 import { PRIVACY_CELLS, subjectInput, TEXT_SCALE_STEPS, textScaleInput } from "../settings-store";
 
 export interface SettingsScreenProps {
+  readonly currentStudy?: { sessionId: string; title: string };
   readonly liveLayout?: boolean;
   readonly values: Settings;
   /** 오늘 붙잡은 순간 수입니다. 지우기 확인 문구에 들어갑니다. */
@@ -64,6 +66,7 @@ const PROVIDER_OPTIONS = [
 const TEXT_SCALE_OPTIONS = TEXT_SCALE_STEPS.map((step) => ({ value: step.value, label: step.label }));
 
 export function SettingsScreen({
+  currentStudy,
   values,
   count,
   releaseIdentity,
@@ -79,6 +82,7 @@ export function SettingsScreen({
     <div className="cm-screen">
       <PanelHeader onBack={onBack} strong title="설정" />
       <div className="cm-screen__body cm-screen__body--flush">
+        {currentStudy && <StudyControls sessionId={currentStudy.sessionId} title={currentStudy.title} profile={values.profile} />}
         <section className="cm-set">
           <div className="cm-set__h">답변</div>
           {liveLayout ? <p className="cm-set__note">0.1.0 대화는 전체 설명을 펼쳐 두며 자동으로 접지 않아요. 그림은 필요할 때 AI가 먼저 만들고, 대화 입력창에서 종류를 골라 직접 요청할 수도 있어요.</p> : <><RadioGroup
@@ -166,7 +170,7 @@ export function SettingsScreen({
             onChange={(value) => onChange("profile", normalizeSessionProfile(value))}
             options={PROFILE_OPTIONS}
           />
-          <Select
+          {!currentStudy && <><Select
             label="기록 슬롯"
             options={PERIOD_OPTIONS}
             value={String(values.periodNumber)}
@@ -180,6 +184,7 @@ export function SettingsScreen({
             // 화면과 저장소가 어긋납니다. 칸을 떠날 때 빈 값을 기본값으로 맞춰 둘을 같게 합니다.
             onBlur={(event) => onChange("subject", subjectInput(event.target.value))}
           />
+          </>}
           <Switch
             label="단축키 Alt+S"
             description="마지막 문장을 붙잡아요"
@@ -188,7 +193,7 @@ export function SettingsScreen({
             style={{ width: "100%" }}
           />
           <p className="cm-set__note">
-            사용 목적·기록 슬롯·주제는 다음에 패널을 열어 새 세션을 시작할 때 적용돼요. 진행 중 기록은 바뀌지 않아요.
+            {currentStudy ? '사용 목적은 새 묶음을 만들 때 적용돼요. 이름은 아래에서 현재 묶음에 바로 적용할 수 있어요.' : '사용 목적·기록 슬롯·주제는 다음에 패널을 열어 새 세션을 시작할 때 적용돼요. 진행 중 기록은 바뀌지 않아요.'}
           </p>
         </section>
 

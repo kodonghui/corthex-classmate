@@ -265,6 +265,7 @@ export interface RouterSnapshot {
 }
 
 export class Router {
+  private studyReplay: LiveInboundMessage[] = [];
   private readonly host: HostGateway;
   private readonly settings: SettingsSource;
   private readonly controls: ConnectorControls;
@@ -377,14 +378,60 @@ export class Router {
   private async resolvePeriod(): Promise<string> {
     const settings = await this.settings.read();
     this.provider = settings.provider;
-    const periodId = makePeriodId(this.now(), settings.periodNumber);
+    const periodId = settings.activeSessionId ?? makePeriodId(this.now(), settings.periodNumber);
     if (this.currentPeriodId === periodId) return periodId;
 
     if (this.currentPeriodId !== null) {
       await this.finishPeriod();
     }
-    await this.beginPeriod(periodId, settings);
+    if (settings.activeSessionId) await this.resumeStudy(periodId);
+    else await this.beginPeriod(periodId, settings);
     return periodId;
+  }
+
+  /** Read the existing bundle; do not create another started event or rewrite its IDs. */
+  async resumeStudy(periodId: string): Promise<void> {
+    if (this.pendingQuestionId !== null) throw new Error('question-pending');
+    const events: SessionEvent[] = [];
+    let after = 0;
+    let title: string | undefined;
+    for (;;) {
+      const reply = await this.host.send({ type: 'study.manage', action: 'read', sessionId: periodId, after });
+      if (reply.status !== 'replied' || reply.message.type !== 'study.result') throw new Error('read-failed');
+      const data = reply.message.data;
+      if (!Array.isArray(data['events']) || !data['events'].every(isSessionEvent)) throw new Error('read-failed');
+      events.push(...data['events']);
+      const summary = data['summary'];
+      if (isRecord(summary) && typeof summary['title'] === 'string') title = summary['title'];
+      if (data['more'] !== true) break;
+      if (typeof data['next'] !== 'number' || data['next'] <= after) throw new Error('read-failed');
+      after = data['next'];
+    }
+    const original = events.find(e => e.type === 'period.started');
+    if (!original) throw new Error('read-failed');
+    const started = { ...original, payload: { ...original.payload, ...(title ? { subject: title } : {}), studyBundle: true } };
+    this.log.restore({ periodId, entries: [] });
+    this.currentPeriodId = periodId;
+    this.periodStartedEvent = started;
+    this.questionIds.clear(); this.seenSegments.clear(); this.connectors.clear(); this.frameCount = 0;
+    this.studyReplay = [];
+    for (const event of events) {
+      if (event.type === 'period.started' || event.type === 'period.ended') continue;
+      if (event.type === 'question.asked' && typeof event.payload['questionId'] === 'string') this.questionIds.add(event.payload['questionId']);
+      if (event.type === 'screen.frame') this.frameCount++;
+      const message: LiveInboundMessage = { type: LIVE_EVENT, event };
+      this.studyReplay.push(message);
+      this.log.append(message);
+    }
+  }
+
+  get hasPendingQuestion(): boolean { return this.pendingQuestionId !== null; }
+
+  async switchStudy(periodId: string, commit: () => Promise<void>): Promise<void> {
+    if (this.ensuring) await this.ensuring;
+    const switching = this.resumeStudy(periodId).then(commit).then(() => periodId);
+    this.ensuring = switching;
+    try { await switching; } finally { if (this.ensuring === switching) this.ensuring = null; }
   }
 
   /**
@@ -397,6 +444,7 @@ export class Router {
   }
 
   private async beginPeriod(periodId: string, settings: ClassmateSettings): Promise<void> {
+    this.studyReplay = [];
     this.currentPeriodId = periodId;
     this.log.reset(periodId);
     this.questionIds.clear();
@@ -508,11 +556,16 @@ export class Router {
    */
   async openPanel(port: PanelPortLike): Promise<void> {
     const periodId = await this.ensurePeriod();
+    const settings = await this.settings.read();
+    if (settings.activeSessionId && !this.hasPendingQuestion) {
+      await this.switchStudy(periodId, async () => {});
+    }
     this.panels.add(port);
     // 교시 로그가 500건을 넘겨 `period.started` 를 밀어냈어도 화면이 교시를 알게 합니다.
     // 로그에 아직 남아 있으면 같은 `id` 라 스토어가 뒤엣것을 거릅니다.
     const started = this.periodStartedEvent;
     if (started !== null) this.post(port, { type: LIVE_EVENT, event: started });
+    for (const message of this.studyReplay) this.post(port, message);
     for (const message of this.log.replay()) {
       this.post(port, message);
     }

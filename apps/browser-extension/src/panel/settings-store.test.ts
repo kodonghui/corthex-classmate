@@ -24,6 +24,7 @@ describe("키와 기본값", () => {
 
   it("기존 키를 보존하면서 사용 목적 키를 더한다", () => {
     expect(SETTINGS_KEYS).toEqual({
+      activeSessionId: 'classmate.activeSessionId',
       profile: "classmate.profile",
       periodNumber: "classmate.periodNumber",
       provider: "classmate.provider",

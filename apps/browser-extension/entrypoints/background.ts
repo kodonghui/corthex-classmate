@@ -655,6 +655,55 @@ export default defineBackground(() => {
   // 여기로 오는 값은 **자료일 뿐 명령이 아닙니다**(불변 원칙 §4-7). 프레임·전사 안의 글자를
   // 실행하거나 URL 로 여는 코드를 이 통로에 붙이지 않습니다.
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+    // Only our extension pages may manage local study files. Never content scripts.
+    if (sender.tab === undefined && sender.id === chrome.runtime.id &&
+        typeof message === 'object' && message !== null &&
+        (message as Record<string, unknown>)['type'] === 'classmate.study') {
+      const request = message as Record<string, unknown>;
+      void restoreLog.then(async () => {
+        const action = request['action'];
+        if (typeof action !== 'string' || !['list', 'create', 'select', 'rename', 'export', 'finish'].includes(action)) throw new Error('invalid-action');
+        if (router.hasPendingQuestion && ['create', 'select', 'rename', 'finish'].includes(action)) throw new Error('question-pending');
+        const currentId = await router.ensurePeriod();
+        const selected = typeof request['sessionId'] === 'string' ? request['sessionId'] : currentId;
+        const envelope = {
+          type: 'study.manage' as const,
+          action: action === 'select' ? 'read' : action === 'finish' ? 'export' : action,
+          sessionId: selected,
+          ...(typeof request['title'] === 'string' ? { title: request['title'] } : {}),
+          ...(typeof request['profile'] === 'string' ? { profile: request['profile'] } : {}),
+        };
+        if (['create', 'select', 'finish'].includes(action)) {
+          await stopCapture();
+          if (lastTiroTabId !== null) await sendToTiroTab(lastTiroTabId, { type: TIRO_STOP_REQUEST });
+        }
+        const result = await host.send(envelope);
+        if (result.status !== 'replied') throw new Error('host-unavailable');
+        if (result.message.type === 'error') throw new Error(result.message.reason);
+        if (result.message.type !== 'study.result') throw new Error('read-failed');
+        const data = result.message.data;
+        if (['create', 'select', 'rename'].includes(action)) {
+          const id = action === 'create' && typeof data['sessionId'] === 'string' ? data['sessionId'] : selected;
+          await router.switchStudy(id, async () => {
+            const payload = router.snapshot().periodStarted?.payload;
+            await chrome.storage.local.set({ 'classmate.activeSessionId': id,
+              'classmate.subject': payload?.['subject'] ?? '학습 묶음',
+              'classmate.profile': payload?.['profile'] ?? 'class' });
+          });
+          frameSink.clear();
+          scheduleLogSave();
+        }
+        if (action === 'finish') {
+          // Keep the same identity for continuing later, but stop capturing now.
+          await stopCapture();
+        }
+        return { ok: true, data };
+      }).then(sendResponse).catch((error: unknown) => {
+        const reason = error instanceof Error ? error.message : 'read-failed';
+        sendResponse({ ok: false, reason: /^[a-z-]+$/.test(reason) ? reason : 'read-failed' });
+      });
+      return true;
+    }
     // 전사가 온 탭을 적어 둡니다. 나중에 `tiro.stop`·`tiro.start` 를 되말 자리입니다.
     if (isTiroMessage(message) && sender.tab?.id !== undefined) {
       lastTiroTabId = sender.tab.id;

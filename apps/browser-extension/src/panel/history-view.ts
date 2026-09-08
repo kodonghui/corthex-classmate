@@ -127,7 +127,7 @@ export function historyView(bundle: GoldenBundle, state: ReplayState): HistoryVi
   return {
     title: "기록",
     subtitle: `오늘 ${rows.length}개`,
-    groups: [{ period: copy.slot(bundle.periodIndex), rows }],
+    groups: [{ period: bundle.studyBundle ? bundle.subject : copy.slot(bundle.periodIndex), rows }],
     emptyText: HISTORY_EMPTY_TEXT,
     footNote: copy.historyFootNote,
     sources: recordingSources(state, bundle.profile),

@@ -29,6 +29,7 @@ export const DEFAULT_PROVIDER: Answer['provider'] = 'claude';
 
 /** 서비스 워커가 보는 설정 한 벌입니다. */
 export interface ClassmateSettings {
+  activeSessionId?: string;
   /** 새 `period.started`에 고정되는 사용 목적입니다. */
   profile: SessionProfileV2;
   /** 1~8. 교시 식별자를 만드는 데 씁니다. */
@@ -69,6 +70,7 @@ function toSubject(value: unknown): string {
 /** 값 하나짜리 묶음을 설정 한 벌로 고칩니다. 저장소 없이도 시험할 수 있게 따로 뒀습니다. */
 export function normalizeSettings(bag: Record<string, unknown>): ClassmateSettings {
   return {
+    ...(typeof bag['classmate.activeSessionId'] === 'string' && /^\d{4}-\d{2}-\d{2}-p[1-9]\d{0,18}$/.test(bag['classmate.activeSessionId']) ? { activeSessionId: bag['classmate.activeSessionId'] } : {}),
     profile: normalizeSessionProfile(bag[SESSION_PROFILE_STORAGE_KEY]),
     periodNumber: normalizePeriodNumber(bag[PERIOD_NUMBER_STORAGE_KEY]),
     subject: toSubject(bag[SUBJECT_STORAGE_KEY]),
@@ -86,6 +88,7 @@ export function createStorageSettings(area: StorageAreaLike): SettingsSource {
     async read(): Promise<ClassmateSettings> {
       try {
         const bag = await area.get([
+          'classmate.activeSessionId',
           SESSION_PROFILE_STORAGE_KEY,
           PERIOD_NUMBER_STORAGE_KEY,
           SUBJECT_STORAGE_KEY,

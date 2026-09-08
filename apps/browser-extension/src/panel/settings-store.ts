@@ -33,6 +33,7 @@ export type AnswerLength = "short" | "full";
 export type TextScale = "sm" | "md" | "lg" | "xl";
 
 export interface Settings {
+  readonly activeSessionId?: string;
   /** 수업·시험 공부·회의 중 이 세션을 어떤 목적으로 쓰는지입니다. */
   readonly profile: SessionProfileV2;
   /** 지금 교시(1~8). `PeriodId` 를 만들 때 씁니다. */
@@ -57,6 +58,7 @@ export interface Settings {
  * `textScale` 만 이번에 더한 열째 칸입니다 — 계약의 아홉 개는 그대로 두고 새 이름 하나만 늘렸습니다.
  */
 export const SETTINGS_KEYS = {
+  activeSessionId: 'classmate.activeSessionId',
   profile: SESSION_PROFILE_STORAGE_KEY,
   periodNumber: PERIOD_NUMBER_STORAGE_KEY,
   provider: "classmate.provider",
@@ -192,6 +194,7 @@ export function mergeLoadedSettings(previous: Settings, loaded: Settings): Setti
 /** 저장소에서 읽어 온 날것을 설정 한 벌로 다듬습니다. 모르는 값은 기본값이 됩니다. */
 export function normalizeSettings(raw: Record<string, unknown>): Settings {
   return {
+    ...(typeof raw[SETTINGS_KEYS.activeSessionId] === 'string' && /^\d{4}-\d{2}-\d{2}-p[1-9]\d{0,18}$/.test(raw[SETTINGS_KEYS.activeSessionId] as string) ? { activeSessionId: raw[SETTINGS_KEYS.activeSessionId] as string } : {}),
     profile: normalizeSessionProfile(raw[SETTINGS_KEYS.profile]),
     periodNumber: asPeriodNumber(raw[SETTINGS_KEYS.periodNumber]),
     provider: asProvider(raw[SETTINGS_KEYS.provider]),

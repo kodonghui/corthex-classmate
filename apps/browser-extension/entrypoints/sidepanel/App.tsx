@@ -80,7 +80,7 @@ export function openLive(
     },
   };
   const store = ReplayStore.live({
-    periodId: makePeriodId(new Date(startMs), settings.periodNumber),
+    periodId: settings.activeSessionId ?? makePeriodId(new Date(startMs), settings.periodNumber),
     startMs,
     profile: settings.profile,
     subject: settings.subject,

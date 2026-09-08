@@ -625,7 +625,7 @@ export function listeningView(
   return {
     header: {
       title: bundle.subject,
-      subtitle: copy.slot(bundle.periodIndex),
+      subtitle: bundle.studyBundle ? "학습 묶음" : copy.slot(bundle.periodIndex),
       time: clockOfMs(state.now),
       status: paused ? "paused" : "live",
     },

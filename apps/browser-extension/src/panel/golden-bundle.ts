@@ -31,6 +31,7 @@ import eventsJsonl from "../../../../fixtures/synthetic-class/golden-ioc/session
 import transcriptJson from "../../../../fixtures/synthetic-class/golden-ioc/transcript.json";
 
 export interface GoldenBundle {
+  readonly studyBundle?: boolean;
   readonly periodId: PeriodId;
   /** 이 세션의 사용 목적입니다. 시작 뒤에는 설정 변경만으로 바뀌지 않습니다. */
   readonly profile: SessionProfileV2;

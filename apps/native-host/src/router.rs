@@ -282,6 +282,10 @@ impl Router {
         }
 
         match kind {
+            "study.manage" => match self.data_dir() {
+                Ok(root) => crate::study::handle(&root, &msg),
+                Err(error) => store_failure(kind, &error),
+            },
             "ping" => hello(),
             "provider.check" => crate::connection::check(self.tutor_sources.claude_cli.as_deref()),
             "event.append" => self

@@ -272,6 +272,7 @@ impl SessionCatalog {
             if !frames::is_contract_period_id(session_id) {
                 continue;
             }
+            if crate::study::is_archived(&self.data_dir, session_id) { continue; }
 
             let summary = match self.summary_from_path(session_id, &path) {
                 Ok(summary) => summary,
@@ -319,7 +320,8 @@ impl SessionCatalog {
         }
         let legacy_frames = read_frames(&connection)?;
         let activities = read_activities(&connection)?;
-        let summary = summarize(session_id, &events);
+        let mut summary = summarize(session_id, &events);
+        crate::study::apply_title(&self.data_dir, &mut summary);
         let mut warnings = BTreeSet::new();
         let assets = build_assets(
             &self.data_dir,
@@ -396,7 +398,30 @@ impl SessionCatalog {
     ) -> Result<SessionSummaryV2, SessionReadError> {
         let connection = open_read_only(path)?;
         let events = read_events(&connection)?;
-        Ok(summarize(session_id, &events))
+        let mut summary = summarize(session_id, &events);
+        crate::study::apply_title(&self.data_dir, &mut summary);
+        Ok(summary)
+    }
+
+    /// Paged replay stays below Native Messaging limits. Never writes old events.
+    pub fn study_events(&self, id: &str, after: u64) -> Result<(Vec<SessionEvent>, u64, bool), SessionReadError> {
+        let connection = open_read_only(&self.session_path(id)?)?;
+        let events = read_events(&connection)?;
+        let mut result = Vec::new();
+        let mut bytes = 0;
+        let mut next = after;
+        let mut more = false;
+        for stored in events.iter().filter(|e| e.seq > after) {
+            let size = serde_json::to_vec(&stored.event).map_err(|_| SessionReadError::Json)?.len();
+            if result.len() >= 80 || bytes + size > 600_000 {
+                if result.is_empty() { return Err(SessionReadError::Json); }
+                more = true; break;
+            }
+            bytes += size;
+            next = stored.seq;
+            result.push(stored.event.clone());
+        }
+        Ok((result, next, more))
     }
 }
 

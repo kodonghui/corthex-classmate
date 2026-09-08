@@ -136,6 +136,7 @@ export interface ActivitySaveEnvelope {
 
 /** 확장이 호스트로 보내는 것 전부입니다. */
 export type HostEnvelope =
+  | { type: 'study.manage'; action: string; sessionId?: string; title?: string; profile?: string; after?: number }
   | PingEnvelope
   | EventAppendEnvelope
   | FrameStoreMessage
@@ -229,6 +230,7 @@ export interface TutorDeltaPush {
 
 /** 호스트가 보내는 것 전부입니다. */
 export type HostReply =
+  | StudyReply
   | HelloReply
   | EventAckReply
   | FrameStoredMessage
@@ -240,6 +242,10 @@ export type HostReply =
   | TutorEventPush
   | HostErrorMessage;
 
+export interface StudyReply { type: 'study.result'; action: string; data: Record<string, unknown> }
+export function isStudyReply(value: unknown): value is StudyReply {
+  return isRecord(value) && value['type'] === 'study.result' && typeof value['action'] === 'string' && isRecord(value['data']);
+}
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -338,6 +344,7 @@ export function isTutorDeltaPush(value: unknown): value is TutorDeltaPush {
  */
 export function isHostReply(value: unknown): value is HostReply {
   return (
+    isStudyReply(value) ||
     isHelloReply(value) ||
     isEventAckReply(value) ||
     isFrameStoredMessage(value) ||
@@ -358,6 +365,7 @@ export function isHostReply(value: unknown): value is HostReply {
 export function replyMatchesEnvelope(envelope: HostEnvelope, reply: HostReply): boolean {
   if (isHostErrorMessage(reply)) return reply.received === envelope.type;
   switch (envelope.type) {
+    case 'study.manage': return isStudyReply(reply) && reply.action === envelope.action;
     case PING:
       return isHelloReply(reply);
     case EVENT_APPEND:

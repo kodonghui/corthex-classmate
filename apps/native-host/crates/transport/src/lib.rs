@@ -92,7 +92,11 @@ pub struct EnvelopeRule {
 /// `apps/native-host/src/router.rs` 의 `Router::handle` 이 실제로 나눠 주는 이름과 같습니다.
 /// 한쪽만 늘면 `the_table_matches_the_router_in_router_rs` 시험이 먼저 빨갛게 됩니다.
 /// 여기 없는 `type` 은 호스트가 `unknown-message-type` 으로 답하므로 이 표도 모르는 것으로 답합니다.
-pub const ENVELOPE_RULES: [EnvelopeRule; 12] = [
+pub const ENVELOPE_RULES: [EnvelopeRule; 13] = [
+    EnvelopeRule {
+        message_type: "study.manage", needs_period_id: false, needs_question_id: false,
+        payload: None, extra: ExtraCheck::None, summary: "사용자가 학습 묶음을 관리하고 블로그 자료를 저장합니다",
+    },
     EnvelopeRule {
         message_type: "provider.check", needs_period_id: false, needs_question_id: false,
         payload: None, extra: ExtraCheck::None, summary: "공식 CLI 로그인 상태를 읽기 전용으로 점검합니다",
@@ -781,10 +785,11 @@ mod tests {
     }
 
     #[test]
-    fn the_table_holds_the_twelve_request_types() {
+    fn the_table_holds_the_thirteen_request_types() {
         // Existing requests plus read-only official CLI connection check.
-        const EXPECTED: [&str; 12] = [
-            "provider.check",
+        const EXPECTED: [&str; 13] = [
+                "study.manage",
+                "provider.check",
             "ping",
             "event.append",
             "session.status",
