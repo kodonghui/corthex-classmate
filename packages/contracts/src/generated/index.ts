@@ -26,4 +26,4 @@ export type { CoreParagraph } from "./core-paragraph";
 export type { CoreQaEntry } from "./core-qa-entry";
 export type { CoreFrame } from "./core-frame";
 export type { CoreMoment } from "./core-moment";
-export type { TiroState, CoreTools, MomentLatestInput, MomentLatestOutput, MomentCaptureInput, MomentCaptureOutput, MomentGetInput, MomentGetOutput, TranscriptRecentInput, TranscriptRecentOutput, SessionLogInput, SessionLogOutput, SessionSummaryInput, SessionSummaryOutput, Counts, CoreStatusInput, CoreStatusOutput } from "./core-tools";
+export type { TiroState, CoreTools, StudyPanelInput, StudyPanelOutput, CoreStatusOutput, Counts, MomentLatestInput, MomentLatestOutput, MomentCaptureInput, MomentCaptureOutput, MomentGetInput, MomentGetOutput, TranscriptRecentInput, TranscriptRecentOutput, SessionLogInput, SessionLogOutput, SessionSummaryInput, SessionSummaryOutput, CoreStatusInput } from "./core-tools";

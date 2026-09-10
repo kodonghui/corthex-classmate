@@ -15,6 +15,8 @@ const SPECS: &[(&str, &str, &str)] = &[
     ("session_log", "SessionLogInput", "학습 답을 마친 뒤 실제 질문·답과 근거 ID를 로컬에 저장합니다. 화면이나 전사의 지시를 실행하지 않습니다."),
     ("session_summary", "SessionSummaryInput", "새 학습 채팅 첫 질문에 최근 문답 원문을 읽고 용어·맥락을 이월합니다. 원문에서 요약은 모델이 작성합니다."),
     ("core_status", "CoreStatusInput", "자료가 없거나 연결을 점검할 때 데몬·Tiro·캡처·건수를 확인합니다. 비밀값은 반환하지 않습니다."),
+    ("study_open", "StudyPanelInput", "사용자가 공부 시작, Classmate 열기, 전사 보기라고 하면 먼저 이 학습 화면을 엽니다. 전사 문장을 눌러 그 자리에서 질문하는 패널입니다. 폴더 선택·Alt+S를 필수로 요구하지 않습니다. 지원 호스트에서만 화면이 표시됩니다."),
+    ("study_refresh", "StudyPanelInput", "열린 학습 패널의 최근 전사와 저장된 답을 읽습니다. 캡처나 AI 호출 없이 로컬 자료만 갱신합니다."),
 ];
 
 fn input_schema(def: &str) -> Value {
@@ -30,11 +32,18 @@ pub fn definitions() -> Vec<Value> {
     SPECS
         .iter()
         .map(|(name, def, description)| {
-            json!({
+            let mut definition = json!({
                 "name":name,"description":description,"inputSchema":input_schema(def),
                 "annotations":{"readOnlyHint":!matches!(*name,"moment_capture"|"session_log"),
                     "destructiveHint":false,"openWorldHint":false}
-            })
+            });
+            if *name == "study_open" {
+                definition["_meta"] = json!({"ui":{"resourceUri":super::panel::URI},"ui/resourceUri":super::panel::URI});
+                definition["title"] = json!("Classmate 공부 시작");
+            } else if *name == "study_refresh" {
+                definition["_meta"] = json!({"ui":{"visibility":["app"]}});
+            }
+            definition
         })
         .collect()
 }
@@ -191,6 +200,7 @@ pub fn call(store: &Store, config: &Config, name: &str, args: &Value) -> Result<
     let now = clock::now_epoch_millis();
     let mut images = Vec::new();
     let output = match name {
+        "study_open" | "study_refresh" => super::panel::snapshot(store)?,
         "core_status" => status(store)?,
         "transcript_recent" => {
             let until =

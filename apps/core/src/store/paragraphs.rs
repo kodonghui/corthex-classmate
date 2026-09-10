@@ -34,6 +34,16 @@ pub struct UpsertReport {
 }
 
 impl Store {
+    /// 화면용 최신 문단. 시간 창 밖의 마지막 녹음도 사라지지 않으며 반환 건수는 제한한다.
+    pub fn panel_paragraphs(&self, bundle_id: i64, limit: usize) -> Result<Vec<Paragraph>> {
+        let mut statement = self.connection().prepare(
+            "SELECT uuid,note_guid,text,summary_md,time_from,time_to,locked FROM
+             (SELECT * FROM paragraphs WHERE bundle_id=?1 ORDER BY time_from_ms DESC,uuid DESC LIMIT ?2)
+             ORDER BY time_from_ms ASC,uuid ASC")?;
+        let rows =
+            statement.query_map(params![bundle_id, limit.min(200) as i64], row_to_paragraph)?;
+        collect(rows)
+    }
     /// 문단 묶음을 `uuid` 기준으로 넣거나 갱신한다. 한 트랜잭션이다.
     ///
     /// `time_from` · `time_to` 는 RFC3339 여야 한다(아니면 `InvalidValue`). `uuid` 가 비면 거절한다.

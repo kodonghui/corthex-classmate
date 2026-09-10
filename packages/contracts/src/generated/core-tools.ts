@@ -20,9 +20,140 @@ export type TiroState =
   "connected" | "no-key" | "unauthorized" | "not-found" | "offline" | "unknown";
 
 /**
- * classmate-core mcp 가 내놓는 MCP 툴 7개의 와이어 이름과 입력·출력 모양입니다. 와이어 이름은 밑줄 형태(kickoff 의 점 표기 moment.latest 는 x-logical-names 에 대응)이며 입력 열쇠는 인수인계 §4.5 그대로 snake_case, 출력 레코드는 다른 계약처럼 camelCase 입니다. 이미지는 출력 JSON 이 아니라 MCP image content 로 따로 갑니다.
+ * classmate-core mcp 가 내놓는 MCP 툴 9개의 와이어 이름과 입력·출력 모양입니다. 기존 7개에 공부 화면 열기·갱신을 추가합니다. 입력은 snake_case, 출력은 camelCase이며 이미지는 MCP image content로 별도 전달합니다.
  */
 export interface CoreTools {}
+/**
+ * This interface was referenced by `CoreTools`'s JSON-Schema
+ * via the `definition` "StudyOpenInput".
+ *
+ * This interface was referenced by `CoreTools`'s JSON-Schema
+ * via the `definition` "StudyRefreshInput".
+ *
+ * This interface was referenced by `CoreTools`'s JSON-Schema
+ * via the `definition` "StudyPanelInput".
+ */
+export interface StudyPanelInput {}
+/**
+ * 학습 패널 초기/갱신 스냅샷. 로컬 최신 전사 200개·문답 100개. 폴링이 모델 답변·화면 캡처를 시작하지 않는다.
+ *
+ * This interface was referenced by `CoreTools`'s JSON-Schema
+ * via the `definition` "StudyOpenOutput".
+ *
+ * This interface was referenced by `CoreTools`'s JSON-Schema
+ * via the `definition` "StudyRefreshOutput".
+ *
+ * This interface was referenced by `CoreTools`'s JSON-Schema
+ * via the `definition` "StudyPanelOutput".
+ */
+export interface StudyPanelOutput {
+  bundleName: string;
+  /**
+   * @maxItems 200
+   */
+  paragraphs: CoreParagraph[];
+  /**
+   * @maxItems 100
+   */
+  recentQa: CoreQaEntry[];
+  status: CoreStatusOutput;
+  paragraphLimit: 200;
+  qaLimit: 100;
+}
+/**
+ * 코어가 Tiro 공식 API 에서 받아 core.sqlite 의 paragraphs 표에 둔 문단 한 줄입니다. uuid 기준으로 갱신되며 노트가 바뀌어도 같은 학습 묶음에 이어집니다.
+ */
+export interface CoreParagraph {
+  /**
+   * Tiro 가 준 문단 식별자입니다. 진행 중 문단이 갱신돼도 같은 값입니다.
+   */
+  uuid: string;
+  /**
+   * 이 문단이 속한 Tiro 노트의 guid 입니다.
+   */
+  noteGuid: string;
+  /**
+   * 문단 원문입니다.
+   */
+  text: string;
+  /**
+   * Tiro 가 함께 준 마크다운 요약입니다. 없으면 생략합니다.
+   */
+  summaryMd?: string;
+  timeFrom: IsoDateTime;
+  timeTo: IsoDateTime;
+  /**
+   * true 면 확정된 문단, false 면 아직 바뀔 수 있는 진행 중 문단입니다.
+   */
+  locked: boolean;
+}
+/**
+ * 앱(Claude Code · Claude Desktop · Codex)이 MCP 툴 session_log 로 코어에 남긴 문답 한 줄입니다. 새 채팅은 session_summary 로 최근 것을 이월합니다.
+ */
+export interface CoreQaEntry {
+  /**
+   * qa_log 표의 일련번호입니다.
+   */
+  id: number;
+  askedAt: IsoDateTime;
+  /**
+   * 사용자가 물은 말 그대로입니다.
+   */
+  question: string;
+  /**
+   * 앱이 답한 본문입니다. 복습·블로그가 다시 읽으므로 줄이지 않습니다.
+   */
+  answer: string;
+  /**
+   * 이 문답이 기댄 Tiro 문단의 uuid 입니다. 없으면 생략합니다.
+   */
+  paragraphUuid?: string;
+  /**
+   * 이 문답이 기댄 순간의 id 입니다. 없으면 생략합니다.
+   */
+  momentId?: string;
+  /**
+   * explain 은 설명, related 는 연관 개념, followup 은 이어 묻기, diagram 은 그림 요청입니다.
+   */
+  kind: "explain" | "related" | "followup" | "diagram";
+}
+/**
+ * core_status 의 출력입니다. 비밀값·절대 경로를 담지 않습니다.
+ *
+ * This interface was referenced by `CoreTools`'s JSON-Schema
+ * via the `definition` "CoreStatusOutput".
+ */
+export interface CoreStatusOutput {
+  version: string;
+  /**
+   * alive 는 heartbeat 가 최근, stale 은 heartbeat 가 오래됨, absent 는 한 번도 없음입니다.
+   */
+  daemon: "alive" | "stale" | "absent";
+  tiroState: TiroState;
+  noteTitle?: string;
+  noteRecording?: boolean;
+  lastPollAt?: IsoDateTime;
+  lastParagraphAt?: IsoDateTime;
+  /**
+   * 찍고 있는 창의 제목입니다. 창을 못 찾았으면 생략합니다.
+   */
+  captureWindowTitle?: string;
+  lastCaptureAt?: IsoDateTime;
+  hotkey: "registered" | "failed" | "unknown";
+  counts: Counts;
+}
+/**
+ * 표 건수입니다.
+ *
+ * This interface was referenced by `CoreTools`'s JSON-Schema
+ * via the `definition` "Counts".
+ */
+export interface Counts {
+  paragraphs: number;
+  frames: number;
+  moments: number;
+  qa: number;
+}
 /**
  * moment_latest 의 입력입니다. 사용자가 방금 Alt+S 를 눌렀거나 "방금 화면"·"이거" 라고 가리킬 때 부릅니다.
  *
@@ -89,63 +220,6 @@ export interface CoreMoment {
    * 단축키가 눌린 뒤 픽셀을 손에 넣기까지 걸린 밀리초입니다. 실측 기록용이며 없으면 생략합니다.
    */
   captureMs?: number;
-}
-/**
- * 코어가 Tiro 공식 API 에서 받아 core.sqlite 의 paragraphs 표에 둔 문단 한 줄입니다. uuid 기준으로 갱신되며 노트가 바뀌어도 같은 학습 묶음에 이어집니다.
- */
-export interface CoreParagraph {
-  /**
-   * Tiro 가 준 문단 식별자입니다. 진행 중 문단이 갱신돼도 같은 값입니다.
-   */
-  uuid: string;
-  /**
-   * 이 문단이 속한 Tiro 노트의 guid 입니다.
-   */
-  noteGuid: string;
-  /**
-   * 문단 원문입니다.
-   */
-  text: string;
-  /**
-   * Tiro 가 함께 준 마크다운 요약입니다. 없으면 생략합니다.
-   */
-  summaryMd?: string;
-  timeFrom: IsoDateTime;
-  timeTo: IsoDateTime;
-  /**
-   * true 면 확정된 문단, false 면 아직 바뀔 수 있는 진행 중 문단입니다.
-   */
-  locked: boolean;
-}
-/**
- * 앱(Claude Code · Claude Desktop · Codex)이 MCP 툴 session_log 로 코어에 남긴 문답 한 줄입니다. 새 채팅은 session_summary 로 최근 것을 이월합니다.
- */
-export interface CoreQaEntry {
-  /**
-   * qa_log 표의 일련번호입니다.
-   */
-  id: number;
-  askedAt: IsoDateTime;
-  /**
-   * 사용자가 물은 말 그대로입니다.
-   */
-  question: string;
-  /**
-   * 앱이 답한 본문입니다. 복습·블로그가 다시 읽으므로 줄이지 않습니다.
-   */
-  answer: string;
-  /**
-   * 이 문답이 기댄 Tiro 문단의 uuid 입니다. 없으면 생략합니다.
-   */
-  paragraphUuid?: string;
-  /**
-   * 이 문답이 기댄 순간의 id 입니다. 없으면 생략합니다.
-   */
-  momentId?: string;
-  /**
-   * explain 은 설명, related 는 연관 개념, followup 은 이어 묻기, diagram 은 그림 요청입니다.
-   */
-  kind: "explain" | "related" | "followup" | "diagram";
 }
 /**
  * 코어가 남긴 화면 한 장의 메타입니다. 파일은 코어 데이터 폴더 아래 frames/<묶음>/<id>.<확장자> 에 있고, 확장자는 파일 바이트의 매직 넘버가 정합니다. 전체 영상은 남기지 않습니다.
@@ -317,46 +391,9 @@ export interface SessionSummaryOutput {
   counts: Counts;
 }
 /**
- * 표 건수입니다.
- *
- * This interface was referenced by `CoreTools`'s JSON-Schema
- * via the `definition` "Counts".
- */
-export interface Counts {
-  paragraphs: number;
-  frames: number;
-  moments: number;
-  qa: number;
-}
-/**
  * core_status 의 입력입니다. 받는 값이 없습니다.
  *
  * This interface was referenced by `CoreTools`'s JSON-Schema
  * via the `definition` "CoreStatusInput".
  */
 export interface CoreStatusInput {}
-/**
- * core_status 의 출력입니다. 비밀값·절대 경로를 담지 않습니다.
- *
- * This interface was referenced by `CoreTools`'s JSON-Schema
- * via the `definition` "CoreStatusOutput".
- */
-export interface CoreStatusOutput {
-  version: string;
-  /**
-   * alive 는 heartbeat 가 최근, stale 은 heartbeat 가 오래됨, absent 는 한 번도 없음입니다.
-   */
-  daemon: "alive" | "stale" | "absent";
-  tiroState: TiroState;
-  noteTitle?: string;
-  noteRecording?: boolean;
-  lastPollAt?: IsoDateTime;
-  lastParagraphAt?: IsoDateTime;
-  /**
-   * 찍고 있는 창의 제목입니다. 창을 못 찾았으면 생략합니다.
-   */
-  captureWindowTitle?: string;
-  lastCaptureAt?: IsoDateTime;
-  hotkey: "registered" | "failed" | "unknown";
-  counts: Counts;
-}

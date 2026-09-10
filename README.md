@@ -2,6 +2,8 @@
 
 **수업과 회의를 들으면서, 모르는 순간 바로 묻고 함께 이해하는 AI 동반자.**
 
+> **새 GPT 공부창 · 2026-09-11 개발 후보**: [설치·사용 안내](apps/study-desktop/README.md). 위에는 **수업 전사와 문장별 질문**, 아래에는 **별도 대화창**이 있고, 이름을 정해 새 세션를 시작하거나 이전 세션를 다시 열 수 있습니다. **Terra · High 고정**, 스트리밍 답변·시퀀스 그림·중지·독립 글씨 설정을 제공합니다. 실제 GPT와 격리 수업 자료로 저장·렌더·공부 전환·서비스 재시작을 검증했습니다. 아래 **공개 안정 배포판 0.1.6은 그대로 유지**하며, 새 세션창은 그 ZIP에 들어 있지 않습니다. Core 실행 파일 버전과 Chrome 확장 버전은 별개입니다.
+
 Tiro가 말을 글로 바꾸면, Classmate는 Chrome 오른쪽에서 그 전사와 선택한 화면을 참고해 설명합니다. 코딩 수업뿐 아니라 현장 강의, 시험 공부, 온라인·대면 회의에도 사용할 수 있습니다.
 
 **[Windows 0.1.6 설치 ZIP 받기](https://github.com/kodonghui/classmate/releases/download/v0.1.6/Corthex-Classmate-0.1.6-windows-x64.zip)** · **[버전별 다운로드](https://github.com/kodonghui/classmate/releases)** · **[문제 제보](https://github.com/kodonghui/classmate/issues)**

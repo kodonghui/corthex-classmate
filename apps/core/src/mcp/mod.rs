@@ -10,6 +10,7 @@
 //! 브리지는 SQLite 를 직접 읽고 쓴다. 데몬이 없으면(heartbeat 없음) 데몬을 창 없이 띄운다.
 //! `moment_capture` 는 브리지가 직접 캡처한다.
 
+mod panel;
 #[cfg(test)]
 mod tests;
 mod tools;
@@ -128,7 +129,7 @@ impl Server {
                     }
                 }
                 self.initialized = true;
-                json!({"protocolVersion":PROTOCOL,"capabilities":{"tools":{"listChanged":false}},
+                json!({"protocolVersion":PROTOCOL,"capabilities":{"tools":{"listChanged":false},"resources":{"listChanged":false}},
                     "serverInfo":{"name":crate::NAME,"version":crate::VERSION},"instructions":INSTRUCTIONS})
             }
             "ping" => json!({}),
@@ -138,6 +139,19 @@ impl Server {
                     return Some(rpc_error(id, -32602, "No pagination cursor"));
                 }
                 json!({"tools":tools::definitions()})
+            }
+            "resources/list" => {
+                if params.get("cursor").is_some() {
+                    return Some(rpc_error(id, -32602, "No pagination cursor"));
+                }
+                json!({"resources":[panel::descriptor()]})
+            }
+            "resources/templates/list" => json!({"resourceTemplates":[]}),
+            "resources/read" => {
+                if params["uri"] != panel::URI {
+                    return Some(rpc_error(id, -32002, "Resource not found"));
+                }
+                panel::resource()
             }
             "tools/call" => {
                 let Some(name) = params["name"].as_str() else {

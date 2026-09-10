@@ -373,6 +373,15 @@ impl App {
             menu::CAPTURE_NOW => self.capture_now("hotkey"),
             menu::TOGGLE_TIMELINE => {
                 let now_enabled = !self.timeline_enabled.load(Ordering::Relaxed);
+                // Reload before saving so this toggle does not overwrite freshly edited settings.
+                let saved = Config::load_or_create(&self.data_dir).and_then(|mut config| {
+                    config.timeline.enabled = now_enabled;
+                    config.save(&self.data_dir)
+                });
+                if let Err(error) = saved {
+                    eprintln!("[daemon] 연속 캡처 설정 저장 실패: {error}");
+                    return;
+                }
                 self.timeline_enabled.store(now_enabled, Ordering::Relaxed);
                 self.tray
                     .set_tip(&tip_text(&self.hotkey_label, now_enabled));
@@ -409,10 +418,7 @@ impl App {
         let Ok(exe) = std::env::current_exe() else {
             return;
         };
-        let parameters = wide(&format!(
-            "/k \"\"{}\" setup --check\"",
-            exe.to_string_lossy()
-        ));
+        let parameters = wide(&format!("/k \"\"{}\" setup\"", exe.to_string_lossy()));
         // SAFETY: NUL 로 끝나는 인자 문자열.
         unsafe {
             ShellExecuteW(

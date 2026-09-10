@@ -42,7 +42,11 @@ impl fmt::Display for CoreError {
                 "저장 위치를 정할 수 없습니다 (CLASSMATE_CORE_DIR 또는 LOCALAPPDATA 필요)"
             ),
             Self::Io(place, kind) => write!(f, "{place} 에서 파일 오류 · {kind:?}"),
-            Self::Sqlite(error) => write!(f, "SQLite 오류 · {error}"),
+            // SQLite messages can contain the complete filename or SQL values.
+            Self::Sqlite(_) => write!(
+                f,
+                "SQLite 저장소 오류 (파일을 삭제·초기화하지 말고 doctor로 확인하세요)"
+            ),
             Self::JournalMode(actual) => {
                 write!(f, "journal_mode 가 wal 이 아니라 {actual} 입니다")
             }

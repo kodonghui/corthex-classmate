@@ -1,0 +1,9 @@
+{
+  "name": "@classmate/study-panel",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {"build": "vite build", "typecheck": "tsc --noEmit", "test": "vitest run"},
+  "dependencies": {"@classmate/ui-classmate":"workspace:*", "@classmate/design-tokens":"workspace:*", "@modelcontextprotocol/ext-apps":"2.0.0", "react":"^19.2.8", "react-dom":"^19.2.8", "mermaid":"11.17.2", "dompurify":"3.4.14", "marked":"16.4.2"},
+  "devDependencies": {"@types/react":"^19.2.18", "@types/react-dom":"^19.2.5", "@types/node":"^26.4.1", "typescript":"^7.0.2", "vite":"^7.3.1", "vite-plugin-singlefile":"2.3.3", "vitest":"^4.1.11", "happy-dom":"^20.12.0", "@testing-library/react":"^16.3.3", "playwright":"1.62.1"}
+}

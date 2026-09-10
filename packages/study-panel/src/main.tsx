@@ -1,0 +1,10 @@
+import React from 'react';
+import {createRoot} from 'react-dom/client';
+import {createBridge} from './bridge';
+import {StudyPanel} from './StudyPanel';
+import {createLocalBridge} from './localBridge';
+import './style.css';
+import './reading.css';
+const token=new URLSearchParams(location.hash.slice(1)).get('classmate');
+const bridge=token&&location.hostname==='127.0.0.1'?createLocalBridge(token):createBridge();
+createRoot(document.getElementById('root')!).render(<StudyPanel bridge={bridge} pollMs={bridge.local?1000:3000}/>);

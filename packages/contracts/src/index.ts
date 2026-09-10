@@ -84,6 +84,8 @@ export const CORE_TOOL_NAMES = [
   "session_log",
   "session_summary",
   "core_status",
+  "study_open",
+  "study_refresh",
 ] as const;
 
 /** 코어 프레임이 어디서 왔는지입니다. core-frame.schema.json 의 `source.enum` 과 같은 순서입니다. */

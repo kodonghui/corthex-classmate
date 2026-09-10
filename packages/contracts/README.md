@@ -63,7 +63,7 @@ src/index.ts                 ← 생성물 재수출 + 상수 + createValidator
 | `core-frame` | 코어가 남긴 화면 한 장의 메타. `path` 는 `frames/<묶음>/<id>.<확장자>` 상대 경로 |
 | `core-qa-entry` | 앱이 `session_log` 로 남긴 문답 한 줄 |
 | `core-moment` | 붙잡은 순간 = 프레임 + 마지막 문단 + 전사 창 + 최근 문답(스냅샷) |
-| `core-tools` | 코어 MCP 툴 7개의 와이어 이름(`x-tool-names`)과 툴별 `…Input`/`…Output` 정의. 입력 열쇠는 snake_case |
+| `core-tools` | 코어 MCP 툴 9개의 와이어 이름(`x-tool-names`)과 툴별 `…Input`/`…Output` 정의. 기존 7개 + study_open/study_refresh, 입력 열쇠는 snake_case |
 
 ### id 접두사 규칙
 

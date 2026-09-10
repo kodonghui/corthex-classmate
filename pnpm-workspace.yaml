@@ -2,6 +2,8 @@ packages:
   - apps/*
   - packages/*
   - spikes
+allowBuilds:
+  esbuild: true
 minimumReleaseAgeExclude:
   - '@types/chrome@0.2.8'
   - '@types/node@26.4.1'

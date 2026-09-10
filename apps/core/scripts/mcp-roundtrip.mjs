@@ -53,7 +53,12 @@ function verify(result,type) {
 }
 let conn=await connect();
 try {
-  const listed=await conn.request('tools/list');assert.equal(listed.result.tools.length,7);
+  const listed=await conn.request('tools/list');assert.equal(listed.result.tools.length,9);
+  assert.equal(listed.result.tools.find(t=>t.name==='study_open')._meta.ui.resourceUri,'ui://classmate/panel');
+  const ui=await conn.request('resources/read',{uri:'ui://classmate/panel'});
+  assert.equal(ui.result.contents[0].mimeType,'text/html;profile=mcp-app');
+  assert.ok(ui.result.contents[0].text.includes('Classmate'));
+  assert.equal((await conn.request('resources/read',{uri:'file:///secret'})).error.code,-32002);
   const db=new DatabaseSync(join(dir,'core.sqlite'));
   const now=Date.now();const from=new Date(now-20000).toISOString(),to=new Date(now-1000).toISOString();
   db.prepare('INSERT INTO paragraphs(uuid,bundle_id,note_guid,text,time_from,time_to,time_from_ms,time_to_ms,locked,fetched_at) VALUES (?,1,?,?,?,?,?,?,1,?)').run('11111111-1111-4111-8111-111111111111','synthetic-note','의존성 주입 설명',from,to,now-20000,now-1000,to);db.close();
@@ -71,5 +76,8 @@ try {
   const invalid=await conn.request('tools/call',{name:'transcript_recent',arguments:{window_sec:0}});assert.equal(invalid.error.code,-32602);
   await conn.close(); conn=await connect();
   const persisted=await conn.request('tools/call',{name:'session_summary',arguments:{}});assert.equal(verify(persisted.result,'SessionSummary').counts.qa,1);
-  console.log('PASS: 7 MCP tools, JSON Schema outputs, image content, invalid inputs, SQLite restart recovery; isolated fixture only.');
+  const panel=await conn.request('tools/call',{name:'study_refresh',arguments:{}});
+  assert.equal(panel.result.structuredContent.paragraphs.length,1);
+  assert.equal(panel.result.structuredContent.recentQa.length,1);
+  console.log('PASS: 9 MCP tools, panel resource, JSON Schema outputs, image content, invalid inputs, SQLite restart recovery; isolated fixture only.');
 } finally { await conn.close(); }

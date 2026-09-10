@@ -137,7 +137,10 @@ jobs:
 
       # apps/core 는 native-host 와 다른 Cargo 워크스페이스입니다(v0.3 Classmate Core ·
       # apps/core/README.md §4). 같은 GNU 툴체인 · 같은 winsqlite3 규칙이라 러너 조건은 같습니다.
-      - name: Rust 서식 검사 (core)
+      - name: Core에 포함할 공부 화면 빌드
+        run: pnpm --filter @classmate/study-panel build
+
+      - name: Rust 서식 검사 (core source)
         run: cargo fmt --manifest-path apps/core/Cargo.toml -- --check
 
       - name: Rust lint (core)
@@ -147,7 +150,11 @@ jobs:
       - name: 시험 네 갈래
         run: pnpm test
 
+      - name: GPT 공부창 로컬 연결 단위 검사 (실제 추론 없음)
+        run: pnpm test:study
+
       - name: Core MCP stdio 왕복 (격리 데이터 · 실제 Tiro 호출 없음)
         run: |
           cargo build --manifest-path apps/core/Cargo.toml
           node apps/core/scripts/mcp-roundtrip.mjs
+          node apps/core/scripts/setup-doctor-smoke.mjs

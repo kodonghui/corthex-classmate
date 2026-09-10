@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://schemas.corthex.dev/classmate/core-tools.schema.json",
   "title": "CoreTools",
-  "description": "classmate-core mcp 가 내놓는 MCP 툴 7개의 와이어 이름과 입력·출력 모양입니다. 와이어 이름은 밑줄 형태(kickoff 의 점 표기 moment.latest 는 x-logical-names 에 대응)이며 입력 열쇠는 인수인계 §4.5 그대로 snake_case, 출력 레코드는 다른 계약처럼 camelCase 입니다. 이미지는 출력 JSON 이 아니라 MCP image content 로 따로 갑니다.",
+  "description": "classmate-core mcp 가 내놓는 MCP 툴 9개의 와이어 이름과 입력·출력 모양입니다. 기존 7개에 공부 화면 열기·갱신을 추가합니다. 입력은 snake_case, 출력은 camelCase이며 이미지는 MCP image content로 별도 전달합니다.",
   "type": "object",
   "properties": {},
   "additionalProperties": false,
@@ -13,7 +13,9 @@
     "transcript_recent",
     "session_log",
     "session_summary",
-    "core_status"
+    "core_status",
+    "study_open",
+    "study_refresh"
   ],
   "x-logical-names": {
     "moment_latest": "moment.latest",
@@ -22,9 +24,31 @@
     "transcript_recent": "transcript.recent",
     "session_log": "session.log",
     "session_summary": "session.summary",
-    "core_status": "core.status"
+    "core_status": "core.status",
+    "study_open": "study.open",
+    "study_refresh": "study.refresh"
   },
   "definitions": {
+    "StudyOpenInput": {"$ref":"#/definitions/StudyPanelInput"},
+    "StudyOpenOutput": {"$ref":"#/definitions/StudyPanelOutput"},
+    "StudyRefreshInput": {"$ref":"#/definitions/StudyPanelInput"},
+    "StudyRefreshOutput": {"$ref":"#/definitions/StudyPanelOutput"},
+    "StudyPanelInput": {
+      "type":"object", "properties":{}, "additionalProperties":false
+    },
+    "StudyPanelOutput": {
+      "description":"학습 패널 초기/갱신 스냅샷. 로컬 최신 전사 200개·문답 100개. 폴링이 모델 답변·화면 캡처를 시작하지 않는다.",
+      "type":"object",
+      "properties": {
+        "bundleName":{"type":"string"},
+        "paragraphs":{"type":"array","maxItems":200,"items":{"$ref":"core-paragraph.schema.json"}},
+        "recentQa":{"type":"array","maxItems":100,"items":{"$ref":"core-qa-entry.schema.json"}},
+        "status":{"$ref":"#/definitions/CoreStatusOutput"},
+        "paragraphLimit":{"const":200}, "qaLimit":{"const":100}
+      },
+      "required":["bundleName","paragraphs","recentQa","status","paragraphLimit","qaLimit"],
+      "additionalProperties":false
+    },
     "MomentLatestInput": {
       "title": "MomentLatestInput",
       "description": "moment_latest 의 입력입니다. 사용자가 방금 Alt+S 를 눌렀거나 \"방금 화면\"·\"이거\" 라고 가리킬 때 부릅니다.",

@@ -62,6 +62,51 @@ fn lifecycle_errors_and_notifications() {
 }
 
 #[test]
+fn panel_resource_is_bounded_and_read_only_snapshot_preserves_old_notes() {
+    let mut s = server();
+    init(&mut s);
+    let resources = s.dispatch(req("resources/list", json!({}))).unwrap();
+    assert_eq!(resources["result"]["resources"][0]["uri"], panel::URI);
+    let html = s
+        .dispatch(req("resources/read", json!({"uri":panel::URI})))
+        .unwrap();
+    assert_eq!(
+        html["result"]["contents"][0]["mimeType"],
+        "text/html;profile=mcp-app"
+    );
+    assert_eq!(
+        s.dispatch(req("resources/read", json!({"uri":"file:///private"})))
+            .unwrap()["error"]["code"],
+        -32002
+    );
+    let bundle = s.store.current_bundle().unwrap().id;
+    let p = Paragraph {
+        uuid: "old-paragraph".into(),
+        note_guid: "test".into(),
+        text: "오래된 녹음도 읽습니다".into(),
+        summary_md: None,
+        time_from: "2020-01-01T00:00:00Z".into(),
+        time_to: "2020-01-01T00:01:00Z".into(),
+        locked: true,
+    };
+    s.store.upsert_paragraphs(bundle, &[p]).unwrap();
+    for name in ["study_open", "study_refresh"] {
+        let result = call(&mut s, name, json!({}));
+        assert_eq!(
+            result["result"]["structuredContent"]["paragraphs"][0]["uuid"],
+            "old-paragraph"
+        );
+        assert_eq!(result["result"]["structuredContent"]["paragraphLimit"], 200);
+        assert_eq!(
+            call(&mut s, name, json!({"extra":true}))["error"]["code"],
+            -32602
+        );
+    }
+    assert_eq!(s.store.moment_count(bundle).unwrap(), 0);
+    assert_eq!(s.store.qa_count(bundle).unwrap(), 0);
+}
+
+#[test]
 fn schemas_validate_all_known_inputs_without_side_effects() {
     let mut s = server();
     init(&mut s);

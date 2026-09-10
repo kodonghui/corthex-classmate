@@ -166,6 +166,20 @@ pub struct Store {
 }
 
 impl Store {
+    /// 진단 전용. DB·표·묶음을 만들거나 보존 정리를 하지 않는다.
+    pub fn open_readonly(data_dir: impl AsRef<Path>) -> Result<Self> {
+        let data_dir = data_dir.as_ref().to_path_buf();
+        let connection = Connection::open_with_flags(
+            paths::database_file(&data_dir),
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        )?;
+        connection.busy_timeout(BUSY_TIMEOUT)?;
+        Ok(Self {
+            data_dir,
+            connection,
+        })
+    }
+
     /// `<data_dir>/core.sqlite` 를 열거나 만든다. 폴더가 없으면 만든다. 묶음이 하나도 없으면
     /// `default_bundle_name` 으로 하나 만든다.
     pub fn open(data_dir: impl AsRef<Path>, default_bundle_name: &str) -> Result<Self> {
