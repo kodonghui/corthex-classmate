@@ -1,5 +1,12 @@
 # 결정 기록
 
+## 2026-09-10 (8) — 중단 구현 인수와 MCP 프로토콜·학습 스킬
+
+- 사용자 최신 요청으로 Codex가 같은 main에서 (5)~(6)을 이어간다. 기존 (4)의 순수 Rust/Win32 의존성 결정을 유지하고 MCP 2025-06-18의 초기화→initialized→tools, JSONL stdio, 프로토콜 오류와 isError 도구 실패를 구분한다. 공식 근거: https://modelcontextprotocol.io/specification/2025-06-18/basic/lifecycle · https://modelcontextprotocol.io/specification/2025-06-18/server/tools .
+- 도구 스키마는 이미 동결된 core-tools 계약을 사용한다. session_summary는 저장 원문과 근거를 돌려주고 용어·서술 요약은 AI가 담당한다. 이를 자동 요약 생성기라고 표시하지 않는다. 새 의존성/추론 API/클라우드 저장을 추가하지 않는다.
+- 앱이 스킬을 발견하지 못해도 학습 정책을 받을 수 있도록 동일 SKILL.md를 MCP initialize.instructions로 전달한다. 이는 모델의 호출을 기술적으로 강제하지 않으므로 실제 Claude Chat/Code 관문은 따로 둔다. 플러그인 .mcp.json은 repo-local --plugin-dir 사용 전용이며 marketplace 이동 설치는 2단계에서 패키징한다.
+- 데몬 자동 시작은 기존 계획대로 유지하되 --no-daemon으로 독립 시험을 가능하게 했다. 표준 출력은 JSON만, 오류에는 원문·키·파일 경로를 반사하지 않는다. UI/Send to AI/블로그 기능을 이번 1단계로 확장하지 않는다.
+
 ## 2026-09-10 (7) — 캡처 · 단축키 · 트레이는 전부 `windows 0.58` 직접 호출 · 데몬은 스레드 3개 + SQLite 연결 3개
 
 - 결정 1(픽셀): 창이면 `PrintWindow(PW_RENDERFULLCONTENT)` 를 먼저 쓰고, 실패하거나 표본 픽셀이 전부 검으면(GPU 창을 못 그린 신호) 화면 DC `BitBlt(SRCCOPY|CAPTUREBLT)` 로 같은 사각형을 찍는다. 창은 DWM 확장 프레임(`DWMWA_EXTENDED_FRAME_BOUNDS`) 기준으로 잘라 그림자 · 보이지 않는 테두리를 뺀다. 창이 없으면 주 모니터 왼쪽 절반(`capture.fallback = left-half`). 데몬은 시작할 때 Per-Monitor V2 DPI 인식을 켜서 창 좌표 · 화면 좌표 · 픽셀이 한 좌표계(물리 픽셀)가 되게 한다. Windows.Graphics.Capture 는 2단계 이후.

@@ -146,3 +146,8 @@ jobs:
       # 갈래 넷(vitest · cargo · cargo-core · node --test)을 돌고 갈래별 건수를 찍습니다.
       - name: 시험 네 갈래
         run: pnpm test
+
+      - name: Core MCP stdio 왕복 (격리 데이터 · 실제 Tiro 호출 없음)
+        run: |
+          cargo build --manifest-path apps/core/Cargo.toml
+          node apps/core/scripts/mcp-roundtrip.mjs

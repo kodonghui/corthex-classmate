@@ -8,14 +8,20 @@
 | 명령 | 하는 일 | 상태 |
 |---|---|---|
 | `classmate-core` | 트레이 상주 데몬 — Tiro 폴링 · 변화 감지 타임라인 · Alt+S · 보존 정리 · heartbeat | 있음 (4) |
-| `classmate-core mcp` | stdio MCP 서버(앱마다 하나) — 툴 7개 | 커밋 (5) |
+| `classmate-core mcp` | stdio MCP 서버(앱마다 하나) — 툴 7개 · 데몬 자동 시작 | 있음 (5) |
 | `classmate-core setup --key-file <경로>` | 파일의 키(`keyId.secret`)를 검사 → `/workspaces/me` 확인 → 자격 증명 관리자 저장 | 있음 (3) |
 | `classmate-core setup --check` | 저장된 키로 워크스페이스 · 노트 · 문단 수 확인(비밀값 · 본문 없음) | 있음 (3) |
 | `classmate-core setup --delete-key` | 저장된 키 지우기 | 있음 (3) |
 | `classmate-core setup` (인자 없음) | 숨김 콘솔 입력 · 캡처 창 선택 · `--claude-desktop` 설정 병합 | 커밋 (6) |
 | `classmate-core doctor` | 연결 · 키 있음/없음 · 노트 · 캡처 창 · 표 건수(비밀값 없음) | 커밋 (6) |
 
-지금(커밋 (4))은 골격 · 설정 · SQLite 저장소 · Tiro 클라이언트/폴러/자격 증명 · `setup` 세 갈래 · 데몬(캡처 · Alt+S · 트레이)까지 있고, mcp · doctor 는 "아직 만들지 않았다" 로 끝납니다.
+지금(커밋 (5))은 MCP 도구와 학습 스킬까지 연결되어 있습니다. 대화형 setup·doctor·Desktop 연결은 (6)에서 이어집니다. 1단계는 이미지 content와 텍스트 도구만 제공하며 인라인 전사 패널·그림 UI는 아직 없습니다.
+
+### MCP 연결과 자동 시험
+
+저장소 루트 `.mcp.json`은 기존 Tiro 항목을 보존하고 `classmate`를 추가합니다. 먼저 `cargo build --release --manifest-path apps/core/Cargo.toml`로 실행 파일을 만들고 Claude Code를 이 저장소에서 새로 시작해 MCP 연결을 승인합니다. 초기화 응답이 스킬과 같은 학습 지침을 제공합니다. `/classmate:classmate`를 명시적으로 쓸 때는 `claude --plugin-dir ./plugins/classmate`로 이 저장소 안 플러그인을 로드합니다. 이 플러그인은 아직 마켓플레이스 독립 설치용이 아닙니다.
+
+`node apps/core/scripts/mcp-roundtrip.mjs`는 debug exe를 실제로 실행해 7개 도구·이미지·출력 계약·SQLite 재시작 복원을 검사합니다. 임시 DB, 합성 문단, 16px 캡처를 쓰고 `mcp --no-daemon`으로 Tiro/상주 수집을 시작하지 않습니다. 마지막 인자로 release exe를 주어 동일 검사할 수 있습니다. 테스트 임시 자료는 OS 임시 폴더에 남고 실제 학습 폴더는 읽지 않습니다.
 
 ### 데몬 띄우기
 

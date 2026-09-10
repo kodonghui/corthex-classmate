@@ -52,10 +52,34 @@ pub fn finish_moment(
     shot: Capture,
     started: Instant,
 ) -> Result<TakenMoment> {
+    finish_moment_with_paragraph(store, config, bundle_id, source, note, shot, started, None)
+}
+
+/// Tool callers may pin an existing paragraph; validate it before capturing.
+#[allow(clippy::too_many_arguments)]
+pub fn finish_moment_with_paragraph(
+    store: &Store,
+    config: &Config,
+    bundle_id: i64,
+    source: &str,
+    note: Option<String>,
+    shot: Capture,
+    started: Instant,
+    selected: Option<crate::store::Paragraph>,
+) -> Result<TakenMoment> {
     let frame = capture::store_capture(store, bundle_id, &shot, &config.capture, source)?;
     let now_ms = shot.captured_at_ms;
-    let last = store.last_paragraph(bundle_id)?;
-    let transcript_window = store.recent_paragraphs(bundle_id, TRANSCRIPT_WINDOW_MS, now_ms)?;
+    let explicitly_selected = selected.is_some();
+    let last = match selected {
+        Some(p) => Some(p),
+        None => store.last_paragraph(bundle_id)?,
+    };
+    let mut transcript_window = store.recent_paragraphs(bundle_id, TRANSCRIPT_WINDOW_MS, now_ms)?;
+    if let Some(p) = &last {
+        if explicitly_selected && !transcript_window.iter().any(|item| item.uuid == p.uuid) {
+            transcript_window.push(p.clone());
+        }
+    }
     let recent_qa = store.recent_qa(bundle_id, RECENT_QA)?;
     let moment = store.insert_moment(&NewMoment {
         bundle_id,

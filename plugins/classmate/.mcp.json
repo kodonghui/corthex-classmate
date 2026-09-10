@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "classmate": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/../../apps/core/target/release/classmate-core.exe",
+      "args": ["mcp"]
+    }
+  }
+}

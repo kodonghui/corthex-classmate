@@ -1,5 +1,12 @@
 # 작업 기록
 
+## 2026-09-10 — Codex 인수 · 커밋 (5) MCP와 학습 스킬
+
+- 사용자가 제공한 Claude 중단 기록, kickoff-v0.3, 인수인계, Notion 재설계 1~8차와 실제 Git 58674f5를 대조했다. cse 세션 원문에 직접 접근하는 도구/파일은 찾지 못했으므로 세션을 읽었다고 주장하지 않는다. (1)~(4)는 이미 origin/main에 게시되어 반복하지 않았다. report-worker 6파일과 기존 설치·학습 자료는 보존했다.
+- MCP JSONL 초기화/버전 협상/알림/7도구/오류/EOF, 요청 1MiB 경계, 데몬 자동 시작과 시험용 --no-daemon을 구현했다. 기존 core-tools 계약에서 inputSchema를 읽어 광고·검증한다. moment_capture의 명시 문단은 캡처 전에 존재를 확인한다. 화면·전사·문답을 모델이 읽는 정책은 플러그인 스킬과 initialize.instructions에 같은 원본을 넣었다.
+- 검증: cargo test 86 통과, clippy --all-targets -D warnings 통과, fmt 통과. mcp-roundtrip.mjs는 실제 exe의 7도구를 호출하고 Ajv로 모든 출력 계약을 검증했다. GDI 16px 시험 캡처의 image content, 잘못된 입력·없는 참조, DB 재오픈 뒤 문답 복원 통과. 가짜 문단·격리 DB만 사용했고 실제 모델 추론/사용자 Tiro 수집은 하지 않았다.
+- 남은 것: (6) setup/doctor와 Desktop 설정. 기존 키 인증 성공·노트 0개 문제는 미해결이며 실수업 관문을 완료로 표시하지 않는다. Notion 기존 재설계 문서에 재개 상태를 기록했다.
+
 ## 2026-09-08 — 0.1.6 배포·현재 PC 적용 완료
 
 - 빌드 0.1.6+g24b568576fd4. 확장 891개·타입 검사, 실제 Chromium 설정/로그인 모의 흐름 및 정상 수업 화면의 연결 영역 없음 확인. ZIP 숨김 AppData 설치·속성 보존·도우미 응답 검증 통과.

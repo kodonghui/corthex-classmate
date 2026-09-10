@@ -1,5 +1,9 @@
 {
   "mcpServers": {
+    "classmate": {
+      "command": "./apps/core/target/release/classmate-core.exe",
+      "args": ["mcp"]
+    },
     "tiro": {
       "type": "http",
       "url": "https://mcp.tiro.ooo/mcp"
