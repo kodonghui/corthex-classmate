@@ -605,3 +605,15 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 - 문서 확인: docs.tiro.ooo/openapi.yaml — notes query `cursor · size(기본 100 · 최대 200) · keyword · folderId · createdAtFrom/To`, `/workspaces` 응답 `{workspaces:[…]}`(실측 일치), 계정 키는 "닿는 모든 워크스페이스" 권한. `paragraphs` 는 그 spec 에 없음(실측 경로 유지).
 - 고친 실수: `Page` 구조체에 `rename_all = "camelCase"` 를 빠뜨려 `nextCursor` 가 안 읽혔다(페이지네이션 시험이 잡음). `/workspaces` 를 `content` 로만 찾아 목록이 비었다 → `workspaces` 열쇠 우선.
 - 다음: 커밋 (4) 캡처(GDI) · dHash 타임라인 · Alt+S · 트레이 · 보존 정리 + 데몬에 폴러 스레드 연결.
+
+# 2026-09-10 (밤 3) — 커밋 (4): 캡처 · dHash 타임라인 · Alt+S · 트레이 · 데몬
+
+- 만든 것: `apps/core/src/capture/{window,gdi,dhash,encode,moment}.rs` · `src/daemon/{mod,single_instance,hotkey,tray,timeline,poll}.rs`. 창 찾기(EnumWindows · 보이는 · 최소화 아님 · DWM cloaked 아님 · 제목에 "Chrome" · 가장 큰) → `PrintWindow` → 검으면 `BitBlt` → 9×8 dHash → WebP 무손실/JPEG q80 → `frames`. 데몬은 뮤텍스 → 숨은 창 → `RegisterHotKey` → `Shell_NotifyIconW` → 메시지 루프, 스레드 `timeline`(1초 · heartbeat 5초 · 보존 정리 1시간) · `tiro-poll`(키 없으면 10초마다 재시도). `Cargo.toml` 에 `Win32_Storage_Xps`(PrintWindow) 추가.
+- 시험: `cargo test` 80/80 · clippy 0 · fmt 0. dHash(같은 장면 0 · 기울기 64 · 임계값) · 인코딩(auto→webp/jpg 전환 · 긴 변 제한 · 바이트 서명 일치) · 화면 BitBlt 24×16 · 창 없음 → 폴백 · 캡처→frames 저장 · `take_moment`(마지막 문단 · 60초 창 · 문답 3 · referenced · status) · 단축키 파싱(Alt+S · Ctrl+Shift+F9 · 거절) · 뮤텍스 두 번 · `Decider` · 타임라인 tick(같은 화면 1장만) · 트레이 `fill`.
+- 실측(release · 주 모니터 2560×1440 · Chrome 창 없어 왼쪽 절반 1280×1440 · 텍스트 화면):
+  - 타임라인 한 장: 창 찾기+BitBlt+BGRA→RGBA+dHash **25~32ms**(debug 빌드는 112~167ms). WebP 무손실은 늘 200KB 를 넘어 **JPEG q80 263~288KB** 로 저장됐다(`capture.webp_switch_bytes` 기본값에서 이 크기의 텍스트 화면은 항상 JPEG).
+  - Alt+S 경로(`WM_HOTKEY` 를 창에 직접 post 해 확인): **픽셀까지 26~31ms · 저장(JPEG 인코딩 + moments 삽입)까지 119~120ms** · `moments` 2건 · 프레임 `referenced=1` · `hotkey.last_capture_ms=31`. 목표 "픽셀 100ms 이내" 는 만족, 저장까지는 120ms(인코딩이 90ms).
+  - 단축키 등록 `hotkey.state=registered` · 두 번째 실행은 "이미 실행 중" 으로 종료 0 · 폴러 `tiro.state=connected`(노트 0개는 (3)과 같음) · heartbeat 갱신.
+  - 합성 키 입력(`SendKeys('%s')` · `keybd_event`)은 단축키를 울리지 못했다 — 도구 샌드박스에서 보낸 입력이 UIPI 에 막힌 것으로 본다(같은 스크립트의 `PostMessage` 는 됐다). **실제 키보드 Alt+S · 트레이 아이콘 · 풍선은 사용자 확인(§4.9-3)** 이 필요하다.
+- 부작용: 시험 실행으로 실제 데이터 폴더(`%LOCALAPPDATA%\CorthexClassmate\core`)에 타임라인 프레임 9장(JPEG · 약 2.4MB)과 순간 2건이 남았다. 미참조 프레임은 7일 뒤 보존 정리가 지우고, 순간에 묶인 2장은 남는다. 지우고 싶으면 폴더째 지워도 된다(데몬 · 설정만 다시 만들어짐).
+- 다음: 커밋 (5) MCP stdio 서버(툴 7개 · `core-tools.schema.json`) + `plugins/classmate` 스킬 + 루트 `.mcp.json` `classmate` 항목 + `scripts/mcp-roundtrip.mjs`.

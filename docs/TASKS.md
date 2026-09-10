@@ -10,7 +10,7 @@
   - [x] (2) `apps/core` 골격(독립 Cargo 워크스페이스) + 계약(`packages/contracts` 코어 스키마 5종) + SQLite 저장소 (2026-09-10 밤 · cargo test 34 · clippy 0 · contracts 103 · DECISIONS (4)(5))
   - [x] (3) Tiro 공식 API 클라이언트(WinHTTP) + 폴러 + 자격 증명 + `setup --key-file/--check/--delete-key` + 가짜 서버 시험(페이지네이션·upsert·노트 전환·401/404) (2026-09-10 밤 · cargo test 52 · DECISIONS (6))
   - [!] 대기 §4.9-1 실제 확인 — 키는 자격 증명 관리자에 저장됐고 `/workspaces/me` 200. 그런데 그 키의 워크스페이스("고동희's Workspace")에 **노트가 0개**(`/workspaces/{guid}/notes` · 옛 `/notes` · `createdAtFrom` 모두 0). 낮 13:05 실측 때의 키·계정과 같은지 사용자 확인 필요 → 아래 "대기" 항목
-  - [ ] (4) 캡처(GDI)·dHash 타임라인·Alt+S·트레이·보존 정리
+  - [x] (4) 캡처(GDI PrintWindow→BitBlt) · 9×8 dHash 타임라인 · Alt+S(RegisterHotKey) · 트레이(Shell_NotifyIconW · 메뉴 6항목 · 풍선) · 단일 실행 뮤텍스 · 스레드 3(메시지 루프 · timeline · poll) · heartbeat · 보존 정리 (2026-09-10 밤 · cargo test 80 · DECISIONS (7) · 실측은 WORKLOG)
   - [ ] (5) MCP stdio 서버(툴 7개) + `plugins/classmate` 스킬 + 루트 `.mcp.json`
   - [ ] (6) `setup`/`doctor` · Claude Desktop config 병합 · README
   - [!] 대기 §4.9 실제 확인 1~5 — 사용자가 순서대로 한 번에 하나씩(키 setup → 데몬 문단 수 → Alt+S → Claude Code 질문 → Claude Desktop Chat)

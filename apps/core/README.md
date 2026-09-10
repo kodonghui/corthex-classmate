@@ -7,7 +7,7 @@
 
 | 명령 | 하는 일 | 상태 |
 |---|---|---|
-| `classmate-core` | 트레이 상주 데몬 — Tiro 폴링 · 변화 감지 타임라인 · Alt+S · 보존 정리 | 커밋 (3)(4) |
+| `classmate-core` | 트레이 상주 데몬 — Tiro 폴링 · 변화 감지 타임라인 · Alt+S · 보존 정리 · heartbeat | 있음 (4) |
 | `classmate-core mcp` | stdio MCP 서버(앱마다 하나) — 툴 7개 | 커밋 (5) |
 | `classmate-core setup --key-file <경로>` | 파일의 키(`keyId.secret`)를 검사 → `/workspaces/me` 확인 → 자격 증명 관리자 저장 | 있음 (3) |
 | `classmate-core setup --check` | 저장된 키로 워크스페이스 · 노트 · 문단 수 확인(비밀값 · 본문 없음) | 있음 (3) |
@@ -15,7 +15,17 @@
 | `classmate-core setup` (인자 없음) | 숨김 콘솔 입력 · 캡처 창 선택 · `--claude-desktop` 설정 병합 | 커밋 (6) |
 | `classmate-core doctor` | 연결 · 키 있음/없음 · 노트 · 캡처 창 · 표 건수(비밀값 없음) | 커밋 (6) |
 
-지금(커밋 (3))은 골격 · 설정 · SQLite 저장소 · Tiro 클라이언트/폴러/자격 증명 · `setup` 세 갈래까지 있고, 데몬 · mcp · doctor 는 "아직 만들지 않았다" 로 끝납니다.
+지금(커밋 (4))은 골격 · 설정 · SQLite 저장소 · Tiro 클라이언트/폴러/자격 증명 · `setup` 세 갈래 · 데몬(캡처 · Alt+S · 트레이)까지 있고, mcp · doctor 는 "아직 만들지 않았다" 로 끝납니다.
+
+### 데몬 띄우기
+
+```powershell
+classmate-core            # 콘솔에 로그가 남는다. 트레이 아이콘 오른쪽 클릭 → 상태 · 지금 붙잡기 · 연속 캡처 · 설정 확인 · 데이터 폴더 · 종료
+# Alt+S = 지금 화면 + 직전 60초 전사 + 최근 문답 3개 → moments · 트레이 풍선 "붙잡았어요"
+# 종료: 트레이 메뉴 "종료" 또는 콘솔 Ctrl+C. 두 번째 실행은 "이미 실행 중" 으로 바로 끝난다.
+```
+
+타임라인은 `timeline.enabled`(기본 켬)일 때 약 1초마다 찍어 dHash 가 `timeline.dhash_threshold`(10/64) 이상 다른 장면만 남깁니다. 찍는 대상은 제목에 `capture.window_title_contains`("Chrome")가 든 가장 큰 창, 없으면 `capture.fallback`("left-half")입니다.
 
 ### Tiro 키 넣기
 
@@ -52,8 +62,8 @@ src/clock.rs       RFC3339 ↔ epoch ms (native-host 것을 그대로 복사)
 src/error.rs       CoreError (경로 · 키 없는 문구)
 src/store/         SQLite: mod(열기 · 묶음 · status) · paragraphs · frames(파일 + 보존 정리) · moments · qa
 src/tiro/          http(WinHTTP GET) · client(/workspaces · /notes · /paragraphs) · poller(노트 추적 · upsert) · credential(CredRead/WriteW) · fake(시험용 HTTP 스텁)
-src/capture/       (4) 창 찾기 · GDI · dHash · WebP/JPEG
-src/daemon/        (4) 트레이 · 단축키 · 스레드
+src/capture/       window(창 찾기 · 폴백 영역) · gdi(PrintWindow → BitBlt) · dhash · encode(WebP→JPEG) · moment(순간 묶기)
+src/daemon/        mod(메시지 루프 · 창 프로시저) · single_instance(뮤텍스) · hotkey · tray(Shell_NotifyIconW) · timeline(스레드) · poll(스레드)
 src/mcp/           (5) JSON-RPC stdio
 src/setup.rs       --key-file · --check · --delete-key (인자 없는 대화형은 (6))
 src/doctor.rs      (6)

@@ -1,5 +1,14 @@
 # 결정 기록
 
+## 2026-09-10 (7) — 캡처 · 단축키 · 트레이는 전부 `windows 0.58` 직접 호출 · 데몬은 스레드 3개 + SQLite 연결 3개
+
+- 결정 1(픽셀): 창이면 `PrintWindow(PW_RENDERFULLCONTENT)` 를 먼저 쓰고, 실패하거나 표본 픽셀이 전부 검으면(GPU 창을 못 그린 신호) 화면 DC `BitBlt(SRCCOPY|CAPTUREBLT)` 로 같은 사각형을 찍는다. 창은 DWM 확장 프레임(`DWMWA_EXTENDED_FRAME_BOUNDS`) 기준으로 잘라 그림자 · 보이지 않는 테두리를 뺀다. 창이 없으면 주 모니터 왼쪽 절반(`capture.fallback = left-half`). 데몬은 시작할 때 Per-Monitor V2 DPI 인식을 켜서 창 좌표 · 화면 좌표 · 픽셀이 한 좌표계(물리 픽셀)가 되게 한다. Windows.Graphics.Capture 는 2단계 이후.
+- 결정 2(변화 감지 · 인코딩): 9×8 그레이스케일 dHash(64비트) · 해밍 거리 ≥ `timeline.dhash_threshold`(10) 이면 새 장면. 인코딩은 `image 0.25` 순수 Rust — WebP 무손실을 먼저 만들고 `capture.webp_switch_bytes`(200KB)를 넘으면 JPEG q80. 실측(1280×1440 텍스트 화면)은 WebP 무손실이 늘 200KB 를 넘어 JPEG(230~265KB)로 저장됐다(WORKLOG). 긴 변은 `capture.max_edge`(1920)로 줄인다.
+- 결정 3(트레이 · 단축키): `tray-icon` · `muda` · `global-hotkey` 크레이트는 raw-dylib 갈래(windows-sys 0.6x)라 못 쓴다(2026-09-10 (4)). 그래서 숨은 창 하나(`WS_EX_TOOLWINDOW` · 보이지 않음)를 만들어 `RegisterHotKey(MOD_ALT|MOD_NOREPEAT, 'S')` 와 `Shell_NotifyIconW`(기본 응용 프로그램 아이콘 — 리소스 컴파일러 없음) 를 그 창에 붙이고 Win32 메시지 루프를 주 스레드가 돈다. 메뉴는 `CreatePopupMenu` + `TrackPopupMenu(TPM_RETURNCMD)` 로 6항목(상태 · 지금 붙잡기 · 연속 캡처 켬/끔 · 설정 확인 열기 · 데이터 폴더 열기 · 종료). "설정 열기" 는 1단계에서 `cmd /k classmate-core setup --check` 새 콘솔이다(대화형 setup 은 (6)). 단축키 등록이 실패해도(다른 앱이 Alt+S 를 잡음) 데몬은 뜨고 `hotkey.state = failed` 로 남기며 메뉴 "지금 붙잡기" 로 대신한다.
+- 결정 4(프로세스 구조): 단일 실행은 `Local\CorthexClassmateCore` 뮤텍스(두 번째 실행은 한 줄 찍고 종료 0). 스레드는 셋 — 주 스레드(메시지 루프 · Alt+S → `capture::take_moment`), `timeline`(1초 캡처 · heartbeat 5초 · 보존 정리 1시간), `tiro-poll`(자격 증명 읽기 → `Poller::run` · 키 없으면 10초마다 다시 읽어 데몬을 띄운 채 `setup --key-file` 을 해도 이어짐). 각 스레드가 `Store`(SQLite 연결)를 하나씩 열고 WAL + busy_timeout 으로만 조율한다(`Connection` 은 `Sync` 가 아님). 창 프로시저의 상태는 `thread_local!` + `try_borrow_mut` — 메뉴 모달 루프 중 들어온 단축키는 건너뛴다. 콘솔 Ctrl+C 는 `SetConsoleCtrlHandler` 가 `WM_CLOSE` 로 바꿔 트레이 아이콘 · 단축키를 정리하고 끝낸다.
+- 결정 5(순간의 내용물): Alt+S 한 번 = 프레임 1장(source `hotkey`) + 마지막 문단 uuid + 직전 60초에 걸친 문단들 + 최근 문답 3개(시간순) + `capture_ms`(픽셀까지 ms) → `moments` 한 줄, 프레임은 같은 트랜잭션에서 `referenced` 로 표시된다(보존 정리 제외). 같은 함수 `capture::take_moment` 를 (5)의 `moment_capture` 툴이 `source = tool` 로 부른다.
+- 근거: 인수인계 §4.4 · §4.7 의 제안 그대로이되 크레이트 선택만 환경 제약(C 컴파일러 없음)으로 바꿨다. 실측 수치는 문서에 손으로 적지 않고 WORKLOG 에만 둔다(`docs/architecture.md` 머리말).
+
 ## 2026-09-10 (6) — Tiro 폴링은 "전체 다시 받기 + uuid upsert" · 키는 파일 → 자격 증명 관리자로만(`setup --key-file`)
 
 - 결정 1(폴링): 한 번의 폴링은 따라가는 노트의 문단을 `?size=1000` 으로 처음부터 끝까지(`nextCursor` 가 `null` 일 때까지) 다시 받아 `uuid` 기준 upsert 한다. 증분(마지막 커서부터) 폴링은 **하지 않는다**. 새 문단 · 갱신이 있으면 3초, 없으면 1초씩 5초까지 늘린다. 노트 목록은 30초마다 다시 읽어 녹음 중 노트로 자동 전환한다(같은 묶음에 이어 쌓음).
