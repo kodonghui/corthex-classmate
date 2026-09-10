@@ -1,5 +1,13 @@
 # 결정 기록
 
+## 2026-09-10 (6) — Tiro 폴링은 "전체 다시 받기 + uuid upsert" · 키는 파일 → 자격 증명 관리자로만(`setup --key-file`)
+
+- 결정 1(폴링): 한 번의 폴링은 따라가는 노트의 문단을 `?size=1000` 으로 처음부터 끝까지(`nextCursor` 가 `null` 일 때까지) 다시 받아 `uuid` 기준 upsert 한다. 증분(마지막 커서부터) 폴링은 **하지 않는다**. 새 문단 · 갱신이 있으면 3초, 없으면 1초씩 5초까지 늘린다. 노트 목록은 30초마다 다시 읽어 녹음 중 노트로 자동 전환한다(같은 묶음에 이어 쌓음).
+- 근거: 진행 중 문단(`locked=false`)은 내용 · `timeTo` 가 바뀌어 돌아오는데, Tiro `nextCursor` 가 "마지막 항목 뒤" 를 가리키는지 · 같은 커서로 다시 부르면 갱신분이 오는지 실측하지 않았다. 전체 재수신은 어떤 커서 의미에서도 맞고, 한 수업(문단 8~34초 · 시간당 100~450개)이면 응답 수백 KB · 키당 600req/60s 안에서 3~5초 주기가 넉넉하다. 커서 의미를 실측하면 증분으로 바꾼다(인수인계 §8).
+- 결정 2(키 경로): 사용자가 키를 파일로 준 경우(오늘 `Desktop\tiro-api.txt`) `classmate-core setup --key-file <경로>` 가 파일의 첫 줄을 읽어 모양(`keyId.secret`)을 검사하고 `/workspaces/me` 가 200 일 때만 자격 증명 관리자(`CorthexClassmate`/`tiro`, UTF-16LE 블롭)에 저장한다. 키는 채팅 · 콘솔 출력 · 로그 · 저장소 어디에도 나타나지 않는다(이 세션은 파일을 마스킹해 길이 57자만 확인했다). 커밋 단위 6 의 숨김 콘솔 입력은 같은 `setup` 에 인자 없는 갈래로 더한다.
+- 근거: 인수인계 §4.6 "키는 setup 흐름으로만" 과 사용자 지시 "바탕 화면 파일을 가져다 써" 를 함께 만족하는 길이 프로그램이 파일을 직접 읽는 것뿐이다. `cmdkey /pass` 는 명령줄에 키가 남아 쓰지 않았다.
+- 결정 3(응답 모양 실측 · 코드에 반영): `GET /workspaces` 는 `{"workspaces":[{guid,name,isWikiEnabled}]}`(docs.tiro.ooo/openapi.yaml 과 실측 일치). `GET /workspaces/{guid}/notes` 의 query 는 `cursor` · `size`(기본 100 · 최대 200) · `keyword` · `folderId` · `createdAtFrom` · `createdAtTo`. 계정 키(platform.tiro.ooo/me/api-keys)는 "사용자가 닿는 모든 워크스페이스" 권한이고 `/workspaces/me` 는 그 기본 워크스페이스다. `CLASSMATE_TIRO_TRACE=1` 이면 응답의 **모양**(상태 · 최상위 열쇠 · 배열 길이)만 stderr 로 찍는다(본문 · 키 없음).
+
 ## 2026-09-10 (5) — `packages/contracts` 에 코어 계약 `core-*` 5종 추가 (고정 스냅샷 갱신)
 
 - 결정: `core-paragraph` · `core-frame` · `core-qa-entry` · `core-moment` · `core-tools` 를 더하고 `frozen.sha256` 을 갱신했다. 기존 16종은 한 글자도 바꾸지 않았다(해시 동일). 레코드 열쇠는 다른 계약처럼 camelCase, MCP 툴 **입력** 열쇠는 인수인계 §4.5 그대로 snake_case(`max_age_sec` · `window_sec` · `paragraph_uuid` …). 와이어 이름은 밑줄(`x-tool-names`)이고 kickoff 의 점 표기는 같은 파일의 `x-logical-names` 에 나란히 둔다((2) 의 "두 이름을 함께 적는다").

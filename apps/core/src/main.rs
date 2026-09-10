@@ -45,8 +45,11 @@ fn print_usage() {
         "사용법
   classmate-core                 트레이 상주 데몬(Tiro 폴링 · 변화 감지 · Alt+S)
   classmate-core mcp             stdio MCP 서버(Claude/Codex 앱이 띄움)
-  classmate-core setup [--claude-desktop]
-                                 Tiro 키 저장 · 검증 · 캡처 창 선택 (키는 채팅에 붙이지 말고 여기서만)
+  classmate-core setup --key-file <경로>
+                                 파일의 키(keyId.secret)를 검증해 자격 증명 관리자에 저장 (키는 채팅에 붙이지 않는다)
+  classmate-core setup --check   저장된 키로 워크스페이스 · 노트 · 문단 수 확인
+  classmate-core setup --delete-key
+                                 저장된 키 지우기
   classmate-core doctor          연결 · 키 · 노트 · 창 · 데이터 폴더 상태
   classmate-core --version"
     );

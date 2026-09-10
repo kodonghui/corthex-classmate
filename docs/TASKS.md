@@ -8,7 +8,8 @@
 - [~] **코어 MVP 1단계(흐름 2)는 Claude Code(PC)에서 수행** — 인수인계 `docs/plan/core-mvp-handoff.md` §4(범위)·§4.9(완료 판단)·§9(시작 프롬프트). Cowork는 기획·기록만.
   - [x] (1) docs — kickoff 갱신분 + 인수인계 문서 + TASKS/WORKLOG/DECISIONS (2026-09-10 저녁, Claude Code 착수)
   - [x] (2) `apps/core` 골격(독립 Cargo 워크스페이스) + 계약(`packages/contracts` 코어 스키마 5종) + SQLite 저장소 (2026-09-10 밤 · cargo test 34 · clippy 0 · contracts 103 · DECISIONS (4)(5))
-  - [ ] (3) Tiro 공식 API 클라이언트 + 가짜 서버 시험(페이지네이션·upsert·노트 전환·401/404)
+  - [x] (3) Tiro 공식 API 클라이언트(WinHTTP) + 폴러 + 자격 증명 + `setup --key-file/--check/--delete-key` + 가짜 서버 시험(페이지네이션·upsert·노트 전환·401/404) (2026-09-10 밤 · cargo test 52 · DECISIONS (6))
+  - [!] 대기 §4.9-1 실제 확인 — 키는 자격 증명 관리자에 저장됐고 `/workspaces/me` 200. 그런데 그 키의 워크스페이스("고동희's Workspace")에 **노트가 0개**(`/workspaces/{guid}/notes` · 옛 `/notes` · `createdAtFrom` 모두 0). 낮 13:05 실측 때의 키·계정과 같은지 사용자 확인 필요 → 아래 "대기" 항목
   - [ ] (4) 캡처(GDI)·dHash 타임라인·Alt+S·트레이·보존 정리
   - [ ] (5) MCP stdio 서버(툴 7개) + `plugins/classmate` 스킬 + 루트 `.mcp.json`
   - [ ] (6) `setup`/`doctor` · Claude Desktop config 병합 · README

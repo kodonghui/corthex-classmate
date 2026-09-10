@@ -9,10 +9,24 @@
 |---|---|---|
 | `classmate-core` | 트레이 상주 데몬 — Tiro 폴링 · 변화 감지 타임라인 · Alt+S · 보존 정리 | 커밋 (3)(4) |
 | `classmate-core mcp` | stdio MCP 서버(앱마다 하나) — 툴 7개 | 커밋 (5) |
-| `classmate-core setup` | Tiro 키 입력(숨김) → 자격 증명 관리자 · 캡처 창 선택 · `--claude-desktop` 설정 병합 | 커밋 (6) |
+| `classmate-core setup --key-file <경로>` | 파일의 키(`keyId.secret`)를 검사 → `/workspaces/me` 확인 → 자격 증명 관리자 저장 | 있음 (3) |
+| `classmate-core setup --check` | 저장된 키로 워크스페이스 · 노트 · 문단 수 확인(비밀값 · 본문 없음) | 있음 (3) |
+| `classmate-core setup --delete-key` | 저장된 키 지우기 | 있음 (3) |
+| `classmate-core setup` (인자 없음) | 숨김 콘솔 입력 · 캡처 창 선택 · `--claude-desktop` 설정 병합 | 커밋 (6) |
 | `classmate-core doctor` | 연결 · 키 있음/없음 · 노트 · 캡처 창 · 표 건수(비밀값 없음) | 커밋 (6) |
 
-지금(커밋 (2))은 골격 · 설정 · SQLite 저장소까지 있고, 데몬 · mcp · setup · doctor 는 "아직 만들지 않았다" 로 끝납니다.
+지금(커밋 (3))은 골격 · 설정 · SQLite 저장소 · Tiro 클라이언트/폴러/자격 증명 · `setup` 세 갈래까지 있고, 데몬 · mcp · doctor 는 "아직 만들지 않았다" 로 끝납니다.
+
+### Tiro 키 넣기
+
+```powershell
+# 키를 한 줄로 담은 파일을 만들고(예: 바탕 화면), 별도 PowerShell 창에서:
+classmate-core setup --key-file "$env:USERPROFILE\Desktop\tiro-api.txt"
+classmate-core setup --check          # 워크스페이스 이름 · 노트 수 · 문단 수
+# 저장이 끝나면 키 파일은 지웁니다. 키를 채팅에 붙이지 않습니다.
+```
+
+응답 모양이 실측과 다를 때는 `CLASSMATE_TIRO_TRACE=1` 을 켜면 상태 · 경로 · 최상위 열쇠 · 배열 길이만 stderr 로 찍힙니다(본문 · 키 없음).
 
 ## 2. 자리
 
@@ -37,11 +51,12 @@ src/config.rs      config.json (deny_unknown_fields · 없는 칸은 기본값)
 src/clock.rs       RFC3339 ↔ epoch ms (native-host 것을 그대로 복사)
 src/error.rs       CoreError (경로 · 키 없는 문구)
 src/store/         SQLite: mod(열기 · 묶음 · status) · paragraphs · frames(파일 + 보존 정리) · moments · qa
-src/tiro/          (3) WinHTTP 클라이언트 · 폴러 · 자격 증명
+src/tiro/          http(WinHTTP GET) · client(/workspaces · /notes · /paragraphs) · poller(노트 추적 · upsert) · credential(CredRead/WriteW) · fake(시험용 HTTP 스텁)
 src/capture/       (4) 창 찾기 · GDI · dHash · WebP/JPEG
 src/daemon/        (4) 트레이 · 단축키 · 스레드
 src/mcp/           (5) JSON-RPC stdio
-src/setup.rs · src/doctor.rs   (6)
+src/setup.rs       --key-file · --check · --delete-key (인자 없는 대화형은 (6))
+src/doctor.rs      (6)
 scripts/           (5) mcp-roundtrip.mjs
 ```
 

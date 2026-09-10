@@ -596,3 +596,12 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 - 실측 메모: `windows 0.58` + `image` + `rusqlite` 첫 빌드 46초(jobs 4). 시험 임시 폴더 `%TEMP%\cmcore-*` 는 Drop 에서 지운다. 인수인계 §4.2 초안 대비 더한 열: `paragraphs.time_from_ms/time_to_ms`(창 질의 색인) · `frames.captured_at_ms` · `moments.created_at_ms/source/capture_ms` · `qa_log.asked_at_ms` · `status` 표.
 - 고친 실수: 설정 시험이 "key" 글자 자체를 금지해 `hotkey.key`(단축키 글자)에 걸렸다 → 실제 비밀값 모양(`api_key` · `secret` · `bearer` · `token` · `tiro.ooo` · `http`)만 금지.
 - 다음: 커밋 (3) Tiro 공식 API 클라이언트(WinHTTP) + 폴러 + 가짜 서버 시험(페이지네이션 · upsert · 노트 전환 · 401/404).
+
+# 2026-09-10 (밤 2) — 커밋 (3): Tiro 클라이언트 · 폴러 · 자격 증명 · `setup --key-file` · 실제 키 저장
+
+- 만든 것: `apps/core/src/tiro/{http,client,credential,poller,fake}.rs` + `setup.rs`. WinHTTP GET(5/5/10/15초 타임아웃 · loopback 이면 프록시 없음 · 본문 16MB 상한) → `Client`(`workspace_me` · `workspaces` · `notes` · `paragraphs` 페이지 따라가기 · `Debug` 에서 키 가림) → `Poller::tick`(노트 선택 `select_note` · 전체 재수신 upsert · 3→5초 적응 · 401/404/오프라인을 `tiro.state` 로 · 노트 전환 시 같은 묶음) · `Poller::run`(250ms 단위 멈춤). 자격 증명은 `CredReadW/CredWriteW/CredDeleteW`(UTF-16LE 블롭 · `ERROR_NOT_FOUND` 는 없음으로). `setup --key-file <경로>` · `--check` · `--delete-key`.
+- 시험(가짜 Tiro · `std::net` HTTP/1.1 스텁 · 실제 Tiro 호출 없음): 페이지네이션(서버 상한 2 → `cursor=c2`) · Bearer 헤더 · 401/404 · 연결 불가 → `Windows` 오류(문구에 주소 · 키 없음) · 폴러 노트 전환/읽기 전용 이어가기/간격 4→5초/401→unauthorized→회복 · `run` 멈춤 · 자격 증명 왕복(시험 전용 이름 · 끝에 삭제) · 키 모양 · `TiroState` 계약 일치. `cargo test` 52/52 · clippy 0 · fmt 0.
+- 실제 키(사용자 지시 "바탕 화면 tiro-api.txt 를 가져다 써"): 파일은 마스킹해 57자 한 줄임만 봤고 키 자체는 이 세션에 찍히지 않았다. `classmate-core setup --key-file` 로 자격 증명 관리자에 저장 · `/workspaces/me` 200. `setup --check`: 워크스페이스 `고동희's Workspace` 하나(계정 키) · **노트 0개**. PowerShell 로 `?size=100` · 옛 `/notes` · `createdAtFrom=2026-01-01` 도 모두 `content:[]`, `/workspaces/{guid}/folders` 는 401. 낮 13:05 실측(`tiro-check.ps1`)이 문단을 받았으므로 **그때의 키/계정과 지금 파일의 키가 다르거나, 노트가 다른 계정(iPhone Tiro 로그인)에 있을 가능성**이 크다 → 사용자 확인 대기(TASKS `[!]`). 데몬(커밋 4)은 노트가 생기면 자동으로 따라가므로 구현은 계속한다.
+- 문서 확인: docs.tiro.ooo/openapi.yaml — notes query `cursor · size(기본 100 · 최대 200) · keyword · folderId · createdAtFrom/To`, `/workspaces` 응답 `{workspaces:[…]}`(실측 일치), 계정 키는 "닿는 모든 워크스페이스" 권한. `paragraphs` 는 그 spec 에 없음(실측 경로 유지).
+- 고친 실수: `Page` 구조체에 `rename_all = "camelCase"` 를 빠뜨려 `nextCursor` 가 안 읽혔다(페이지네이션 시험이 잡음). `/workspaces` 를 `content` 로만 찾아 목록이 비었다 → `workspaces` 열쇠 우선.
+- 다음: 커밋 (4) 캡처(GDI) · dHash 타임라인 · Alt+S · 트레이 · 보존 정리 + 데몬에 폴러 스레드 연결.
