@@ -12,8 +12,15 @@ pub fn resource() -> Value {
 }
 pub fn snapshot(store: &Store) -> Result<Value> {
     let bundle = store.current_bundle()?;
+    let paragraphs = store.panel_paragraphs(bundle.id, 200)?;
+    let mut received = serde_json::Map::new();
+    for p in &paragraphs {
+        if let Some(at) = store.paragraph_received_at(&p.uuid)? {
+            received.insert(p.uuid.clone(), json!(at));
+        }
+    }
     Ok(
-        json!({"bundleName":bundle.name,"paragraphs":store.panel_paragraphs(bundle.id,200)?,
+        json!({"bundleName":bundle.name,"paragraphs":paragraphs,"paragraphReceivedAt":received,
         "recentQa":store.recent_qa(bundle.id,100)?,"status":super::tools::status(store)?,
         "paragraphLimit":200,"qaLimit":100}),
     )

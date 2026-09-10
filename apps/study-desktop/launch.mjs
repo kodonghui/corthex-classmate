@@ -9,11 +9,15 @@ const root=fileURLToPath(new URL('../../',import.meta.url));
 const profile=join(process.env.LOCALAPPDATA,'CorthexClassmate','study-desktop');
 await mkdir(profile,{recursive:true});
 const descriptor=join(profile,'running.json');const lockPath=join(profile,'launch.lock');
-function openWindow(url){
+function openWindow(url,onExit){
   const edge=[join(process.env['ProgramFiles(x86)']??'','Microsoft/Edge/Application/msedge.exe'),join(process.env.ProgramFiles??'','Microsoft/Edge/Application/msedge.exe')].find(existsSync);
   if(!edge)throw new Error('Microsoft Edge가 필요합니다. Windows에서 Edge를 설치한 뒤 다시 실행하세요.');
   // Edge study window stays separate from the Chrome lecture capture target.
-  const child=spawn(edge,[`--app=${url}`,'--window-size=1050,960'],{detached:true,stdio:'ignore'});child.unref();
+  const started=Date.now();
+  const child=spawn(edge,[`--app=${url}`,`--user-data-dir=${join(profile,'browser')}`,'--no-first-run','--disable-background-mode','--window-size=1050,960'],{detached:true,stdio:'ignore'});
+  // A dedicated browser profile lets the last app window own the collector lifetime.
+  // An immediate exit can mean Edge forwarded to an existing instance; leases handle that.
+  child.once('exit',()=>{if(Date.now()-started>3000)onExit?.();});child.unref();
 }
 async function reuse(){
   try{const s=JSON.parse(await readFile(descriptor,'utf8'));
@@ -36,9 +40,10 @@ catch{
 try{
   const entry=[join(process.env.APPDATA??'','npm/node_modules/@openai/codex/bin/codex.js'),join(dirname(process.execPath),'node_modules/@openai/codex/bin/codex.js')].find(existsSync);
   if(!entry)throw new Error('Codex 실행 파일을 찾지 못했어요. Codex CLI를 설치하고 로그인해 주세요.');
-  const app=await startStudy({root,entry,profile});
+  let app;let closing=false;
+  const close=async()=>{if(closing)return;closing=true;await app?.close();await lock.close();await unlink(lockPath).catch(()=>{});await unlink(descriptor).catch(()=>{});setTimeout(()=>process.exit(0),1000);};
+  app=await startStudy({root,entry,profile,onIdle:()=>void close()});
   await writeFile(descriptor,JSON.stringify({origin:app.origin+'/',token:app.token,pid:process.pid}),{mode:0o600});
-  openWindow(app.url);
-  const close=async()=>{app.close();await lock.close();await unlink(lockPath).catch(()=>{});await unlink(descriptor).catch(()=>{});process.exit(0);};
+  openWindow(app.url,()=>void close());
   process.on('SIGINT',close);process.on('SIGTERM',close);
 }catch(e){await lock.close();await unlink(lockPath).catch(()=>{});throw e;}

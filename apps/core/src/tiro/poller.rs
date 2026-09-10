@@ -76,6 +76,11 @@ impl Poller {
         match self.tick_inner(store, bundle_id, now_ms) {
             Ok(tick) => {
                 let _ = store.set_status(status_keys::TIRO_STATE, tick.state);
+                let completed_at = clock::now_rfc3339_millis();
+                let _ = store.set_status(status_keys::TIRO_LAST_SUCCESS_AT, &completed_at);
+                if tick.inserted + tick.updated > 0 {
+                    let _ = store.set_status(status_keys::TIRO_LAST_CHANGE_AT, &completed_at);
+                }
                 tick
             }
             Err(error) => {
@@ -86,7 +91,11 @@ impl Poller {
                     self.note = None;
                     self.last_note_refresh_ms = None;
                 }
-                self.interval_ms = RETRY_AFTER_ERROR_MS.max(self.config.poll_min_ms);
+                self.interval_ms = if matches!(error, CoreError::Http(429)) {
+                    60_000
+                } else {
+                    RETRY_AFTER_ERROR_MS.max(self.config.poll_min_ms)
+                };
                 Tick {
                     note_changed: false,
                     note_guid: self.note.as_ref().map(|note| note.guid.clone()),
@@ -130,9 +139,10 @@ impl Poller {
             if changed {
                 note_changed = self.note.as_ref().map(|note| note.guid.as_str())
                     != picked.as_ref().map(|note| note.guid.as_str());
-                self.note = picked;
-                self.write_note_status(store);
             }
+            // Refresh title/recording metadata even when the selected note is unchanged.
+            self.note = picked;
+            self.write_note_status(store);
         }
 
         let Some(note) = self.note.clone() else {
@@ -161,7 +171,7 @@ impl Poller {
         }
 
         let active = report.inserted + report.updated > 0;
-        self.interval_ms = if active {
+        self.interval_ms = if active || note.is_recording() {
             self.config.poll_min_ms.max(1)
         } else {
             (self.interval_ms + 1_000).min(self.config.poll_max_ms.max(self.config.poll_min_ms))
@@ -344,7 +354,7 @@ mod tests {
         );
         let second = poller.tick(&store, bundle, t0 + 3_000);
         assert!(!second.note_changed);
-        assert_eq!((second.inserted, second.updated), (0, 2));
+        assert_eq!((second.inserted, second.updated), (0, 1));
         assert_eq!(
             store.last_paragraph(bundle).unwrap().unwrap().text,
             "서버가 상태를 들고 있지 않는다"
@@ -355,6 +365,11 @@ mod tests {
         let third = poller.tick(&store, bundle, t0 + 6_000);
         assert_eq!(store.paragraph_count(bundle).unwrap(), 2);
         assert_eq!(third.state, "connected");
+        assert_eq!(third.updated, 0);
+        assert_eq!(
+            third.next_interval_ms, 3_000,
+            "녹음 중에는 빈 응답 뒤에도 낮은 지연을 유지"
+        );
 
         // 노트 전환: 새 녹음 노트가 생기면 다음 노트 새로고침에서 갈아타고, 같은 묶음에 이어 쌓인다.
         fake.end_note("n1", "2026-09-10T04:10:00Z");
@@ -401,7 +416,12 @@ mod tests {
     #[test]
     fn interval_grows_to_the_max_when_nothing_changes_and_errors_become_states() {
         let fake = FakeTiro::start(KEY);
-        fake.add_note("n1", None, "2026-09-10T04:00:00Z", None);
+        fake.add_note(
+            "n1",
+            None,
+            "2026-09-10T04:00:00Z",
+            Some("2026-09-10T04:05:00Z"),
+        );
 
         let dir = temp_dir("poller-idle");
         let store = Store::open(&dir, "현재 공부").unwrap();
@@ -482,8 +502,8 @@ mod tests {
         assert_eq!(tick.next_interval_ms, 5_000);
         assert_eq!(
             store.status("tiro.note_guid").unwrap().as_deref(),
-            None,
-            "노트가 없었으면 아직 안 적는다"
+            Some(""),
+            "노트가 없다는 상태를 명시한다"
         );
     }
 
@@ -514,5 +534,61 @@ mod tests {
             store.status("tiro.state").unwrap().as_deref(),
             Some("connected")
         );
+    }
+
+    #[test]
+    fn live_defaults_fetch_unlocked_updates_instead_of_waiting_for_a_new_paragraph() {
+        let fake = FakeTiro::start(KEY);
+        fake.add_note("live", Some("live"), "2026-09-10T04:00:00Z", None);
+        fake.add_paragraph(
+            "live",
+            "p",
+            "2026-09-10T04:00:00Z",
+            "2026-09-10T04:00:01Z",
+            "start",
+            None,
+            false,
+        );
+        let dir = temp_dir("live-latency");
+        let store = Store::open(&dir, "test").unwrap();
+        let observer = Store::open(&dir, "test").unwrap();
+        let bundle = store.current_bundle().unwrap().id;
+        let config = TiroConfig::default();
+        assert_eq!(config.poll_min_ms, 1000);
+        assert_eq!(config.note_refresh_ms, 5000);
+        let mut poller = Poller::new(Client::new(&fake.base_url(), KEY).unwrap(), config);
+        let first = poller.tick(&store, bundle, clock::now_epoch_millis());
+        assert_eq!(first.next_interval_ms, 1000);
+        let first_change = store.status(status_keys::TIRO_LAST_CHANGE_AT).unwrap();
+        assert_eq!(
+            poller
+                .tick(&store, bundle, clock::now_epoch_millis())
+                .updated,
+            0
+        );
+        assert_eq!(
+            store.status(status_keys::TIRO_LAST_CHANGE_AT).unwrap(),
+            first_change
+        );
+        let stop = AtomicBool::new(false);
+        std::thread::scope(|scope| {
+            let stop_ref = &stop;
+            scope.spawn(move || poller.run(&store, bundle, stop_ref));
+            std::thread::sleep(Duration::from_millis(200));
+            let start = std::time::Instant::now();
+            fake.update_paragraph("live", "p", "2026-09-10T04:00:02Z", "start growing", false);
+            while start.elapsed() < Duration::from_secs(3) {
+                if observer.paragraph("p").unwrap().unwrap().text == "start growing" {
+                    break;
+                }
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            stop.store(true, Ordering::Relaxed);
+            assert_eq!(
+                observer.paragraph("p").unwrap().unwrap().text,
+                "start growing"
+            );
+            assert!(start.elapsed() < Duration::from_millis(2000));
+        });
     }
 }

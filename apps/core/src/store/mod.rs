@@ -139,6 +139,7 @@ pub mod status_keys {
     pub const DAEMON_PID: &str = "daemon.pid";
     /// 데몬이 주기적으로 갱신하는 시각(RFC3339).
     pub const DAEMON_HEARTBEAT_AT: &str = "daemon.heartbeat_at";
+    pub const DAEMON_STOP_REQUESTED: &str = "daemon.stop_requested";
     /// `connected` · `unauthorized`(401) · `not-found`(404) · `offline` · `no-key`.
     pub const TIRO_STATE: &str = "tiro.state";
     pub const TIRO_NOTE_GUID: &str = "tiro.note_guid";
@@ -146,6 +147,8 @@ pub mod status_keys {
     /// 따라가는 노트가 녹음 중인지(`true`/`false`).
     pub const TIRO_NOTE_RECORDING: &str = "tiro.note_recording";
     pub const TIRO_LAST_POLL_AT: &str = "tiro.last_poll_at";
+    pub const TIRO_LAST_SUCCESS_AT: &str = "tiro.last_success_at";
+    pub const TIRO_LAST_CHANGE_AT: &str = "tiro.last_change_at";
     pub const TIRO_LAST_PARAGRAPH_AT: &str = "tiro.last_paragraph_at";
     /// 찍고 있는 창의 제목(사용자 이름이 든 문서 제목일 수 있어 `doctor` 만 보여 준다).
     pub const CAPTURE_WINDOW_TITLE: &str = "capture.window_title";

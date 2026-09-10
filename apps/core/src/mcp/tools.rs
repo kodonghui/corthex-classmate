@@ -129,6 +129,8 @@ pub fn status(store: &Store) -> Result<Value> {
     note_fields(store, &mut out)?;
     for (key, field) in [
         (k::TIRO_LAST_POLL_AT, "lastPollAt"),
+        (k::TIRO_LAST_SUCCESS_AT, "lastTiroSuccessAt"),
+        (k::TIRO_LAST_CHANGE_AT, "lastTranscriptReceivedAt"),
         (k::CAPTURE_WINDOW_TITLE, "captureWindowTitle"),
         (k::CAPTURE_LAST_AT, "lastCaptureAt"),
     ] {
@@ -136,6 +138,8 @@ pub fn status(store: &Store) -> Result<Value> {
             out[field] = json!(safe_label(&value));
         }
     }
+    out["collectionPaused"] =
+        json!(store.status(k::DAEMON_STOP_REQUESTED)?.as_deref() == Some("true"));
     Ok(out)
 }
 

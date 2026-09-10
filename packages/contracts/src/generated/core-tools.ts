@@ -53,6 +53,12 @@ export interface StudyPanelOutput {
    */
   paragraphs: CoreParagraph[];
   /**
+   * 문단별 실제 마지막 수신 변경 시각. 녹음 시각과 구분해 기존 자료가 새 세션에 섞이지 않도록 합니다.
+   */
+  paragraphReceivedAt?: {
+    [k: string]: IsoDateTime;
+  };
+  /**
    * @maxItems 100
    */
   recentQa: CoreQaEntry[];
@@ -83,7 +89,7 @@ export interface CoreParagraph {
   timeFrom: IsoDateTime;
   timeTo: IsoDateTime;
   /**
-   * true 면 확정된 문단, false 면 아직 바뀔 수 있는 진행 중 문단입니다.
+   * Tiro 요금제에 따른 텍스트 가림 여부입니다. true는 가림, false는 공개된 텍스트이며 문단 완성 여부가 아닙니다.
    */
   locked: boolean;
 }
@@ -133,6 +139,9 @@ export interface CoreStatusOutput {
   noteTitle?: string;
   noteRecording?: boolean;
   lastPollAt?: IsoDateTime;
+  lastTiroSuccessAt?: IsoDateTime;
+  lastTranscriptReceivedAt?: IsoDateTime;
+  collectionPaused?: boolean;
   lastParagraphAt?: IsoDateTime;
   /**
    * 찍고 있는 창의 제목입니다. 창을 못 찾았으면 생략합니다.

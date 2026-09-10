@@ -30,5 +30,5 @@ export class Rpc extends EventEmitter {
     this.pending.set(id,{resolve,reject,timer});this.child.stdin.write(JSON.stringify({jsonrpc:'2.0',id,method,params})+'\n');
   });}
   notify(method,params={}){if(!this.closed)this.child.stdin.write(JSON.stringify({jsonrpc:'2.0',method,params})+'\n');}
-  close(){this.child.stdin.end();this.child.kill();this.fail();}
+  close(){this.child.stdin.end();const child=this.child;const timer=setTimeout(()=>child.kill(),2000);timer.unref();child.once('exit',()=>clearTimeout(timer));this.fail();}
 }

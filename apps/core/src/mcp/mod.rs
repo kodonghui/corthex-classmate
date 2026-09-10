@@ -11,6 +11,7 @@
 //! `moment_capture` 는 브리지가 직접 캡처한다.
 
 mod panel;
+mod share;
 #[cfg(test)]
 mod tests;
 mod tools;
@@ -23,6 +24,7 @@ use crate::{
 use serde_json::{json, Value};
 use std::io::{self, BufRead, Write};
 use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 pub use tools::status;
 const MAX_REQUEST: usize = 1024 * 1024;
 const PROTOCOL: &str = "2025-06-18";
@@ -35,14 +37,16 @@ pub fn serve(args: &[String]) -> Result<()> {
         SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
     };
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
-    let autostart = match args
+    let (autostart, owned) = match args
         .iter()
         .map(String::as_str)
         .collect::<Vec<_>>()
         .as_slice()
     {
-        [] => true,
-        ["--no-daemon"] => false,
+        [] => (true, false),
+        ["--no-daemon"] => (false, false),
+        ["--owned-daemon"] => (true, true),
+        ["--desktop-no-daemon"] => (false, true),
         _ => return Err(CoreError::InvalidValue("MCP 인자")),
     };
     let dir = paths::data_dir()?;
@@ -54,6 +58,9 @@ pub fn serve(args: &[String]) -> Result<()> {
         initialized: false,
         ready: false,
         autostart,
+        last_daemon_check: None,
+        owned,
+        child: None,
     };
     run_stream(&mut server, io::stdin().lock(), io::stdout().lock())
 }
@@ -91,8 +98,58 @@ struct Server {
     initialized: bool,
     ready: bool,
     autostart: bool,
+    last_daemon_check: Option<Instant>,
+    owned: bool,
+    child: Option<std::process::Child>,
+}
+impl Drop for Server {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.child.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
 }
 impl Server {
+    fn maintain_daemon(&mut self, opening: bool) {
+        if !self.autostart {
+            return;
+        }
+        if !opening
+            && self
+                .last_daemon_check
+                .is_some_and(|at| at.elapsed() < Duration::from_secs(5))
+        {
+            return;
+        }
+        self.last_daemon_check = Some(Instant::now());
+        // An explicit tray exit is not a crash. A new client connection resumes collection.
+        if opening {
+            let _ = self
+                .store
+                .set_status(crate::store::status_keys::DAEMON_STOP_REQUESTED, "false");
+        } else if self
+            .store
+            .status(crate::store::status_keys::DAEMON_STOP_REQUESTED)
+            .ok()
+            .flatten()
+            .as_deref()
+            == Some("true")
+        {
+            return;
+        }
+        if let Some(child) = self.child.as_mut() {
+            if child.try_wait().ok().flatten().is_none() {
+                return;
+            }
+            self.child = None;
+        }
+        match ensure_daemon(&self.store, self.owned) {
+            Ok(Some(child)) => self.child = Some(child),
+            Ok(None) => {}
+            Err(error) => eprintln!("데몬 자동 복구 실패: {}", safe_error(&error)),
+        }
+    }
     fn dispatch(&mut self, request: Value) -> Option<Value> {
         let id = request.get("id").cloned();
         let valid_id = id
@@ -123,17 +180,17 @@ impl Server {
                 {
                     return Some(rpc_error(id, -32602, "Invalid initialize parameters"));
                 }
-                if self.autostart {
-                    if let Err(error) = ensure_daemon(&self.store) {
-                        eprintln!("데몬 자동 시작 실패: {}", safe_error(&error));
-                    }
-                }
+                self.maintain_daemon(true);
                 self.initialized = true;
                 json!({"protocolVersion":PROTOCOL,"capabilities":{"tools":{"listChanged":false},"resources":{"listChanged":false}},
                     "serverInfo":{"name":crate::NAME,"version":crate::VERSION},"instructions":INSTRUCTIONS})
             }
             "ping" => json!({}),
             _ if !self.ready => return Some(rpc_error(id, -32000, "Initialize connection first")),
+            "classmate/ingestShare" if self.owned => match share::ingest(&self.store, params) {
+                Ok(value) => value,
+                Err(error) => return Some(rpc_error(id, -32602, &safe_error(&error))),
+            },
             "tools/list" => {
                 if params.get("cursor").is_some() {
                     return Some(rpc_error(id, -32602, "No pagination cursor"));
@@ -161,6 +218,7 @@ impl Server {
                 if !tools::valid_input(name, &arguments) {
                     return Some(rpc_error(id, -32602, "Unknown tool or invalid arguments"));
                 }
+                self.maintain_daemon(false);
                 match tools::call(&self.store, &self.config, name, &arguments) {
                     Ok(result) => result,
                     Err(error) => {
@@ -185,16 +243,19 @@ fn safe_error(error: &CoreError) -> String {
         _ => error.to_string(),
     }
 }
-fn ensure_daemon(store: &Store) -> Result<()> {
-    if store.daemon_alive(crate::clock::now_epoch_millis())? {
-        return Ok(());
+fn ensure_daemon(store: &Store, owned: bool) -> Result<Option<std::process::Child>> {
+    if store.daemon_alive(crate::clock::now_epoch_millis())? && recorded_process_running(store) {
+        return Ok(None);
     }
     let exe = std::env::current_exe().map_err(|e| CoreError::Io("실행 파일 확인", e.kind()))?;
     let mut command = Command::new(exe);
     command
-        .stdin(Stdio::null())
+        .stdin(if owned { Stdio::piped() } else { Stdio::null() })
         .stdout(Stdio::null())
         .stderr(Stdio::null());
+    if owned {
+        command.arg("--until-stdin-close");
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -203,8 +264,35 @@ fn ensure_daemon(store: &Store) -> Result<()> {
     let mut child = command
         .spawn()
         .map_err(|e| CoreError::Io("데몬 시작", e.kind()))?;
+    if owned {
+        return Ok(Some(child));
+    }
     std::thread::spawn(move || {
         let _ = child.wait();
     });
-    Ok(())
+    Ok(None)
+}
+
+fn recorded_process_running(store: &Store) -> bool {
+    use windows::Win32::Foundation::{CloseHandle, WAIT_TIMEOUT};
+    use windows::Win32::System::Threading::{
+        OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+    };
+    let Some(pid) = store
+        .status(crate::store::status_keys::DAEMON_PID)
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<u32>().ok())
+    else {
+        return false;
+    };
+    // A recent heartbeat is not proof the process still exists after a window was closed.
+    unsafe {
+        let Ok(handle) = OpenProcess(PROCESS_SYNCHRONIZE, false, pid) else {
+            return false;
+        };
+        let running = WaitForSingleObject(handle, 0) == WAIT_TIMEOUT;
+        let _ = CloseHandle(handle);
+        running
+    }
 }

@@ -10,6 +10,14 @@ use crate::tiro::http::wide;
 /// 데몬이 쓰는 이름. 같은 로그온 세션 안에서만 유일하면 된다(`Local\`).
 pub const MUTEX_NAME: &str = "Local\\CorthexClassmateCore";
 
+pub fn profile_mutex(dir: &std::path::Path) -> String {
+    use std::hash::{Hash, Hasher};
+    let normalized = dir.canonicalize().unwrap_or_else(|_| dir.to_path_buf());
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    normalized.to_string_lossy().to_lowercase().hash(&mut hash);
+    format!("{}-{:016x}", MUTEX_NAME, hash.finish())
+}
+
 /// 잡고 있는 동안 다른 데몬이 뜨지 못한다. 떨어뜨리면 풀린다.
 pub struct Guard(HANDLE);
 

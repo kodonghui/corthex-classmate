@@ -46,7 +46,7 @@ use crate::paths;
 use crate::store::{status_keys, Store};
 use crate::tiro;
 use crate::tiro::http::wide;
-use single_instance::{Guard, MUTEX_NAME};
+use single_instance::Guard;
 use tray::{menu, MenuState, Tray, CALLBACK_MESSAGE};
 
 const WINDOW_CLASS: PCWSTR = w!("CorthexClassmateCoreWindow");
@@ -76,11 +76,13 @@ pub fn run(args: &[String]) -> Result<()> {
         println!("classmate-core            트레이 상주 데몬. 종료는 트레이 메뉴 또는 Ctrl+C.");
         return Ok(());
     }
-    if !args.is_empty() {
+    let owned = args == ["--until-stdin-close"];
+    if !args.is_empty() && !owned {
         return Err(CoreError::InvalidValue("데몬 인자"));
     }
 
-    let Some(_guard) = Guard::acquire(MUTEX_NAME)? else {
+    let data_dir = paths::data_dir()?;
+    let Some(_guard) = Guard::acquire(&single_instance::profile_mutex(&data_dir))? else {
         eprintln!("classmate-core 데몬이 이미 실행 중입니다. 트레이 아이콘을 보세요.");
         return Ok(());
     };
@@ -88,11 +90,11 @@ pub fn run(args: &[String]) -> Result<()> {
     // SAFETY: 프로세스 시작 직후 한 번. 실패해도(이미 설정됨) 계속 간다.
     let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
 
-    let data_dir = paths::data_dir()?;
     let config = Config::load_or_create(&data_dir)?;
     let store = Store::open(&data_dir, &config.bundle_name)?;
     let bundle = store.current_bundle()?;
     store.heartbeat(std::process::id())?;
+    store.set_status(status_keys::DAEMON_STOP_REQUESTED, "false")?;
 
     let stop = Arc::new(AtomicBool::new(false));
     let timeline_enabled = Arc::new(AtomicBool::new(config.timeline.enabled));
@@ -102,6 +104,23 @@ pub fn run(args: &[String]) -> Result<()> {
 
     let hwnd = create_window()?;
     MAIN_HWND.store(hwnd.0 as isize, Ordering::Relaxed);
+    if owned {
+        // The private pipe belongs to the study bridge. EOF means its owner exited,
+        // even after a crash/forced termination. No orphan audio/screen collection.
+        std::thread::spawn(|| {
+            use std::io::Read;
+            let mut byte = [0u8; 1];
+            while std::io::stdin().read(&mut byte).is_ok_and(|n| n > 0) {}
+            let hwnd = MAIN_HWND.load(Ordering::Relaxed);
+            if hwnd != 0 {
+                let _ = unsafe {
+                    PostMessageW(HWND(hwnd as *mut c_void), WM_CLOSE, WPARAM(0), LPARAM(0))
+                };
+            }
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            std::process::exit(0); // Bound shutdown if a screen capture/HTTP call is blocked.
+        });
+    }
     // SAFETY: 핸들러는 정적 함수이고 창 손잡이는 위 원자 변수로 넘긴다.
     let _ = unsafe { SetConsoleCtrlHandler(Some(console_handler), true) };
 
@@ -406,6 +425,9 @@ impl App {
                 }
             }
             menu::QUIT => {
+                let _ = self
+                    .store
+                    .set_status(crate::store::status_keys::DAEMON_STOP_REQUESTED, "true");
                 // SAFETY: 이 스레드의 창. WM_DESTROY → PostQuitMessage.
                 let _ = unsafe { DestroyWindow(hwnd) };
             }

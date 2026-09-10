@@ -2,9 +2,9 @@ $ErrorActionPreference = 'Stop'
 $scriptTarget = Join-Path $PSScriptRoot 'launch.vbs'
 if (-not (Test-Path -LiteralPath $scriptTarget)) { throw 'Classmate launcher is missing.' }
 $desktop = [Environment]::GetFolderPath('Desktop')
-$shortcutPath = Join-Path $desktop 'Classmate 공부 시작.lnk'
+$shortcutPath = Join-Path $desktop 'Corthex-Classmate.lnk'
 if (Test-Path -LiteralPath $shortcutPath) {
-  $backup = Join-Path $desktop ('Classmate 이전 공부방 ' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.lnk')
+  $backup = Join-Path $desktop ('Classmate 이전 바로가기 ' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.lnk')
   Copy-Item -LiteralPath $shortcutPath -Destination $backup
 }
 $shell = New-Object -ComObject WScript.Shell

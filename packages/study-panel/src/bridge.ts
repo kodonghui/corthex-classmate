@@ -1,9 +1,9 @@
 import { App } from '@modelcontextprotocol/ext-apps';
 import type {Preferences} from './preferences';
 
-export interface Paragraph {uuid:string; text:string; timeFrom:string; timeTo:string; locked:boolean}
+export interface Paragraph {uuid:string; text:string; timeFrom:string; timeTo:string; locked:boolean;timeBasis?:'source'|'observed';live?:boolean;sourceIndex?:number}
 export interface Qa {id:number; question:string; answer:string; paragraphUuid?:string; momentId?:string; askedAt:string}
-export interface Snapshot {studyId?:string;activeStudyId?:string;studies?:{id:string;name:string;startedAt:string;deletedAt?:string}[];delivery?:{lastCheckedAt?:string;lastChangedAt?:string};bundleName:string; paragraphs:Paragraph[]; recentQa:Qa[]; status:{daemon:string; tiroState:string; noteTitle?:string; noteRecording?:boolean; lastParagraphAt?:string}; paragraphLimit:number; qaLimit:number}
+export interface Snapshot {recording?:{mode:string;url?:string;state:string;title?:string;lastCheckedAt?:string;message?:string};studyId?:string;activeStudyId?:string;studies?:{id:string;name:string;startedAt:string;deletedAt?:string}[];delivery?:{lastCheckedAt?:string;lastChangedAt?:string;refreshError?:boolean};bundleName:string; paragraphs:Paragraph[]; recentQa:Qa[]; status:{daemon:string; tiroState:string; noteTitle?:string; noteRecording?:boolean; lastParagraphAt?:string;lastPollAt?:string;lastTiroSuccessAt?:string;lastTranscriptReceivedAt?:string;collectionPaused?:boolean}; paragraphLimit:number; qaLimit:number}
 export interface Capture {moment_id:string; captured_at:string}
 export interface LiveAnswer {id:string;paragraphUuid:string;question:string;answer:string;state:string;savedId?:number;error?:string}
 export interface Bridge {
@@ -11,7 +11,8 @@ export interface Bridge {
   connect():Promise<{name:string; canSend:boolean; canExpand:boolean}>;
   refresh():Promise<Snapshot>;
   chooseStudy?(id:string):Promise<Snapshot>;
-  newStudy?(name:string):Promise<Snapshot>;
+  newStudy?(name:string,url?:string):Promise<Snapshot>;
+  connectSource?(id:string,url:string):Promise<Snapshot>;
   editStudy?(id:string,action:'rename'|'trash'|'restore',name?:string):Promise<Snapshot>;
   capture(uuid:string):Promise<Capture>;
   send(text:string,progress?:(answer:LiveAnswer)=>void):Promise<void>;

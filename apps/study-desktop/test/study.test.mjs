@@ -8,6 +8,8 @@ import {mkdtemp} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {Studies} from '../studies.mjs';
+import {WindowLease} from '../window-lease.mjs';
+import {CoreConnection} from '../core-connection.mjs';
 
 test('JSON-RPC initialized notification is versioned and timeout does not swallow errors',async()=>{
  const rpc=new Rpc(process.execPath,[fileURLToPath(new URL('./rpc-fixture.mjs',import.meta.url))]);
@@ -48,4 +50,55 @@ test('study boundaries retain old paragraphs, isolate chat and survive a restart
  assert.throws(()=>s.snapshot(source,second));assert.ok(s.list().find(x=>x.id===second).deletedAt);
  s.close();s=new Studies(dir);s.edit(second,'restore');assert.equal(s.snapshot(source,second).recentQa[0].answer,'새 답');assert.equal(s.active,replacement);
  assert.throws(()=>s.edit(second,'rename',' '));assert.throws(()=>s.edit('missing','trash'));assert.throws(()=>s.create('   '));assert.throws(()=>s.snapshot(source,'missing'));s.close();
+});
+
+test('API locked is a paywall flag, never a reason to copy a paragraph into a new session',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'classmate-live-index-'));const s=new Studies(dir);
+ const source={bundleName:'one',recentQa:[],paragraphs:[{uuid:'live',text:'앞부분',locked:false,timeFrom:'2026-09-01'}]};
+ s.ingest(source);const old=s.active;const next=s.create('two');
+ assert.equal(s.ingest(source),0);assert.equal(s.snapshot(source).paragraphs.length,0);
+ source.paragraphs[0].text+=' 뒷부분';s.ingest(source);
+ assert.equal(s.snapshot(source,next).paragraphs.length,0);
+ assert.equal(s.snapshot(source,old).paragraphs.length,1);
+ source.paragraphs[0].locked=true;s.ingest(source);s.create('three');source.paragraphs[0].text+=' 오타수정';s.ingest(source);
+ assert.equal(s.snapshot(source).paragraphs.length,0);
+ source.paragraphs.push({uuid:'placeholder',text:'',locked:false,timeFrom:'2026-09-02'});s.ingest(source);
+ assert.equal(s.snapshot(source).paragraphs.length,0);source.paragraphs[1].text='처음 도착한 글';s.ingest(source);
+ assert.equal(s.snapshot(source).paragraphs.length,1);s.close();
+});
+
+test('window leases tolerate reload/background tabs but stop after the last close',()=>{
+ let time=0;const lease=new WindowLease(()=>time);assert.equal(lease.expired(),false);
+ lease.touch('first');lease.touch('second');lease.touch('first',false);time=9000;assert.equal(lease.expired(),false);
+ lease.touch('second',false);time+=7000;assert.equal(lease.expired(),false);
+ lease.touch('reloaded');time+=70000;assert.equal(lease.expired(),false);
+ lease.touch('reloaded',false);time+=8000;assert.equal(lease.expired(),true);
+});
+
+test('previously hidden old Core rows do not become new-session transcript on a reorder',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'classmate-old-arrival-'));const s=new Studies(dir);
+ const source={bundleName:'first',recentQa:[],paragraphs:[],paragraphReceivedAt:{}};
+ s.ingest(source);s.create('new');source.paragraphs=[{uuid:'previously-hidden',text:'older lesson',timeFrom:'2026-09-01',locked:false}];source.paragraphReceivedAt['previously-hidden']='2026-01-01T00:00:00Z';
+ s.ingest(source);assert.equal(s.snapshot(source).paragraphs.length,0);
+ source.paragraphReceivedAt['previously-hidden']=new Date().toISOString();source.paragraphs[0].text+=' newly received update';
+ s.ingest(source);assert.equal(s.snapshot(source).paragraphs.length,1);s.close();
+});
+
+test('Core bridge reconnects after exit without replaying uncertain writes',async()=>{
+ const instances=[];const c=new CoreConnection('fixture',{rpcFactory:()=>{const r={closed:false,requests:[],async request(method){this.requests.push(method);if(this.closed)throw new Error('gone');return {structuredContent:{}};},notify(){},close(){this.closed=true;}};instances.push(r);return r;}});
+ await c.call('study_refresh');assert.equal(instances.length,1);instances[0].closed=true;
+ await assert.rejects(c.call('study_refresh'));c.nextAttempt=0;await c.call('study_refresh');assert.equal(instances.length,2);
+ instances[1].request=async()=>{throw new Error('uncertain');};
+ await assert.rejects(c.call('session_log'));assert.equal(instances.length,2);assert.equal(instances[1].closed,false);
+ await assert.rejects(c.call('study_refresh'));assert.equal(instances[1].closed,true);c.close();await assert.rejects(c.call('study_refresh'));
+});
+
+test('one-time delivery boundary repair preserves old imports in another history without changing active session',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'classmate-boundary-repair-'));const s=new Studies(dir);
+ const source={bundleName:'first',recentQa:[],paragraphs:[]};s.ingest(source);const active=s.create('current');
+ source.paragraphs=[{uuid:'old',text:'보존할 과거 기록',timeFrom:'2026-01-01',locked:true}];s.ingest(source);s.save(active,{id:1,paragraphUuid:'old',question:'q',answer:'a'});
+ source.paragraphReceivedAt={old:'2026-01-01T00:00:00Z'};s.ingest(source);
+ assert.equal(s.active,active);assert.equal(s.snapshot(source).paragraphs.length,0);
+ const recovered=s.list().find(x=>x.name==='이전 기록');assert.equal(s.snapshot(source,recovered.id).paragraphs[0].text,'보존할 과거 기록');assert.equal(s.snapshot(source,recovered.id).recentQa[0].answer,'a');
+ const count=s.list().length;s.ingest(source);assert.equal(s.list().length,count);s.close();
 });

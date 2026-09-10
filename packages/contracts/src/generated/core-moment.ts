@@ -74,7 +74,7 @@ export interface CoreParagraph {
   timeFrom: IsoDateTime;
   timeTo: IsoDateTime;
   /**
-   * true 면 확정된 문단, false 면 아직 바뀔 수 있는 진행 중 문단입니다.
+   * Tiro 요금제에 따른 텍스트 가림 여부입니다. true는 가림, false는 공개된 텍스트이며 문단 완성 여부가 아닙니다.
    */
   locked: boolean;
 }

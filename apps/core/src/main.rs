@@ -11,7 +11,7 @@ fn main() -> ExitCode {
     let first = args.first().map(String::as_str);
 
     let outcome = match first {
-        None => classmate_core::daemon::run(&args),
+        None | Some("--until-stdin-close") => classmate_core::daemon::run(&args),
         Some("mcp") => classmate_core::mcp::serve(&args[1..]),
         Some("setup") => classmate_core::setup::run(&args[1..]),
         Some("doctor") => classmate_core::doctor::run(&args[1..]),

@@ -42,6 +42,7 @@
       "properties": {
         "bundleName":{"type":"string"},
         "paragraphs":{"type":"array","maxItems":200,"items":{"$ref":"core-paragraph.schema.json"}},
+        "paragraphReceivedAt":{"type":"object","maxProperties":200,"additionalProperties":{"$ref":"common.schema.json#/definitions/IsoDateTime"},"description":"문단별 실제 마지막 수신 변경 시각. 녹음 시각과 구분해 기존 자료가 새 세션에 섞이지 않도록 합니다."},
         "recentQa":{"type":"array","maxItems":100,"items":{"$ref":"core-qa-entry.schema.json"}},
         "status":{"$ref":"#/definitions/CoreStatusOutput"},
         "paragraphLimit":{"const":200}, "qaLimit":{"const":100}
@@ -290,6 +291,9 @@
           "type": "boolean"
         },
         "lastPollAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+        "lastTiroSuccessAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+        "lastTranscriptReceivedAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+        "collectionPaused": { "type": "boolean" },
         "lastParagraphAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
         "captureWindowTitle": {
           "description": "찍고 있는 창의 제목입니다. 창을 못 찾았으면 생략합니다.",

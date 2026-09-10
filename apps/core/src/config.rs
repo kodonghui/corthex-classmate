@@ -132,7 +132,7 @@ impl Default for TimelineConfig {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields, default)]
 pub struct TiroConfig {
-    /// 새 문단이 있을 때 주기(기본 3초). 없으면 `poll_max_ms` 까지 늘린다(키당 600req/60s 안).
+    /// 녹음 중 주기(기본 1초). 녹음 종료 후에는 `poll_max_ms` 까지 늘린다.
     pub poll_min_ms: u64,
     pub poll_max_ms: u64,
     /// 노트 목록을 다시 훑어 녹음 중 노트를 따라잡는 주기.
@@ -142,9 +142,9 @@ pub struct TiroConfig {
 impl Default for TiroConfig {
     fn default() -> Self {
         Self {
-            poll_min_ms: 3_000,
+            poll_min_ms: 1_000,
             poll_max_ms: 5_000,
-            note_refresh_ms: 30_000,
+            note_refresh_ms: 5_000,
         }
     }
 }
@@ -173,7 +173,21 @@ impl Config {
     pub fn load_or_create(data_dir: &Path) -> Result<Self> {
         let path = paths::config_file(data_dir);
         match fs::read_to_string(&path) {
-            Ok(text) => serde_json::from_str(&text).map_err(|_| CoreError::Json("config.json")),
+            Ok(text) => {
+                let mut config: Self =
+                    serde_json::from_str(&text).map_err(|_| CoreError::Json("config.json"))?;
+                if config.tiro
+                    == (TiroConfig {
+                        poll_min_ms: 3_000,
+                        poll_max_ms: 5_000,
+                        note_refresh_ms: 30_000,
+                    })
+                {
+                    config.tiro = TiroConfig::default();
+                    config.save(data_dir)?;
+                }
+                Ok(config)
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let config = Self::default();
                 config.save(data_dir)?;

@@ -2,36 +2,47 @@ import {createServer} from 'node:http';
 import {randomBytes} from 'node:crypto';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import {join} from 'node:path';
-import {Rpc} from './rpc.mjs';
+import {CoreConnection} from './core-connection.mjs';
+import {WindowLease} from './window-lease.mjs';
 import {Tutor,MODEL,EFFORT} from './tutor.mjs';
 import {Studies} from './studies.mjs';
+import {ShareReader,canonicalShareUrl} from './share-source.mjs';
 
 export function selectContext(snapshot,id){
-  if(!id)return {recentLesson:snapshot.paragraphs.slice(-3).map(p=>({text:p.text.slice(0,12000),timeFrom:p.timeFrom,timeTo:p.timeTo})),previous:snapshot.recentQa.filter(q=>!q.paragraphUuid).slice(-8).map(q=>({question:q.question,answer:q.answer.slice(0,9000)}))};
+  if(!id)return {recentLesson:snapshot.paragraphs.slice(-3).map(p=>({text:p.text.slice(0,12000),timeFrom:p.timeFrom,timeTo:p.timeTo,timeBasis:p.timeBasis??'source',timingNote:p.timeBasis==='observed'?'수신 시각입니다. 발화 시각이나 영상 위치가 아닙니다.':undefined})),previous:snapshot.recentQa.filter(q=>!q.paragraphUuid).slice(-8).map(q=>({question:q.question,answer:q.answer.slice(0,9000)}))};
   const index=snapshot.paragraphs.findIndex(p=>p.uuid===id);
   if(index<0)throw new Error('현재 학습 자료에서 선택한 문장을 찾지 못했어요.');
-  const paragraph=p=>({text:p.text.slice(0,12000),timeFrom:p.timeFrom,timeTo:p.timeTo});
+  const paragraph=p=>({text:p.text.slice(0,12000),timeFrom:p.timeFrom,timeTo:p.timeTo,timeBasis:p.timeBasis??'source',timingNote:p.timeBasis==='observed'?'공유 화면에서 읽은 시각입니다. 실제 발화 시각이나 영상 재생 위치가 아닙니다.':undefined});
   const qa=q=>({question:q.question,answer:q.answer.slice(0,9000)});
   return {selected:paragraph(snapshot.paragraphs[index]),nearby:snapshot.paragraphs.slice(Math.max(0,index-2),index+2).map(paragraph),
     previous:snapshot.recentQa.filter(q=>q.paragraphUuid===id).slice(-6).map(qa),
     otherRecentQuestions:snapshot.recentQa.filter(q=>q.paragraphUuid!==id).slice(-2).map(qa)};
 }
-export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverride}){
+export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverride,onIdle,coreExecutable,shareReaderFactory}){
   await mkdir(profile,{recursive:true});
   let preferences={transcript:19,answer:18,height:75};let preferenceWrites=Promise.resolve();
   try{const p=JSON.parse(await readFile(join(profile,'reading-preferences.json'),'utf8'));if(validPreferences(p))preferences=p;}catch{}
-  const core=new Rpc(join(root,'apps/core/target/release/classmate-core.exe'),['mcp',...(coreDir?['--no-daemon']:[])],{env:{...process.env,...(coreDir?{CLASSMATE_CORE_DIR:coreDir}:{})}});
-  await core.request('initialize',{protocolVersion:'2025-06-18',capabilities:{},clientInfo:{name:'classmate-study',version:'0.3.0-preview'}});
-  core.notify('notifications/initialized');
-  const call=async(name,args={})=>{const r=await core.request('tools/call',{name,arguments:args});if(r.isError)throw new Error('학습 자료 요청을 처리하지 못했어요.');return r;};
+  const core=new CoreConnection(coreExecutable??join(root,'apps/core/target/release/classmate-core.exe'),{coreDir});
+  await core.connect().catch(()=>{}); // UI can still open and retry after a startup failure.
+  const call=(name,args={})=>core.call(name,args);
   const studies=new Studies(profile);let source;let refreshing;let lastChangedAt;let lastCheckedAt;let refreshError=false;
+  const shareOptions={onSnapshot:async(link,data)=>{
+    if(stopping||studies.active!==link.id||studies.source()?.key!==link.key)return;
+    const before=studies.shareRows(link.id);const rows=studies.prepareShare(link,data);
+    const changed=rows.filter((p,i)=>!before[i]||JSON.stringify(before[i])!==JSON.stringify(p));
+    if(changed.length){await core.ingestShare(link.key,changed);if(!stopping&&studies.saveShare(link,rows))lastChangedAt=new Date().toISOString();}
+  }};
+  const reader=shareReaderFactory?shareReaderFactory(shareOptions):new ShareReader(shareOptions);
+  let shareTarget;
+  const syncShare=()=>{const target=studies.source();const key=target?.mode==='share'?target.key:undefined;if(key===shareTarget)return;shareTarget=key;void(key?reader.connect(target):reader.close());};
   const refresh=()=>refreshing??(refreshing=(async()=>{try{const next=(await call('study_refresh')).structuredContent;const changed=studies.ingest(next);source=next;lastCheckedAt=new Date().toISOString();if(changed)lastChangedAt=lastCheckedAt;refreshError=false;}catch(e){refreshError=true;throw e;}finally{refreshing=undefined;}})());
   // Continue collecting into the current study while an older study is being read.
   let stopping=false;let refreshTimer;
-  const tick=async()=>{try{await refresh();}catch{}finally{if(!stopping)refreshTimer=setTimeout(tick,1000);}};
+  const lease=new WindowLease();
+  const tick=async()=>{if(onIdle&&lease.expired()){onIdle();return;}try{await refresh();syncShare();}catch{}finally{if(!stopping)refreshTimer=setTimeout(tick,500);}};
   // First read happens on the first UI request; the interval also works without a window.
   refreshTimer=setTimeout(tick,1000);
-  const snapshot=async(id)=>{await refresh();return {...studies.snapshot(source,id),delivery:{lastCheckedAt,lastChangedAt,refreshError}};};
+  const snapshot=async(id)=>{try{await refresh();}catch{if(!source)throw new Error('자료 연결을 복구하고 있어요.');}syncShare();const result=studies.snapshot(source,id);return {...result,recording:{...result.recording,...(result.studyId===studies.active&&result.recording.mode==='share'?reader.state:{state:result.recording.mode==='share'?'history':result.recording.mode==='none'?'unlinked':'api'})},delivery:{lastCheckedAt,lastChangedAt,refreshError}};};
   const tutor=tutorOverride??new Tutor(entry,profile);
   let account={loggedIn:false,model:MODEL,effort:EFFORT};let aiError='';
   try{account=await tutor.connect();}catch{aiError='AI 연결을 시작하지 못했어요. Codex 로그인과 설치 상태를 확인해 주세요.';}
@@ -69,6 +80,12 @@ export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverrid
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data:; connect-src 'self'; font-src data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"});return res.end(html);
       }
       if(req.headers['x-classmate-key']!==token)return json(res,401,{error:'바탕화면의 Classmate 바로가기로 다시 열어 주세요.'});
+      if(req.method==='GET'&&new URL(req.url,origin).pathname==='/api/window'){
+        const id=new URL(req.url,origin).searchParams.get('id');if(!id||!/^[-a-zA-Z0-9]{10,64}$/.test(id))return json(res,400,{error:'창 연결을 확인해 주세요.'});
+        lease.touch(id,true);res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-store'});res.flushHeaders();res.write(': connected\n\n');
+        const heartbeat=setInterval(()=>{lease.touch(id,true);res.write(': alive\n\n');},15000);
+        res.once('close',()=>{clearInterval(heartbeat);lease.touch(id,false);});return;
+      }
       if(req.method==='GET'&&req.url==='/api/status')return json(res,200,{...account,aiError});
       if(req.method==='GET'&&req.url==='/api/preferences')return json(res,200,preferences);
       if(req.method==='GET'&&new URL(req.url,origin).pathname==='/api/study')return json(res,200,await snapshot(new URL(req.url,origin).searchParams.get('id')||undefined));
@@ -77,6 +94,10 @@ export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverrid
       if(!req.headers['content-type']?.startsWith('application/json'))return json(res,415,{error:'JSON만 허용합니다.'});
       let body='';for await(const chunk of req){body+=chunk;if(body.length>24000)return json(res,413,{error:'질문이 너무 깁니다. 8,000자 이내로 나눠 주세요.'});}
       let data;try{data=JSON.parse(body);}catch{return json(res,400,{error:'요청을 읽지 못했어요.'});}
+      if(req.url==='/api/presence'){
+        if(typeof data.id!=='string'||!/^[-a-zA-Z0-9]{10,64}$/.test(data.id)||typeof data.open!=='boolean')return json(res,400,{error:'창 연결을 확인해 주세요.'});
+        lease.touch(data.id,data.open);return json(res,200,{ok:true});
+      }
       if(req.url==='/api/studies/edit'){
         if(busy)return json(res,409,{error:'답변이 끝나거나 중지한 뒤 세션을 변경해 주세요.'});
         if(typeof data.id!=='string'||!['rename','trash','restore'].includes(data.action))return json(res,400,{error:'세션와 작업을 확인해 주세요.'});
@@ -86,7 +107,13 @@ export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverrid
       if(req.url==='/api/studies'){
         if(busy)return json(res,409,{error:'답변이 끝나거나 중지한 뒤 새 세션을 시작해 주세요.'});
         if(typeof data.name!=='string'||!data.name.trim()||data.name.trim().length>100)return json(res,400,{error:'세션 이름은 1~100자로 입력해 주세요.'});
-        await refresh();const id=studies.create(data.name);return json(res,201,await snapshot(id));
+        let url;try{if(data.url)url=canonicalShareUrl(data.url);}catch(e){return json(res,400,{error:e.message});}
+        await refresh();const id=studies.create(data.name,{mode:'none'});if(url)studies.connectShare(id,url);return json(res,201,await snapshot(id));
+      }
+      if(req.url==='/api/studies/source'){
+        if(busy)return json(res,409,{error:'답변이 끝나거나 중지한 뒤 녹음을 연결해 주세요.'});
+        try{studies.connectShare(data.id,data.url);}catch(e){return json(res,400,{error:e.message});}
+        shareTarget=undefined;return json(res,200,await snapshot(data.id));
       }
       if(req.url==='/api/preferences'){
         if(!validPreferences(data))return json(res,400,{error:'글씨 크기와 영역 높이를 확인해 주세요.'});
@@ -116,7 +143,8 @@ export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverrid
   });
   await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(port,'127.0.0.1',resolve);});
   origin=`http://127.0.0.1:${server.address().port}`;
-  return {url:`${origin}/#classmate=${token}`,origin,token,account,close(){stopping=true;clearTimeout(refreshTimer);server.closeAllConnections();server.close();core.close();tutor.close();void Promise.resolve(refreshing).catch(()=>{}).finally(()=>studies.close());}};
+  let closing;
+  return {url:`${origin}/#classmate=${token}`,origin,token,account,close(){if(stopping)return closing;stopping=true;clearTimeout(refreshTimer);server.closeAllConnections();server.close();core.close();tutor.close();closing=Promise.allSettled([reader.close(),refreshing]).finally(()=>studies.close());return closing;}};
 }
 
 export function validPreferences(p){return p&&typeof p==='object'&&[['transcript',14,28],['answer',14,28],['height',30,90]].every(([key,min,max])=>Number.isFinite(p[key])&&p[key]>=min&&p[key]<=max);}

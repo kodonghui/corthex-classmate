@@ -13,6 +13,9 @@ fn server() -> Server {
         initialized: false,
         ready: false,
         autostart: false,
+        last_daemon_check: None,
+        owned: false,
+        child: None,
     }
 }
 fn req(method: &str, params: Value) -> Value {
@@ -33,6 +36,40 @@ fn call(server: &mut Server, name: &str, args: Value) -> Value {
     server
         .dispatch(req("tools/call", json!({"name":name,"arguments":args})))
         .unwrap()
+}
+
+#[test]
+fn share_ingest_is_private_bounded_and_idempotent() {
+    let mut s = server();
+    init(&mut s);
+    let payload = json!({"source_id":"share-1234567890123456","paragraphs":[{"uuid":"share-1234567890abcdef","text":"합성 전사","observed_from":"2026-09-11T01:00:00Z","observed_to":"2026-09-11T01:00:01Z"}]});
+    assert_eq!(
+        s.dispatch(req("classmate/ingestShare", payload.clone()))
+            .unwrap()["error"]["code"],
+        -32601
+    );
+    s.owned = true;
+    assert_eq!(
+        s.dispatch(req("classmate/ingestShare", payload.clone()))
+            .unwrap()["result"]["inserted"],
+        1
+    );
+    assert_eq!(
+        s.dispatch(req("classmate/ingestShare", payload.clone()))
+            .unwrap()["result"]["updated"],
+        0
+    );
+    let mut bad = payload.clone();
+    bad["url"] = json!("must not accept a URL");
+    assert!(s.dispatch(req("classmate/ingestShare", bad)).unwrap()["error"].is_object());
+    let mut bad = payload;
+    bad["paragraphs"][0]["uuid"] = json!("api-row");
+    assert!(s.dispatch(req("classmate/ingestShare", bad)).unwrap()["error"].is_object());
+    assert!(!s
+        .dispatch(req("tools/list", json!({})))
+        .unwrap()
+        .to_string()
+        .contains("ingestShare"));
 }
 
 #[test]
@@ -261,4 +298,24 @@ fn stream_eof_parse_error_and_size_cap() {
         Vec::new()
     )
     .is_err());
+}
+
+#[test]
+fn recovery_is_throttled_and_no_daemon_mode_never_starts_collection() {
+    let mut s = server();
+    init(&mut s);
+    call(&mut s, "core_status", json!({}));
+    assert!(s.last_daemon_check.is_none());
+    s.store.heartbeat(std::process::id()).unwrap();
+    assert!(recorded_process_running(&s.store));
+    s.autostart = true;
+    s.maintain_daemon(false);
+    let at = s.last_daemon_check;
+    s.maintain_daemon(false);
+    assert_eq!(s.last_daemon_check, at);
+    assert!(s.child.is_none());
+    s.store
+        .set_status(crate::store::status_keys::DAEMON_PID, "0")
+        .unwrap();
+    assert!(!recorded_process_running(&s.store));
 }

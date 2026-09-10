@@ -1,7 +1,7 @@
 //! `paragraphs` 표 — Tiro 문단 원문.
 //!
-//! Tiro 의 `GET /notes/{guid}/paragraphs` 한 줄이 여기 한 줄이다. 진행 중 문단(`locked=false`)은
-//! 다음 폴링에서 내용이 바뀔 수 있으므로 **`uuid` 기준 upsert** 다(인수인계 §4.3).
+//! Tiro API 문단과 로컬 공유 페이지 관찰을 uuid 기준 upsert 한다.
+//! `locked`는 요금제에 따른 텍스트 가림 여부이며 문단 완성 여부가 아니다.
 //! 노트가 바뀌어도 같은 묶음에 이어 붙인다 — `note_guid` 만 다르다(사용자 결정 "세션은 하나로 쭉").
 
 use rusqlite::{params, OptionalExtension};
@@ -34,11 +34,21 @@ pub struct UpsertReport {
 }
 
 impl Store {
+    pub fn paragraph_received_at(&self, uuid: &str) -> Result<Option<String>> {
+        Ok(self
+            .connection()
+            .query_row(
+                "SELECT fetched_at FROM paragraphs WHERE uuid=?1",
+                params![uuid],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
     /// 화면용 최신 문단. 시간 창 밖의 마지막 녹음도 사라지지 않으며 반환 건수는 제한한다.
     pub fn panel_paragraphs(&self, bundle_id: i64, limit: usize) -> Result<Vec<Paragraph>> {
         let mut statement = self.connection().prepare(
             "SELECT uuid,note_guid,text,summary_md,time_from,time_to,locked FROM
-             (SELECT * FROM paragraphs WHERE bundle_id=?1 ORDER BY time_from_ms DESC,uuid DESC LIMIT ?2)
+             (SELECT * FROM paragraphs WHERE bundle_id=?1 ORDER BY fetched_at DESC,time_from_ms DESC,uuid DESC LIMIT ?2)
              ORDER BY time_from_ms ASC,uuid ASC")?;
         let rows =
             statement.query_map(params![bundle_id, limit.min(200) as i64], row_to_paragraph)?;
@@ -73,7 +83,7 @@ impl Store {
                 )
                 .optional()?;
 
-            transaction.execute(
+            let changed = transaction.execute(
                 "INSERT INTO paragraphs
                     (uuid, bundle_id, note_guid, text, summary_md, time_from, time_to,
                      time_from_ms, time_to_ms, locked, fetched_at)
@@ -88,7 +98,14 @@ impl Store {
                     time_from_ms = excluded.time_from_ms,
                     time_to_ms = excluded.time_to_ms,
                     locked = excluded.locked,
-                    fetched_at = excluded.fetched_at",
+                    fetched_at = excluded.fetched_at
+                 WHERE paragraphs.bundle_id IS NOT excluded.bundle_id
+                    OR paragraphs.note_guid IS NOT excluded.note_guid
+                    OR paragraphs.text IS NOT excluded.text
+                    OR paragraphs.summary_md IS NOT excluded.summary_md
+                    OR paragraphs.time_from IS NOT excluded.time_from
+                    OR paragraphs.time_to IS NOT excluded.time_to
+                    OR paragraphs.locked IS NOT excluded.locked",
                 params![
                     paragraph.uuid,
                     bundle_id,
@@ -104,6 +121,9 @@ impl Store {
                 ],
             )?;
 
+            if changed == 0 {
+                continue;
+            }
             if existed.is_some() {
                 report.updated += 1;
             } else {
@@ -300,6 +320,48 @@ mod tests {
         assert_eq!(
             store.last_paragraph_end_for_note("n1").unwrap().as_deref(),
             Some("2026-09-10T04:00:41Z")
+        );
+    }
+
+    #[test]
+    fn unchanged_rows_do_not_count_as_new_transcript_and_old_dated_arrivals_still_reach_panel() {
+        let dir = temp_dir("para-delivery");
+        let store = Store::open(&dir, "test").unwrap();
+        let bundle = store.current_bundle().unwrap().id;
+        let recent = paragraph(
+            "recent",
+            "n1",
+            "2026-09-10T04:00:00Z",
+            "2026-09-10T04:01:00Z",
+            "unchanged",
+            true,
+        );
+        store
+            .upsert_paragraphs(bundle, std::slice::from_ref(&recent))
+            .unwrap();
+        store
+            .connection()
+            .execute(
+                "UPDATE paragraphs SET fetched_at='2026-01-01T00:00:00Z'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            store.upsert_paragraphs(bundle, &[recent]).unwrap(),
+            UpsertReport::default()
+        );
+        let old = paragraph(
+            "old-arrival",
+            "n2",
+            "2026-09-01T04:00:00Z",
+            "2026-09-01T04:01:00Z",
+            "newly received old recording",
+            false,
+        );
+        store.upsert_paragraphs(bundle, &[old]).unwrap();
+        assert_eq!(
+            store.panel_paragraphs(bundle, 1).unwrap()[0].uuid,
+            "old-arrival"
         );
     }
 

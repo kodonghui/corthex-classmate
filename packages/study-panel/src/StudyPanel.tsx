@@ -1,10 +1,12 @@
 import React, {useEffect,useRef,useState} from 'react';
 import {TranscriptFlow} from '@classmate/ui-classmate';
 import {AnswerBody} from './AnswerBody';
+import {transcriptStatus} from './transcriptStatus';
 import {defaults,readPreferences,savePreferences,type Preferences} from './preferences';
 import {questionMessage,type Bridge,type Capture,type Paragraph,type Qa,type Snapshot,type LiveAnswer} from './bridge';
 
 const clock=(s:string)=>new Date(s).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit'});
+const preciseClock=(s:string)=>new Date(s).toLocaleTimeString('ko-KR',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 type Draft={text:string; capture?:Capture; capturing:boolean; sent?:number; error?:string};
 export function StudyPanel({bridge,pollMs=3000}:{bridge:Bridge;pollMs?:number}) {
   const [host,setHost]=useState<{name:string;canSend:boolean;canExpand:boolean}>();
@@ -26,6 +28,8 @@ export function StudyPanel({bridge,pollMs=3000}:{bridge:Bridge;pollMs?:number}) 
   const [chatError,setChatError]=useState('');
   const [newStudyOpen,setNewStudyOpen]=useState(false);
   const [studyName,setStudyName]=useState('');
+  const [sourceUrl,setSourceUrl]=useState('');
+  const [sourceOpen,setSourceOpen]=useState(false);
   const [switching,setSwitching]=useState(false);
   const [studyMenu,setStudyMenu]=useState(false);
   const [studyAction,setStudyAction]=useState<'rename'|'trash'>();
@@ -54,7 +58,7 @@ export function StudyPanel({bridge,pollMs=3000}:{bridge:Bridge;pollMs?:number}) 
         const s=await bridge.refresh(); if(!alive.current)return;
         if(studyId.current&&s.studyId!==studyId.current)return;
         studyId.current=s.studyId;setStatus(s);setError('');
-        setParagraphs(old=>{const map=new Map(old.map(p=>[p.uuid,p])); for(const p of s.paragraphs)map.set(p.uuid,p);return [...map.values()].sort((a,b)=>a.timeFrom.localeCompare(b.timeFrom));});
+        setParagraphs(old=>{const map=new Map(old.map(p=>[p.uuid,p])); for(const p of s.paragraphs)map.set(p.uuid,p);return [...map.values()].sort((a,b)=>a.timeFrom.localeCompare(b.timeFrom)||(a.sourceIndex??0)-(b.sourceIndex??0));});
         setQa(old=>{const map=new Map(old.map(q=>[q.id,q]));for(const q of s.recentQa)map.set(q.id,q);return [...map.values()].sort((a,b)=>a.id-b.id);});
       } catch {if(alive.current)setError('전사 연결이 잠시 끊겼어요. 이전 내용은 유지하며 자동으로 다시 연결합니다.');}
       finally {if(alive.current)timer=setTimeout(refresh,pollMs);}
@@ -68,8 +72,15 @@ export function StudyPanel({bridge,pollMs=3000}:{bridge:Bridge;pollMs?:number}) 
   useEffect(()=>{if(chatFollowing.current&&chatViewport.current)chatViewport.current.scrollTop=chatViewport.current.scrollHeight;},[qa,live]);
   const changeStudy=async(name?:string,id?:string,action?:'rename'|'trash'|'restore')=>{
     if(pending||switching)return;setSwitching(true);
-    try{const s=action?await bridge.editStudy!(id!,action,name):name!==undefined?await bridge.newStudy!(name):await bridge.chooseStudy!(id!);const same=studyId.current===s.studyId;studyId.current=s.studyId;setStatus(s);setParagraphs(s.paragraphs);setQa(s.recentQa);if(!same){setSelected(undefined);setDrafts({});setLive(undefined);setChatText('');setChatError('');setCollapsed({});captures.current.clear();follow.current=true;setFollowing(true);setNewWords(0);}setNewStudyOpen(false);setStudyMenu(false);setStudyAction(undefined);setStudyName('');setError('');previousParagraphs.current=s.paragraphs;setActionNotice(action==='trash'?'휴지통으로 이동했습니다. 세션 메뉴에서 복원할 수 있습니다.':action==='restore'?'세션을 복원했습니다.':action==='rename'?'이름을 변경했습니다.':'');}
+    try{const s=action?await bridge.editStudy!(id!,action,name):name!==undefined?await bridge.newStudy!(name,sourceUrl):await bridge.chooseStudy!(id!);const same=studyId.current===s.studyId;studyId.current=s.studyId;setStatus(s);setParagraphs(s.paragraphs);setQa(s.recentQa);if(!same){setSelected(undefined);setDrafts({});setLive(undefined);setChatText('');setChatError('');setCollapsed({});captures.current.clear();follow.current=true;setFollowing(true);setNewWords(0);}setNewStudyOpen(false);setSourceOpen(false);setSourceUrl('');setStudyMenu(false);setStudyAction(undefined);setStudyName('');setError('');previousParagraphs.current=s.paragraphs;setActionNotice(action==='trash'?'휴지통으로 이동했습니다. 세션 메뉴에서 복원할 수 있습니다.':action==='restore'?'세션을 복원했습니다.':action==='rename'?'이름을 변경했습니다.':'');}
     catch(e){setError(e instanceof Error?e.message:'세션을 열지 못했어요. 다시 시도해 주세요.');}
+    finally{setSwitching(false);}
+  };
+  const connectRecording=async()=>{
+    if(!status?.studyId||!bridge.connectSource||pending||switching)return;
+    setSwitching(true);
+    try{const s=await bridge.connectSource(status.studyId,sourceUrl);studyId.current=s.studyId;setStatus(s);setSourceOpen(false);setSourceUrl('');setError('');}
+    catch(e){setError(e instanceof Error?e.message:'녹음 링크를 확인해 주세요.');}
     finally{setSwitching(false);}
   };
   const select=(id:string,reuseMoment?:string)=>{
@@ -121,18 +132,20 @@ export function StudyPanel({bridge,pollMs=3000}:{bridge:Bridge;pollMs?:number}) 
     {studyAction==='trash'&&<section className="study-confirm" role="region" aria-label="세션 삭제 확인"><strong>‘{status?.bundleName}’을 삭제할까요?</strong><p>휴지통으로 이동하며 전사와 대화는 복원할 수 있습니다. Tiro 원본은 삭제하지 않습니다.{status?.studyId===status?.activeStudyId?' 현재 수집 중인 세션이므로 이후 전사를 담을 빈 세션이 만들어집니다.':''}</p><div><button onClick={()=>setStudyAction(undefined)}>취소</button><button className="danger-text" disabled={switching} onClick={()=>void changeStudy(undefined,status?.studyId,'trash')}>휴지통으로 이동</button></div></section>}
     {trashOpen&&<section className="study-trash" aria-label="휴지통"><header><h2>휴지통</h2><button aria-label="휴지통 닫기" onClick={()=>setTrashOpen(false)}>닫기</button></header>{status?.studies?.some(s=>s.deletedAt)?status.studies.filter(s=>s.deletedAt).map(s=><div key={s.id}><span>{s.name}</span><button disabled={pending||switching} onClick={()=>void changeStudy(undefined,s.id,'restore')}>복원</button></div>):<p>삭제한 세션이 없습니다.</p>}</section>}
     {actionNotice&&<div className="action-notice" role="status">{actionNotice}<button aria-label="알림 닫기" onClick={()=>setActionNotice('')}>×</button></div>}
-    {newStudyOpen&&<form className="new-study" aria-label="새 세션 만들기" onSubmit={e=>{e.preventDefault();void changeStudy(studyName);}}><label htmlFor="study-name">어떤 세션을 시작할까요?</label><input id="study-name" autoFocus maxLength={100} placeholder="예: Spring 04~06" value={studyName} onChange={e=>setStudyName(e.target.value)}/><p>기존 기록은 그대로 둡니다. 시작한 뒤 새로 도착하는 문장부터 이 세션에 모아요. Tiro 녹음은 별도로 켜 주세요.</p><div><button type="button" onClick={()=>setNewStudyOpen(false)}>취소</button><button className="primary" disabled={switching||!studyName.trim()}>세션 시작</button></div></form>}
-    <div className="connection" role="status"><span>{status?.status.daemon==='stale'?'자료 수집 연결이 끊겼어요':status?.status.tiroState==='connected'?(status.status.noteRecording?'● 전사 연결됨':'저장된 녹음'):'전사 연결 확인 중'}</span><button aria-expanded={settings} onClick={()=>setSettings(!settings)}>화면 설정</button><span>대화 상대 · {host?.name??'연결 중'}</span></div>
+    {newStudyOpen&&<form className="new-study" aria-label="새 세션 만들기" onSubmit={e=>{e.preventDefault();void changeStudy(studyName);}}><label htmlFor="study-name">세션 이름</label><input id="study-name" autoFocus maxLength={100} placeholder="예: Spring 04~06" value={studyName} onChange={e=>setStudyName(e.target.value)}/><label htmlFor="new-tiro-url">Tiro 공유 링크</label><input id="new-tiro-url" type="url" maxLength={2048} placeholder="https://tiro.ooo/s/…" autoComplete="off" value={sourceUrl} onChange={e=>setSourceUrl(e.target.value)}/><p>Tiro 녹음에서 공유 → 링크 복사 후 붙여 넣으세요. 해당 녹음에 보이는 전사와 이후 변경을 이 세션에 저장합니다. 링크 없이 시작하면 대화만 사용할 수 있습니다.</p><div><button type="button" onClick={()=>{setNewStudyOpen(false);setSourceUrl('');}}>취소</button><button className="primary" disabled={switching||!studyName.trim()}>세션 시작</button></div></form>}
+    {bridge.connectSource&&!newStudyOpen&&<div className="recording-link"><span>{status?.recording?.title??(status?.recording?.mode==='share'?'Tiro 공유 녹음':status?.recording?.mode==='api'?'기존 API 연결':'연결된 녹음 없음')}</span><button disabled={pending||switching} onClick={()=>{setSourceUrl(status?.recording?.url??'');setSourceOpen(!sourceOpen);}}>{status?.recording?.mode==='share'?'녹음 연결 관리':'Tiro 링크 연결'}</button></div>}
+    {sourceOpen&&<form className="new-study" aria-label="Tiro 녹음 연결" onSubmit={e=>{e.preventDefault();void connectRecording();}}><label htmlFor="tiro-url">Tiro 공유 링크</label><input id="tiro-url" type="url" autoFocus autoComplete="off" maxLength={2048} value={sourceUrl} onChange={e=>setSourceUrl(e.target.value)} placeholder="https://tiro.ooo/s/…"/><p>한 세션에 녹음 하나를 연결합니다. 다른 녹음은 ‘새 세션’으로 시작하세요. 다시 연결하면 이 세션의 수집을 재개합니다. 링크와 기록은 이 PC에만 저장됩니다.</p><div><button type="button" onClick={()=>setSourceOpen(false)}>취소</button><button className="primary" disabled={switching||!sourceUrl.trim()}>녹음 연결</button></div></form>}
+    <div className="connection" role="status"><span>{transcriptStatus(status)}</span><button aria-expanded={settings} onClick={()=>setSettings(!settings)}>화면 설정</button><span>대화 상대 · {host?.name??'연결 중'}</span></div>
     {settings&&<section className="display-settings" aria-label="화면 설정"><strong>화면 설정</strong>{([['transcript','전사 글씨',14,28],['answer','답변 글씨',14,28],['height','전사 영역 비율',30,90]] as const).map(([key,label,min,max])=><label key={key}>{label}<input aria-label={label} type="range" min={min} max={max} value={preferences[key]} onChange={e=>updatePreferences({...preferences,[key]:Number(e.target.value)})}/><output>{preferences[key]}{key==='height'?'%':'px'}</output></label>)}<button onClick={()=>updatePreferences({...defaults})}>기본값 복원</button><p>자동으로 이 PC에 저장됩니다. 영역 사이 구분선을 드래그해도 비율을 바꿀 수 있습니다.</p></section>}
-    {help&&<aside className="help"><strong>녹음 켜기 → 문장 누르기 → 바로 질문</strong><p>Tiro에서 녹음을 시작하고 영상을 보세요. 아래 문장을 누르면 그 자리에 질문창이 열립니다. Alt+S나 폴더 선택은 필요 없어요. {bridge.local?'답변도 그 문장 아래에 바로 쌓입니다. 옆 채팅으로 이동할 필요가 없어요.':'저장된 답은 문장 아래에도 보입니다.'}</p><p>로컬 보관 / 선택한 AI 제공자로 전송될 수 있음 / Corthex 서버 기본 전송 없음</p><p>‘취소’는 문장 선택을 해제합니다. {bridge.local?'생성 중인 답변의 ‘답변 중지’를 누르면 생성을 멈춥니다.':'이미 보낸 답변은 현재 AI 앱에서 중지하세요.'} 전사는 Tiro가 문단을 확정한 뒤 도착하므로 말소리와 동시에 한 글자씩 나타나는 방식은 아닙니다.</p></aside>}
+    {help&&<aside className="help"><strong>녹음 켜기 → 문장 누르기 → 바로 질문</strong><p>Tiro에서 녹음을 시작하고 영상을 보세요. 아래 문장을 누르면 그 자리에 질문창이 열립니다. Alt+S나 폴더 선택은 필요 없어요. {bridge.local?'답변도 그 문장 아래에 바로 쌓입니다. 옆 채팅으로 이동할 필요가 없어요.':'저장된 답은 문장 아래에도 보입니다.'}</p><p>로컬 보관 / 선택한 AI 제공자로 전송될 수 있음 / Corthex 서버 기본 전송 없음</p><p>‘취소’는 문장 선택을 해제합니다. {bridge.local?'생성 중인 답변의 ‘답변 중지’를 누르면 생성을 멈춥니다.':'이미 보낸 답변은 현재 AI 앱에서 중지하세요.'} 전사는 Tiro가 반환하는 대로 진행 중인 문장도 갱신합니다. 음성을 글로 바꾸는 시간은 별도로 걸릴 수 있습니다.</p></aside>}
     {error&&<p className="notice" role="alert">{error}</p>}
     {host&&!host.canSend&&<p className="notice" role="alert">{bridge.local?'GPT 연결을 준비하지 못했어요. Codex의 ChatGPT 로그인과 사용 한도를 확인한 뒤 Classmate를 다시 열어 주세요.':'이 AI 앱은 패널에서 질문 보내기를 지원하지 않아요. 현재 AI 채팅에 직접 질문하거나 MCP Apps 메시지 전송을 지원하는 앱에서 여세요.'}</p>}
     <div className="section-label"><h2>수업 전사</h2><span>문장을 선택해 질문하기</span></div>
     <div className="reading-panes" ref={panes}>
     <div className="transcript-scroll" ref={viewport} tabIndex={0} aria-label="수업 전사와 문장별 대화" onScroll={()=>{const e=viewport.current!;const yes=e.scrollHeight-e.clientHeight-e.scrollTop<45&&!selected;follow.current=yes;setFollowing(yes);}}>
-      {!paragraphs.length?<section className="empty"><h2>전사 대기 중</h2><p>Tiro에서 녹음을 시작하면 전사가 표시됩니다.</p><p>휴대폰에서 녹음해도 연결된 Tiro 계정으로 불러올 수 있습니다.</p></section>:<TranscriptFlow lines={paragraphs.map(p=>({id:p.uuid,time:clock(p.timeFrom),segments:[{text:p.text}]}))} onSentence={select} renderAfter={inline} showTimes/>}
+      {!paragraphs.length?<section className="empty"><h2>{status?.recording?.mode==='none'?'녹음을 연결해 주세요':status?.recording?.mode==='share'?transcriptStatus(status):status?.status.daemon==='alive'&&!status?.delivery?.refreshError?'전사 대기 중':'전사 연결 복구 중'}</h2><p>{status?.recording?.mode==='none'?'위의 ‘Tiro 링크 연결’에 녹음 공유 링크를 붙여 넣으세요.':status?.recording?.mode==='share'?(status.recording.message??'공유 화면에 전사가 표시되면 여기에 반영됩니다. 휴대폰 녹음도 같은 방법으로 연결할 수 있습니다.'):'자료 연결을 확인하고 있습니다. 기존 기록은 보존됩니다.'}</p></section>:<TranscriptFlow lines={paragraphs.map(p=>({id:p.uuid,time:p.timeBasis==='observed'?`수신 ${clock(p.timeFrom)}`:clock(p.timeFrom),segments:[{text:p.text}]}))} onSentence={select} renderAfter={inline} showTimes/>}
     </div>
-    <div className="transcript-status"><span>{status?.status.daemon==='stale'?'연결 확인 필요':status?.status.noteRecording?'● 실시간':'녹음 기록'}{!following?' · 자동 스크롤 일시정지':''}</span>{!following&&newWords>0&&<button onClick={()=>{setSelected(undefined);follow.current=true;setFollowing(true);setNewWords(0);viewport.current?.scrollTo({top:viewport.current.scrollHeight});}}>맨 아래로 ↓</button>}<span title="음성 인식 지연 시간이 아니라, Classmate가 자료를 확인한 시각입니다.">{status?.delivery?.lastCheckedAt?`${clock(status.delivery.lastCheckedAt)} 자료 확인`:''}</span></div>
+    <div className="transcript-status"><span>{transcriptStatus(status)}{!following?' · 자동 스크롤 일시정지':''}</span>{!following&&newWords>0&&<button onClick={()=>{setSelected(undefined);follow.current=true;setFollowing(true);setNewWords(0);viewport.current?.scrollTo({top:viewport.current.scrollHeight});}}>맨 아래로 ↓</button>}<span title="공유 전사의 수신 시각은 실제 발화 시각과 다릅니다.">{status?.recording?.mode==='share'?(status.recording.lastCheckedAt?`공유 화면 확인 ${preciseClock(status.recording.lastCheckedAt)}`:''):status?.status.lastTiroSuccessAt?`Tiro 응답 ${preciseClock(status.status.lastTiroSuccessAt)}`:''}</span></div>
     <div className="pane-divider" role="separator" aria-label="전사와 대화 크기 조절" aria-orientation="horizontal" aria-valuemin={30} aria-valuemax={90} aria-valuenow={preferences.height} tabIndex={0} title="드래그로 크기 조절 · 방향키로 미세 조절 · 두 번 클릭하면 기본 비율" onPointerDown={e=>{e.currentTarget.setPointerCapture(e.pointerId);}} onPointerMove={e=>{if(e.currentTarget.hasPointerCapture(e.pointerId))resizePanes(e.clientY);}} onPointerUp={e=>{if(e.currentTarget.hasPointerCapture(e.pointerId)){e.currentTarget.releasePointerCapture(e.pointerId);updatePreferences(preferencesRef.current);}}} onPointerCancel={()=>updatePreferences(preferencesRef.current)} onDoubleClick={()=>updatePreferences({...preferences,height:defaults.height})} onKeyDown={e=>{if(['ArrowUp','ArrowDown','Home','End'].includes(e.key)){e.preventDefault();const height=e.key==='Home'?30:e.key==='End'?90:Math.max(30,Math.min(90,preferences.height+(e.key==='ArrowUp'?-2:2)));updatePreferences({...preferences,height});}}}><span/></div>
     <section className="chat-dock" aria-label="자유 대화">
       <header className="chat-heading"><h2>대화</h2><span>수업을 보며 편하게 물어보세요</span></header>

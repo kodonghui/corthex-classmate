@@ -1,0 +1,7 @@
+{
+  "name": "@classmate/study-desktop",
+  "version": "0.3.0-preview.2",
+  "private": true,
+  "type": "module",
+  "dependencies": { "playwright": "1.62.1" }
+}

@@ -16,7 +16,7 @@ await writeFile(join(dir,'config.json'),JSON.stringify({capture:{max_edge:16},ti
 const answer='필요한 객체를 **밖에서 전달하는 것**이 의존성 주입입니다.\n\n```mermaid\nsequenceDiagram\n participant U as 사용자\n participant S as 서버\n U->>S: 회원 정보 요청\n S-->>U: 회원 정보 응답\n```';
 let calls=0;
 const tutor={async connect(){return {loggedIn:true,model:'gpt-5.6-terra',effort:'high'};},async answer(input,delta,signal){calls++;await new Promise((resolve,reject)=>{const timer=setTimeout(resolve,1200);signal.addEventListener('abort',()=>{clearTimeout(timer);reject(new Error('답변을 중지했어요.'));},{once:true});});delta(answer.slice(0,25));await new Promise(r=>setTimeout(r,500));delta(answer.slice(25));return answer;},close(){}};
-const appOptions={root,entry:join(process.env.APPDATA,'npm/node_modules/@openai/codex/bin/codex.js'),profile:join(dir,'profile'),coreDir:dir,tutorOverride:realAi?undefined:tutor};
+const appOptions={root,entry:join(process.env.APPDATA,'npm/node_modules/@openai/codex/bin/codex.js'),profile:join(dir,'profile'),coreDir:dir,coreExecutable:process.env.CLASSMATE_TEST_CORE_EXE,tutorOverride:realAi?undefined:tutor};
 let app=await startStudy(appOptions);
 const db=new DatabaseSync(join(dir,'core.sqlite'));
 const p1='11111111-1111-4111-8111-111111111111',p2='22222222-2222-4222-8222-222222222222';
@@ -57,12 +57,13 @@ try{
  await chat.locator('.answer:not(.live-answer)').waitFor({timeout:90000});
  assert.equal(db.prepare('SELECT count(*) AS n FROM qa_log WHERE paragraph_uuid IS NULL').get().n,1);
  const firstStudy=await page.getByRole('combobox',{name:'세션 선택'}).inputValue();
- await page.getByRole('button',{name:'＋ 새 세션'}).click();await page.getByLabel('어떤 세션을 시작할까요?').fill('Spring 04~06');await page.getByRole('button',{name:'세션 시작',exact:true}).click();
+ await page.getByRole('button',{name:'＋ 새 세션'}).click();await page.getByLabel('세션 이름',{exact:true}).fill('Spring 04~06');await page.getByRole('button',{name:'세션 시작',exact:true}).click();
  await page.getByRole('heading',{name:'Spring 04~06',exact:true}).waitFor();
  assert.equal(await page.locator('.answer').count(),0);assert.equal(await page.locator('.cm-tf__ln').count(),0);
  const p3='33333333-3333-4333-8333-333333333333';const later=new Date().toISOString();
  insert.run(p3,'synthetic-note','새 세션의 전사입니다.',later,later,Date.now(),Date.now(),later);
- await page.locator('.cm-tf__ln').filter({hasText:'새 세션의 전사입니다.'}).waitFor({timeout:5000});
+ await page.getByRole('heading',{name:'녹음을 연결해 주세요',exact:true}).waitFor();
+ await page.waitForTimeout(1000);assert.equal(await page.locator('.cm-tf__ln').filter({hasText:'새 세션의 전사입니다.'}).count(),0);
  await page.getByRole('combobox',{name:'세션 선택'}).selectOption(firstStudy);await page.locator('.answer .diagram-scroll svg').first().waitFor();
  assert.equal(await page.locator('.cm-tf__ln').filter({hasText:'새 세션의 전사입니다.'}).count(),0);
  // A real process/service restart gets preferences and studies from disk, not localStorage.
