@@ -8,6 +8,10 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import {
+  CORE_FRAME_SOURCES,
+  CORE_MOMENT_SOURCES,
+  CORE_QA_KINDS,
+  CORE_TOOL_NAMES,
   EVIDENCE_LABELS_KO,
   SCHEMAS,
   SCHEMA_IDS,
@@ -24,6 +28,10 @@ const packageRoot = fileURLToPath(new URL("..", import.meta.url));
 const schemasDir = join(packageRoot, "schemas");
 const examplesDir = join(schemasDir, "examples");
 const invalidDir = join(examplesDir, "invalid");
+// core-* 예시는 따로 둡니다. apps/native-host 의 transport 크레이트 시험이 examples/ 의 파일 개수와
+// 이름을 못 박고 있고(그 크레이트는 코어 스키마를 모릅니다), native-host 는 v0.3 동안 손대지 않습니다.
+const coreExamplesDir = join(schemasDir, "core-examples");
+const coreInvalidDir = join(coreExamplesDir, "invalid");
 
 const schemaNameSet = new Set<string>(SCHEMA_NAMES);
 
@@ -48,8 +56,14 @@ function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8")) as unknown;
 }
 
-const validExampleFiles = listJsonFiles(examplesDir);
-const invalidExampleFiles = listJsonFiles(invalidDir);
+type ExampleFile = { file: string; dir: string };
+
+function listExamples(...dirs: string[]): ExampleFile[] {
+  return dirs.flatMap((dir) => listJsonFiles(dir).map((file) => ({ file, dir })));
+}
+
+const validExampleFiles = listExamples(examplesDir, coreExamplesDir);
+const invalidExampleFiles = listExamples(invalidDir, coreInvalidDir);
 
 describe("스키마 컴파일", () => {
   it("스키마 파일 목록과 SCHEMA_NAMES 가 같다", () => {
@@ -79,14 +93,21 @@ describe("통과 예시", () => {
   });
 
   it("모든 스키마에 통과 예시가 하나 이상 있다", () => {
-    const covered = new Set(validExampleFiles.map(schemaNameOf));
+    const covered = new Set(validExampleFiles.map(({ file }) => schemaNameOf(file)));
     expect([...covered].sort()).toEqual([...SCHEMA_NAMES].sort());
   });
 
-  it.each(validExampleFiles)("%s 이(가) 스키마를 통과한다", (fileName) => {
-    const name = schemaNameOf(fileName);
+  it("core-* 예시는 core-examples/ 에만 있다 (native-host transport 시험이 examples/ 를 못 박고 있습니다)", () => {
+    expect(listJsonFiles(examplesDir).filter((file) => file.startsWith("core-"))).toEqual([]);
+    expect(listJsonFiles(invalidDir).filter((file) => file.startsWith("core-"))).toEqual([]);
+    expect(listJsonFiles(coreExamplesDir).every((file) => file.startsWith("core-"))).toBe(true);
+    expect(listJsonFiles(coreInvalidDir).every((file) => file.startsWith("core-"))).toBe(true);
+  });
+
+  it.each(validExampleFiles)("$file 이(가) 스키마를 통과한다", ({ file, dir }) => {
+    const name = schemaNameOf(file);
     const validate = createValidator(name);
-    const data = readJson(join(examplesDir, fileName));
+    const data = readJson(join(dir, file));
     const ok = validate(data);
     expect(formatErrors(validate.errors)).toEqual([]);
     expect(ok).toBe(true);
@@ -98,10 +119,10 @@ describe("거부 예시", () => {
     expect(invalidExampleFiles.length).toBeGreaterThanOrEqual(3);
   });
 
-  it.each(invalidExampleFiles)("%s 이(가) 거부된다", (fileName) => {
-    const name = schemaNameOf(fileName);
+  it.each(invalidExampleFiles)("$file 이(가) 거부된다", ({ file, dir }) => {
+    const name = schemaNameOf(file);
     const validate = createValidator(name);
-    const data = readJson(join(invalidDir, fileName));
+    const data = readJson(join(dir, file));
     expect(validate(data)).toBe(false);
     expect(formatErrors(validate.errors).length).toBeGreaterThan(0);
   });
@@ -164,6 +185,80 @@ describe("손으로 적은 상수와 스키마가 같다", () => {
       definitions: { TutorState: { enum: string[] } };
     };
     expect([...TUTOR_STATES]).toEqual(schema.definitions.TutorState.enum);
+  });
+
+  it("CORE_TOOL_NAMES 가 core-tools 의 x-tool-names 와 같고 툴마다 Input·Output 정의가 있다", () => {
+    const schema = SCHEMAS["core-tools"] as {
+      "x-tool-names": string[];
+      "x-logical-names": Record<string, string>;
+      definitions: Record<string, unknown>;
+    };
+    expect([...CORE_TOOL_NAMES]).toEqual(schema["x-tool-names"]);
+    expect(Object.keys(schema["x-logical-names"])).toEqual(schema["x-tool-names"]);
+    for (const name of CORE_TOOL_NAMES) {
+      const pascal = name
+        .split("_")
+        .map((part) => part[0]!.toUpperCase() + part.slice(1))
+        .join("");
+      expect(schema.definitions, `${pascal}Input`).toHaveProperty(`${pascal}Input`);
+      expect(schema.definitions, `${pascal}Output`).toHaveProperty(`${pascal}Output`);
+      expect(schema["x-logical-names"][name]).toBe(name.replace("_", "."));
+    }
+  });
+
+  it("코어 enum 상수가 core-* 스키마와 같다", () => {
+    const frame = SCHEMAS["core-frame"] as { properties: { source: { enum: string[] } } };
+    const moment = SCHEMAS["core-moment"] as { properties: { source: { enum: string[] } } };
+    const qa = SCHEMAS["core-qa-entry"] as { properties: { kind: { enum: string[] } } };
+    const tools = SCHEMAS["core-tools"] as {
+      definitions: { SessionLogInput: { properties: { kind: { enum: string[] } } } };
+    };
+    expect([...CORE_FRAME_SOURCES]).toEqual(frame.properties.source.enum);
+    expect([...CORE_MOMENT_SOURCES]).toEqual(moment.properties.source.enum);
+    expect([...CORE_QA_KINDS]).toEqual(qa.properties.kind.enum);
+    expect([...CORE_QA_KINDS]).toEqual(tools.definitions.SessionLogInput.properties.kind.enum);
+  });
+});
+
+describe("코어 계약 경계", () => {
+  it("CoreFrame.path 는 frames/<묶음>/<id>.<확장자> 상대 경로만 받는다", () => {
+    const validate = createValidator("core-frame");
+    const base = readJson(join(coreExamplesDir, "core-frame.1.json")) as Record<string, unknown>;
+    expect(validate({ ...base, path: "frames/1/fr-1789012345678-2.jpg" })).toBe(true);
+    for (const path of [
+      "frames/1/fr-1789012345678.gif",
+      "frames\\1\\fr-1789012345678.webp",
+      "../frames/1/fr-1789012345678.webp",
+      "frames/현재 공부/fr-1789012345678.webp",
+    ]) {
+      expect(validate({ ...base, path }), path).toBe(false);
+    }
+  });
+
+  it("툴 입력은 snake_case 열쇠만 받고 모르는 열쇠는 거부한다", () => {
+    const ajv = getAjv();
+    const id = "https://schemas.corthex.dev/classmate/core-tools.schema.json";
+    const latest = ajv.getSchema(`${id}#/definitions/MomentLatestInput`)!;
+    expect(latest({})).toBe(true);
+    expect(latest({ max_age_sec: 600 })).toBe(true);
+    expect(latest({ maxAgeSec: 600 })).toBe(false);
+
+    const log = ajv.getSchema(`${id}#/definitions/SessionLogInput`)!;
+    expect(log({ question: "무상태성이 뭐야", answer: "…", kind: "explain" })).toBe(true);
+    expect(log({ question: "", answer: "…", kind: "explain" })).toBe(false);
+    expect(log({ question: "x", answer: "…", kind: "chat" })).toBe(false);
+
+    const status = ajv.getSchema(`${id}#/definitions/CoreStatusOutput`)!;
+    expect(
+      status({
+        version: "0.1.0",
+        daemon: "alive",
+        tiroState: "connected",
+        hotkey: "registered",
+        counts: { paragraphs: 3, frames: 2, moments: 1, qa: 0 },
+      }),
+    ).toBe(true);
+    expect(status({ version: "0.1.0", daemon: "alive" })).toBe(false);
   });
 });
 

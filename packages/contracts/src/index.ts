@@ -16,6 +16,11 @@ import activitySetV2Schema from "../schemas/activity-set-v2.schema.json";
 import answerSchema from "../schemas/answer.schema.json";
 import assetRefSchema from "../schemas/asset-ref.schema.json";
 import commonSchema from "../schemas/common.schema.json";
+import coreFrameSchema from "../schemas/core-frame.schema.json";
+import coreMomentSchema from "../schemas/core-moment.schema.json";
+import coreParagraphSchema from "../schemas/core-paragraph.schema.json";
+import coreQaEntrySchema from "../schemas/core-qa-entry.schema.json";
+import coreToolsSchema from "../schemas/core-tools.schema.json";
 import editorContextSchema from "../schemas/editor-context.schema.json";
 import evidenceLevelSchema from "../schemas/evidence-level.schema.json";
 import materialRefSchema from "../schemas/material-ref.schema.json";
@@ -67,6 +72,34 @@ export const TUTOR_STATES = [
   "DELAYED_CHECK",
 ] as const;
 
+/**
+ * 코어(`apps/core`)의 MCP 서버가 내놓는 툴의 와이어 이름 전부입니다.
+ * core-tools.schema.json 의 `x-tool-names` 와 같은 순서입니다. 점 표기(kickoff)는 같은 파일의 `x-logical-names` 에 있습니다.
+ */
+export const CORE_TOOL_NAMES = [
+  "moment_latest",
+  "moment_capture",
+  "moment_get",
+  "transcript_recent",
+  "session_log",
+  "session_summary",
+  "core_status",
+] as const;
+
+/** 코어 프레임이 어디서 왔는지입니다. core-frame.schema.json 의 `source.enum` 과 같은 순서입니다. */
+export const CORE_FRAME_SOURCES = ["timeline", "hotkey", "tool"] as const;
+
+/** 코어 순간이 어디서 왔는지입니다. core-moment.schema.json 의 `source.enum` 과 같은 순서입니다. */
+export const CORE_MOMENT_SOURCES = ["hotkey", "tool"] as const;
+
+/** 코어 문답의 종류입니다. core-qa-entry.schema.json 의 `kind.enum` 과 같은 순서입니다. */
+export const CORE_QA_KINDS = ["explain", "related", "followup", "diagram"] as const;
+
+export type CoreToolName = (typeof CORE_TOOL_NAMES)[number];
+export type CoreFrameSourceName = (typeof CORE_FRAME_SOURCES)[number];
+export type CoreMomentSourceName = (typeof CORE_MOMENT_SOURCES)[number];
+export type CoreQaKindName = (typeof CORE_QA_KINDS)[number];
+
 export type SessionEventTypeName = (typeof SESSION_EVENT_TYPES)[number];
 export type TutorStateName = (typeof TUTOR_STATES)[number];
 export type EvidenceLevelName = keyof typeof EVIDENCE_LABELS_KO;
@@ -89,6 +122,11 @@ export const SCHEMA_NAMES = [
   "activity-set-v2",
   "session-summary-v2",
   "session-bundle-v2",
+  "core-paragraph",
+  "core-qa-entry",
+  "core-frame",
+  "core-moment",
+  "core-tools",
 ] as const;
 
 export type SchemaName = (typeof SCHEMA_NAMES)[number];
@@ -111,6 +149,11 @@ export const SCHEMAS: Record<SchemaName, object> = {
   "activity-set-v2": activitySetV2Schema,
   "session-summary-v2": sessionSummaryV2Schema,
   "session-bundle-v2": sessionBundleV2Schema,
+  "core-paragraph": coreParagraphSchema,
+  "core-qa-entry": coreQaEntrySchema,
+  "core-frame": coreFrameSchema,
+  "core-moment": coreMomentSchema,
+  "core-tools": coreToolsSchema,
 };
 
 /** 스키마 이름 → $id 입니다. Ajv 는 $id 로 서로를 찾습니다. */
@@ -137,8 +180,9 @@ export function getAjv(): Ajv {
     strict: "log",
   });
   applyFormats(ajv);
-  // x-labels-ko 는 화면 문구를 스키마 옆에 두려고 쓰는 우리 확장 키워드입니다.
-  ajv.addVocabulary(["x-labels-ko"]);
+  // 우리 확장 키워드입니다. x-labels-ko 는 화면 문구, x-tool-names · x-logical-names 는
+  // core-tools.schema.json 이 MCP 툴 이름 목록을 스키마 옆에 두는 자리입니다.
+  ajv.addVocabulary(["x-labels-ko", "x-tool-names", "x-logical-names"]);
 
   for (const name of SCHEMA_NAMES) {
     ajv.addSchema(SCHEMAS[name], SCHEMA_IDS[name]);

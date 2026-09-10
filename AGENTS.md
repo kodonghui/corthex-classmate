@@ -39,7 +39,7 @@
 ```
 apps/browser-extension/   Chrome 확장 (WXT · React · TS · MV3 · Side Panel)   @classmate/browser-extension
 apps/native-host/         Windows 로컬 도우미 (Rust Native Messaging Host)    crate classmate-host
-apps/core/                (v0.3 예정) Classmate Core: 단축키 캡처 · Tiro API · SQLite · MCP 서버   crate classmate-core
+apps/core/                (v0.3 · 1단계 진행 중) Classmate Core: 단축키 캡처 · Tiro API · SQLite · MCP 서버   crate classmate-core (독립 Cargo 워크스페이스 · README.md)
 plugins/classmate/        (v0.3 예정) Claude Code 플러그인: 스킬 · .mcp.json · 훅
 packages/contracts/       JSON Schema 정본 → TS/Rust 타입 생성                @classmate/contracts
 packages/tutor-core/      상태기계·문맥 봉인 (Phase 2)                        @classmate/tutor-core
@@ -62,6 +62,8 @@ docs/                     kickoff · master-prompt · DECISIONS · TASKS · WORK
 | 계약 타입 생성 | `pnpm --filter @classmate/contracts generate` | JSON Schema → `src/generated/*.ts` |
 | 로컬 도우미 빌드 | `cargo build --manifest-path apps/native-host/Cargo.toml` | rustup 필요 · 링커 없으면 `--target x86_64-pc-windows-gnu` |
 | 로컬 도우미 테스트 | `cargo test --manifest-path apps/native-host/Cargo.toml` | |
+| 코어 빌드 | `cargo build --manifest-path apps/core/Cargo.toml` | native-host 와 다른 워크스페이스 · 의존성 규칙은 `apps/core/README.md` §4 |
+| 코어 테스트 | `cargo test --manifest-path apps/core/Cargo.toml` | `pnpm test` 의 `cargo-core` 갈래와 같다 |
 | Native Messaging 등록 | `node apps/native-host/scripts/register-host.mjs` | HKCU 레지스트리 · 사용자 확인 후 실행 |
 | E2E | `pnpm --filter @classmate/browser-extension e2e` | 처음 한 번 `npx playwright install chromium` |
 | 커밋 전 확인 | `git status --short && git diff --check` | |

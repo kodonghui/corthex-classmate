@@ -30,6 +30,9 @@ src/index.ts                 ← 생성물 재수출 + 상수 + createValidator
    (빠뜨리면 `generate` 와 시험이 각각 막아 줍니다.)
 3. `schemas/examples/` 에 통과 예시를 하나 이상 더합니다. 파일 이름의 첫 마디가
    스키마 이름이어야 합니다. 보기 `answer.1.json` · `session-event.2.json`
+   **`core-*` 스키마의 예시는 `schemas/core-examples/`(거부 예시는 그 아래 `invalid/`)에 둡니다.**
+   `apps/native-host` 의 transport 크레이트 시험이 `examples/` 의 파일 개수 · 이름을 못 박고 있고
+   그 크레이트는 코어 스키마를 모르기 때문입니다(v0.3 동안 native-host 는 손대지 않습니다).
 4. 값 범위를 좁혔으면 `schemas/examples/invalid/` 에 거부 예시를 함께 더합니다.
    보기 `answer.long-conclusion.json`
 5. `pnpm --filter @classmate/contracts test` 를 돌립니다.
@@ -56,6 +59,11 @@ src/index.ts                 ← 생성물 재수출 + 상수 + createValidator
 | `question` | 붙잡은 순간과 그때 봉인한 자료 묶음 |
 | `answer` | 40자 이내 결론 · 근거 · 칩 2~3개 · 접힌 상세 |
 | `session-event` | 교시 세션에 시간 순서로 쌓이는 기록 한 줄 |
+| `core-paragraph` | 코어(`apps/core`)가 Tiro 공식 API 에서 받아 둔 문단 한 줄 (`uuid` 기준 갱신) |
+| `core-frame` | 코어가 남긴 화면 한 장의 메타. `path` 는 `frames/<묶음>/<id>.<확장자>` 상대 경로 |
+| `core-qa-entry` | 앱이 `session_log` 로 남긴 문답 한 줄 |
+| `core-moment` | 붙잡은 순간 = 프레임 + 마지막 문단 + 전사 창 + 최근 문답(스냅샷) |
+| `core-tools` | 코어 MCP 툴 7개의 와이어 이름(`x-tool-names`)과 툴별 `…Input`/`…Output` 정의. 입력 열쇠는 snake_case |
 
 ### id 접두사 규칙
 
@@ -74,8 +82,11 @@ src/index.ts                 ← 생성물 재수출 + 상수 + createValidator
   `json-schema-to-typescript` 는 `if`/`then` 을 타입으로 옮기지 않으므로, 이 제약은
   타입이 아니라 검증기에서만 보입니다.
 - `payload` 판별 유니온(`type` 별 `oneOf`)은 Phase 2 에서 붙입니다.
-- `x-labels-ko` 는 JSON Schema 표준 키워드가 아닙니다. `getAjv()` 가
-  `addVocabulary(["x-labels-ko"])` 로 미리 알려 둡니다.
+- `x-labels-ko` · `x-tool-names` · `x-logical-names` 는 JSON Schema 표준 키워드가 아닙니다. `getAjv()` 가
+  `addVocabulary` 로 미리 알려 둡니다.
+- `core-*` 스키마(2026-09-10 · Classmate Core 1단계)는 `apps/core` 가 SQLite 에 두는 레코드와 MCP 툴 계약입니다.
+  Rust 쪽은 `typify` 없이 `serde` 구조체를 손으로 맞추고, `apps/core` 의 시험이 enum · 툴 이름을 이 JSON 과
+  맞대어 확인합니다(`cargo test --manifest-path apps/core/Cargo.toml`). 승인 근거는 `docs/plan/core-mvp-handoff.md` §0-5 · §4.2.
 - `src/index.ts` 는 스키마 JSON 을 `import` 로 읽습니다. 번들러(Vite·WXT)와 Vitest 는
   그대로 되지만, 순수 Node ESM 으로 직접 실행할 때는 JSON import 지원이 필요합니다.
 
@@ -85,9 +96,9 @@ Rust 타입은 아직 만들지 않습니다. Phase 2 에서 `apps/native-host` 
 `typify` 로 같은 `schemas/*.schema.json` 을 읽어 crate 안에 타입을 만드는 방향으로 붙입니다.
 그때도 정본은 이 폴더의 JSON Schema 하나뿐입니다.
 
-## 고정 상태 (2026-09-02 · Phase 2 1라운드)
+## 고정 상태 (2026-09-02 · Phase 2 1라운드 → 2026-09-10 · `core-*` 5종 추가)
 
-스키마 8종은 **고정(frozen)** 입니다. `frozen.sha256` 이 스키마 파일의 SHA-256 스냅샷이고
+스키마는 **고정(frozen)** 입니다. `frozen.sha256` 이 스키마 파일의 SHA-256 스냅샷이고
 `test/frozen.test.ts` 가 지금 파일과 맞대어 봅니다. 그래서 스키마를 한 글자라도 고치면
 `pnpm --filter @classmate/contracts test` 가 실패합니다.
 

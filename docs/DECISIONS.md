@@ -1,5 +1,19 @@
 # 결정 기록
 
+## 2026-09-10 (5) — `packages/contracts` 에 코어 계약 `core-*` 5종 추가 (고정 스냅샷 갱신)
+
+- 결정: `core-paragraph` · `core-frame` · `core-qa-entry` · `core-moment` · `core-tools` 를 더하고 `frozen.sha256` 을 갱신했다. 기존 16종은 한 글자도 바꾸지 않았다(해시 동일). 레코드 열쇠는 다른 계약처럼 camelCase, MCP 툴 **입력** 열쇠는 인수인계 §4.5 그대로 snake_case(`max_age_sec` · `window_sec` · `paragraph_uuid` …). 와이어 이름은 밑줄(`x-tool-names`)이고 kickoff 의 점 표기는 같은 파일의 `x-logical-names` 에 나란히 둔다((2) 의 "두 이름을 함께 적는다").
+- 근거: 인수인계 §0-5 · §4.2 "스키마 초안(구현하며 확정, `packages/contracts` 에 JSON Schema 로 고정)" 이 승인 근거다. Rust 쪽은 typify 를 쓰지 않고 `serde` 구조체를 손으로 맞추며, `apps/core` 의 시험이 enum(`source` · `kind`) · 툴 이름 · 계약 예시 왕복을 JSON 파일과 직접 맞댄다. contracts README 의 "Rust 쪽 계획(typify)" 은 native-host 얘기이고 코어에는 (4) 의 의존성 규칙 때문에 적용하지 않는다.
+- 모양의 선택: `moments` 는 전사 창 · 최근 문답을 **만든 시점의 스냅샷** 으로 JSON 열에 함께 담는다(뒤에 문단이 갱신되거나 문답이 쌓여도 "그때 본 것" 이 남는다). `frames.path` 는 `frames/<묶음>/<id>.<확장자>` 상대 경로만 패턴으로 강제한다(절대 경로 = 사용자 이름). `recentQa` 는 최대 3개. 이미지는 출력 JSON 이 아니라 MCP image content 로 따로 간다. `core-tools` 루트는 빈 객체이고 정의(`…Input`/`…Output`)만 쓴다 — 타입 생성기가 정의도 내보내므로 TS 쪽에서 `MomentLatestInput` 같은 타입을 그대로 얻는다.
+- 대안: 스키마 없이 Rust 구조체만 두기 → 앱(TS)과 코어(Rust)가 같은 이름을 보게 하는 정본이 없어져 채택하지 않음. 툴 입력도 camelCase 로 통일 → 인수인계 §4.5 · Notion 시퀀스 문서와 어긋나므로 채택하지 않음.
+
+## 2026-09-10 (4) — 코어 의존성: raw-dylib 갈래(tokio · rmcp · reqwest · keyring · rpassword) 대신 `windows 0.58` + 순수 Rust + 손으로 쓴 MCP/HTTP
+
+- 결정: `apps/core` 는 `rusqlite =0.30.0`(winsqlite3 · `build.rs` 는 native-host 것을 복사) · `image 0.25`(webp · jpeg · png) · `serde` · `serde_json` · `windows 0.58` 만 쓴다. MCP 는 JSON-RPC 2.0 줄 단위 stdio 를 직접 쓰고, HTTPS 는 WinHTTP, 키 저장은 `CredWriteW`/`CredReadW`, 숨김 입력은 `SetConsoleMode`, 트레이 · 단축키 · 캡처는 `Shell_NotifyIconW` · `RegisterHotKey` · GDI 다. 인수인계 §4.1 · §4.5 · §4.6 · §4.7 이 제안한 rmcp · reqwest(rustls) · keyring · rpassword · tray-icon/muda/global-hotkey 는 채택하지 않는다. 새 의존성을 더할 때는 `cargo tree -i windows-sys` 로 0.61 이상이 들어오지 않는지 본다.
+- 근거(실측): 이 PC 의 `stable-x86_64-pc-windows-gnu` 에는 C 컴파일러 · 어셈블러가 없다. `windows-sys 0.61+` · `windows-link 0.2` · `windows 0.6x` 는 `raw-dylib` 링크를 쓰고, rustc 는 그것을 `dlltool` 로 import library 를 만들어 푸는데 rustup self-contained dlltool 은 `as` 가 없어 `CreateProcess` 실패로 끝난다(스크래치 빌드 #1: `error calling dlltool 'dlltool.exe': program not found`, PATH 에 넣어도 실패). tokio(mio 1.2) · socket2 · schannel · rpassword · keyring 이 모두 이 갈래를 끌어온다. `windows 0.58`(windows-targets 0.52 · 미리 만든 `.a` import lib) + 순수 Rust 조합은 스크래치 빌드 #2 에서 링크 · 실행까지 확인했다(SQLite 3.51.1 · WebP/JPEG 인코딩 · GDI · WinHTTP · CredReadW). MCP 1단계는 `initialize` · `tools/list` · `tools/call` · `ping` 네 메서드뿐이라 손으로 써도 작다.
+- 대안: (가) Build Tools(MSVC) 설치 → 인수인계 §7 의 "사용자 결정" 항목이라 먼저 순수 Rust 로 가고, 막히면 그때 묻는다. (나) `-C link-self-contained=yes` · `-C dlltool=<경로>` → 시도했고 실패. (다) `llvm-tools` 컴포넌트(설치함 · 무해 · 되돌릴 수 있음) → llvm-dlltool 이 들어 있지 않아 도움이 안 됨.
+- 되돌릴 조건: Build Tools 를 설치하기로 하면 rmcp · reqwest 로 갈아탈 수 있다. 그때도 계약(`core-tools.schema.json`)과 SQLite 모양은 그대로다.
+
 ## 2026-09-10 (3) — 코어 프레임 폴더는 `%LOCALAPPDATA%\CorthexClassmate\core\frames\<묶음>\` (kickoff 용량 정책 문구 정정)
 
 - 결정: kickoff-v0.3 §화면 저장 용량 정책의 "저장 위치 `%LOCALAPPDATA%\CorthexClassmate\<학습 묶음>\frames\`"는 (2)의 "코어는 `core\`를 쓴다" 결정보다 먼저 쓰인 문구라 서로 어긋났다. 코어는 `core\core.sqlite` + `core\frames\<묶음>\<id>.(webp|jpg)`를 쓰고, kickoff의 해당 줄을 이 커밋에서 같은 뜻으로 고친다(정본 순위대로 kickoff를 고쳐 맞춘 것이며 결정 자체는 (2)와 같다).

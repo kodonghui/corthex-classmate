@@ -35,6 +35,12 @@ const SCHEMA_NAMES = [
   "activity-set-v2",
   "session-summary-v2",
   "session-bundle-v2",
+  // 코어(apps/core) 계약. paragraph · qa-entry 가 먼저 와야 moment 가 그 타입을 재사용합니다.
+  "core-paragraph",
+  "core-qa-entry",
+  "core-frame",
+  "core-moment",
+  "core-tools",
 ];
 
 const BANNER = [

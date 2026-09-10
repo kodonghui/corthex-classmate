@@ -12,6 +12,7 @@
     "test:all": "node scripts/run-all-tests.mjs --with-e2e",
     "test:vitest": "node scripts/run-all-tests.mjs vitest",
     "test:cargo": "node scripts/run-all-tests.mjs cargo",
+    "test:core": "node scripts/run-all-tests.mjs cargo-core",
     "test:node": "node scripts/run-all-tests.mjs node",
     "test:e2e": "node scripts/run-all-tests.mjs e2e",
     "typecheck": "pnpm -r --if-present typecheck",

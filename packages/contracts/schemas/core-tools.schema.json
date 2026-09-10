@@ -1,0 +1,304 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/core-tools.schema.json",
+  "title": "CoreTools",
+  "description": "classmate-core mcp 가 내놓는 MCP 툴 7개의 와이어 이름과 입력·출력 모양입니다. 와이어 이름은 밑줄 형태(kickoff 의 점 표기 moment.latest 는 x-logical-names 에 대응)이며 입력 열쇠는 인수인계 §4.5 그대로 snake_case, 출력 레코드는 다른 계약처럼 camelCase 입니다. 이미지는 출력 JSON 이 아니라 MCP image content 로 따로 갑니다.",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false,
+  "x-tool-names": [
+    "moment_latest",
+    "moment_capture",
+    "moment_get",
+    "transcript_recent",
+    "session_log",
+    "session_summary",
+    "core_status"
+  ],
+  "x-logical-names": {
+    "moment_latest": "moment.latest",
+    "moment_capture": "moment.capture",
+    "moment_get": "moment.get",
+    "transcript_recent": "transcript.recent",
+    "session_log": "session.log",
+    "session_summary": "session.summary",
+    "core_status": "core.status"
+  },
+  "definitions": {
+    "MomentLatestInput": {
+      "title": "MomentLatestInput",
+      "description": "moment_latest 의 입력입니다. 사용자가 방금 Alt+S 를 눌렀거나 \"방금 화면\"·\"이거\" 라고 가리킬 때 부릅니다.",
+      "type": "object",
+      "properties": {
+        "max_age_sec": {
+          "description": "이보다 오래된 순간은 없는 것으로 봅니다. 기본 600 초입니다.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        }
+      },
+      "additionalProperties": false
+    },
+    "MomentLatestOutput": {
+      "title": "MomentLatestOutput",
+      "description": "moment_latest 의 출력입니다. found 가 false 면 moment 와 frame 이 없고 hint 에 사용자에게 보여 줄 안내가 있습니다.",
+      "type": "object",
+      "properties": {
+        "found": { "type": "boolean" },
+        "moment": { "$ref": "core-moment.schema.json" },
+        "frame": { "$ref": "core-frame.schema.json" },
+        "hint": {
+          "description": "순간이 없을 때의 안내 문구입니다. 보기 \"Alt+S 를 눌러 지금 화면을 붙잡으세요\".",
+          "type": "string"
+        }
+      },
+      "required": ["found"],
+      "additionalProperties": false
+    },
+    "MomentCaptureInput": {
+      "title": "MomentCaptureInput",
+      "description": "moment_capture 의 입력입니다. 모델이 \"지금 화면\" 이 필요할 때 부릅니다.",
+      "type": "object",
+      "properties": {
+        "paragraph_uuid": {
+          "description": "이 순간을 특정 문단에 붙이고 싶을 때의 uuid 입니다. 없으면 마지막 문단을 씁니다.",
+          "type": "string",
+          "minLength": 1
+        },
+        "note": {
+          "description": "순간에 남길 짧은 메모입니다.",
+          "type": "string",
+          "maxLength": 500
+        }
+      },
+      "additionalProperties": false
+    },
+    "MomentCaptureOutput": {
+      "title": "MomentCaptureOutput",
+      "description": "moment_capture 의 출력입니다. 이미지는 MCP image content 로 함께 갑니다.",
+      "type": "object",
+      "properties": {
+        "moment_id": {
+          "type": "string",
+          "pattern": "^m-[0-9]+(-[0-9]+)?$"
+        },
+        "captured_at": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+        "moment": { "$ref": "core-moment.schema.json" },
+        "frame": { "$ref": "core-frame.schema.json" }
+      },
+      "required": ["moment_id", "captured_at", "moment"],
+      "additionalProperties": false
+    },
+    "MomentGetInput": {
+      "title": "MomentGetInput",
+      "description": "moment_get 의 입력입니다.",
+      "type": "object",
+      "properties": {
+        "moment_id": {
+          "type": "string",
+          "pattern": "^m-[0-9]+(-[0-9]+)?$"
+        }
+      },
+      "required": ["moment_id"],
+      "additionalProperties": false
+    },
+    "MomentGetOutput": {
+      "title": "MomentGetOutput",
+      "description": "moment_get 의 출력입니다. found 가 false 면 그 id 의 순간이 없습니다.",
+      "type": "object",
+      "properties": {
+        "found": { "type": "boolean" },
+        "moment": { "$ref": "core-moment.schema.json" },
+        "frame": { "$ref": "core-frame.schema.json" }
+      },
+      "required": ["found"],
+      "additionalProperties": false
+    },
+    "TranscriptRecentInput": {
+      "title": "TranscriptRecentInput",
+      "description": "transcript_recent 의 입력입니다. 사용자가 \"방금 뭐라고 했어\"·\"지금 설명하는 거\" 처럼 말할 때 부릅니다.",
+      "type": "object",
+      "properties": {
+        "window_sec": {
+          "description": "until 에서 거꾸로 몇 초 안의 문단을 볼지입니다. 기본 60 초입니다.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "until": { "$ref": "common.schema.json#/definitions/IsoDateTime" }
+      },
+      "additionalProperties": false
+    },
+    "TranscriptRecentOutput": {
+      "title": "TranscriptRecentOutput",
+      "description": "transcript_recent 의 출력입니다. paragraphs 는 시간순이며 창에 걸친 문단이 없으면 비어 있습니다.",
+      "type": "object",
+      "properties": {
+        "paragraphs": {
+          "type": "array",
+          "items": { "$ref": "core-paragraph.schema.json" }
+        },
+        "windowSec": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "until": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+        "noteTitle": {
+          "description": "지금 따라가는 Tiro 노트 제목입니다. 노트가 없으면 생략합니다.",
+          "type": "string"
+        },
+        "noteRecording": {
+          "description": "따라가는 노트가 녹음 중인지입니다. 노트가 없으면 생략합니다.",
+          "type": "boolean"
+        },
+        "lastParagraphAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+        "tiroState": { "$ref": "#/definitions/TiroState" }
+      },
+      "required": ["paragraphs", "windowSec", "until", "tiroState"],
+      "additionalProperties": false
+    },
+    "SessionLogInput": {
+      "title": "SessionLogInput",
+      "description": "session_log 의 입력입니다. 답을 마친 뒤마다 부릅니다.",
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "minLength": 1
+        },
+        "answer": {
+          "type": "string"
+        },
+        "paragraph_uuid": {
+          "type": "string",
+          "minLength": 1
+        },
+        "moment_id": {
+          "type": "string",
+          "pattern": "^m-[0-9]+(-[0-9]+)?$"
+        },
+        "kind": {
+          "type": "string",
+          "enum": ["explain", "related", "followup", "diagram"]
+        }
+      },
+      "required": ["question", "answer", "kind"],
+      "additionalProperties": false
+    },
+    "SessionLogOutput": {
+      "title": "SessionLogOutput",
+      "description": "session_log 의 출력입니다.",
+      "type": "object",
+      "properties": {
+        "ok": { "type": "boolean", "enum": [true] },
+        "id": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "askedAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" }
+      },
+      "required": ["ok", "id", "askedAt"],
+      "additionalProperties": false
+    },
+    "SessionSummaryInput": {
+      "title": "SessionSummaryInput",
+      "description": "session_summary 의 입력입니다. 새 채팅을 시작할 때 부릅니다.",
+      "type": "object",
+      "properties": {
+        "recent": {
+          "description": "최근 문답을 몇 개 이월할지입니다. 기본 10 개입니다.",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "SessionSummaryOutput": {
+      "title": "SessionSummaryOutput",
+      "description": "session_summary 의 출력입니다. 최근 문답과 마지막 문단, 표 건수를 담습니다.",
+      "type": "object",
+      "properties": {
+        "bundleName": {
+          "type": "string",
+          "minLength": 1
+        },
+        "recentQa": {
+          "type": "array",
+          "items": { "$ref": "core-qa-entry.schema.json" }
+        },
+        "lastParagraph": { "$ref": "core-paragraph.schema.json" },
+        "latestMomentId": {
+          "type": "string",
+          "pattern": "^m-[0-9]+(-[0-9]+)?$"
+        },
+        "counts": { "$ref": "#/definitions/Counts" }
+      },
+      "required": ["bundleName", "recentQa", "counts"],
+      "additionalProperties": false
+    },
+    "CoreStatusInput": {
+      "title": "CoreStatusInput",
+      "description": "core_status 의 입력입니다. 받는 값이 없습니다.",
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "CoreStatusOutput": {
+      "title": "CoreStatusOutput",
+      "description": "core_status 의 출력입니다. 비밀값·절대 경로를 담지 않습니다.",
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "daemon": {
+          "description": "alive 는 heartbeat 가 최근, stale 은 heartbeat 가 오래됨, absent 는 한 번도 없음입니다.",
+          "type": "string",
+          "enum": ["alive", "stale", "absent"]
+        },
+        "tiroState": { "$ref": "#/definitions/TiroState" },
+        "noteTitle": {
+          "type": "string"
+        },
+        "noteRecording": {
+          "type": "boolean"
+        },
+        "lastPollAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+        "lastParagraphAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+        "captureWindowTitle": {
+          "description": "찍고 있는 창의 제목입니다. 창을 못 찾았으면 생략합니다.",
+          "type": "string"
+        },
+        "lastCaptureAt": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+        "hotkey": {
+          "type": "string",
+          "enum": ["registered", "failed", "unknown"]
+        },
+        "counts": { "$ref": "#/definitions/Counts" }
+      },
+      "required": ["version", "daemon", "tiroState", "hotkey", "counts"],
+      "additionalProperties": false
+    },
+    "TiroState": {
+      "title": "TiroState",
+      "description": "데몬이 본 Tiro 연결 상태입니다. no-key 는 setup 을 아직 안 했고, unauthorized 는 401, not-found 는 404, offline 은 네트워크 실패, unknown 은 데몬이 아직 알리지 않은 상태입니다.",
+      "type": "string",
+      "enum": ["connected", "no-key", "unauthorized", "not-found", "offline", "unknown"]
+    },
+    "Counts": {
+      "title": "Counts",
+      "description": "표 건수입니다.",
+      "type": "object",
+      "properties": {
+        "paragraphs": { "type": "integer", "minimum": 0 },
+        "frames": { "type": "integer", "minimum": 0 },
+        "moments": { "type": "integer", "minimum": 0 },
+        "qa": { "type": "integer", "minimum": 0 }
+      },
+      "required": ["paragraphs", "frames", "moments", "qa"],
+      "additionalProperties": false
+    }
+  }
+}

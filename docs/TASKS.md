@@ -7,7 +7,7 @@
 - [x] 작업 폴더 정리: `workspace-cleanup.ps1 -Apply -NoSize` 실행(릴리스 worktree 태그 후 제거, `_target*` 캐시·Blog `_to_delete` 휴지통, 약 9.4GB). cc-wt 20개는 미병합이라 보존(`cleanup-cc-wt.ps1` 준비, 미실행).
 - [~] **코어 MVP 1단계(흐름 2)는 Claude Code(PC)에서 수행** — 인수인계 `docs/plan/core-mvp-handoff.md` §4(범위)·§4.9(완료 판단)·§9(시작 프롬프트). Cowork는 기획·기록만.
   - [x] (1) docs — kickoff 갱신분 + 인수인계 문서 + TASKS/WORKLOG/DECISIONS (2026-09-10 저녁, Claude Code 착수)
-  - [ ] (2) `apps/core` 골격(독립 Cargo 워크스페이스) + 계약(`packages/contracts` 코어 스키마) + SQLite 저장소
+  - [x] (2) `apps/core` 골격(독립 Cargo 워크스페이스) + 계약(`packages/contracts` 코어 스키마 5종) + SQLite 저장소 (2026-09-10 밤 · cargo test 34 · clippy 0 · contracts 103 · DECISIONS (4)(5))
   - [ ] (3) Tiro 공식 API 클라이언트 + 가짜 서버 시험(페이지네이션·upsert·노트 전환·401/404)
   - [ ] (4) 캡처(GDI)·dHash 타임라인·Alt+S·트레이·보존 정리
   - [ ] (5) MCP stdio 서버(툴 7개) + `plugins/classmate` 스킬 + 루트 `.mcp.json`

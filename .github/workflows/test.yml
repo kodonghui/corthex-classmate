@@ -115,7 +115,8 @@ jobs:
             ~/.cargo/registry/cache
             ~/.cargo/git/db
             apps/native-host/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('apps/native-host/Cargo.lock', 'rust-toolchain.toml') }}
+            apps/core/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('apps/native-host/Cargo.lock', 'apps/core/Cargo.lock', 'rust-toolchain.toml') }}
           restore-keys: cargo-${{ runner.os }}-
 
       # 갈래 셋(vitest · cargo · node --test)을 돌고 갈래별 건수를 찍습니다.
@@ -134,5 +135,14 @@ jobs:
       - name: Rust lint
         run: cargo clippy --workspace --all-targets --manifest-path apps/native-host/Cargo.toml -- -D warnings
 
-      - name: 시험 세 갈래
+      # apps/core 는 native-host 와 다른 Cargo 워크스페이스입니다(v0.3 Classmate Core ·
+      # apps/core/README.md §4). 같은 GNU 툴체인 · 같은 winsqlite3 규칙이라 러너 조건은 같습니다.
+      - name: Rust 서식 검사 (core)
+        run: cargo fmt --manifest-path apps/core/Cargo.toml -- --check
+
+      - name: Rust lint (core)
+        run: cargo clippy --all-targets --manifest-path apps/core/Cargo.toml -- -D warnings
+
+      # 갈래 넷(vitest · cargo · cargo-core · node --test)을 돌고 갈래별 건수를 찍습니다.
+      - name: 시험 네 갈래
         run: pnpm test

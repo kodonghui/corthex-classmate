@@ -22,3 +22,8 @@ export type { ActivitySlot, ActivityKind, ActivityCard, ActivityAttempt } from "
 export type { ActivitySetV2 } from "./activity-set-v2";
 export type { SessionSummaryV2 } from "./session-summary-v2";
 export type { SessionMomentTypeV2, SessionBundleV2, SessionMomentV2, TranscriptRevisionV2, TranscriptWordV2 } from "./session-bundle-v2";
+export type { CoreParagraph } from "./core-paragraph";
+export type { CoreQaEntry } from "./core-qa-entry";
+export type { CoreFrame } from "./core-frame";
+export type { CoreMoment } from "./core-moment";
+export type { TiroState, CoreTools, MomentLatestInput, MomentLatestOutput, MomentCaptureInput, MomentCaptureOutput, MomentGetInput, MomentGetOutput, TranscriptRecentInput, TranscriptRecentOutput, SessionLogInput, SessionLogOutput, SessionSummaryInput, SessionSummaryOutput, Counts, CoreStatusInput, CoreStatusOutput } from "./core-tools";

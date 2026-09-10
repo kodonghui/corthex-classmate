@@ -1,0 +1,35 @@
+{
+  "id": "m-1789012345678",
+  "createdAt": "2026-09-10T13:02:33.700+09:00",
+  "frameId": "fr-1789012345678",
+  "paragraphUuid": "0b7c5e2a-7d1f-4e3a-9c2b-1a2b3c4d5e6f",
+  "transcriptWindow": [
+    {
+      "uuid": "0b7c5e2a-7d1f-4e3a-9c2b-1a2b3c4d5e6f",
+      "noteGuid": "8f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f",
+      "text": "무상태성이란 서버가 클라이언트의 상태를 들고 있지 않는다는 뜻입니다.",
+      "timeFrom": "2026-09-10T13:02:10+09:00",
+      "timeTo": "2026-09-10T13:02:31+09:00",
+      "locked": true
+    },
+    {
+      "uuid": "1c8d6f3b-8e2a-4f4b-8d3c-2b3c4d5e6f70",
+      "noteGuid": "8f1e2d3c-4b5a-4c6d-8e7f-9a0b1c2d3e4f",
+      "text": "그래서 세션 정보를 토큰에 담아",
+      "timeFrom": "2026-09-10T13:02:31+09:00",
+      "timeTo": "2026-09-10T13:02:38+09:00",
+      "locked": false
+    }
+  ],
+  "recentQa": [
+    {
+      "id": 11,
+      "askedAt": "2026-09-10T12:58:40+09:00",
+      "question": "REST 가 뭐야",
+      "answer": "자원을 URL 로 가리키고 HTTP 메서드로 다루는 설계 방식입니다.",
+      "kind": "explain"
+    }
+  ],
+  "source": "hotkey",
+  "captureMs": 41
+}

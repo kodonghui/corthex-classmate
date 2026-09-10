@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://schemas.corthex.dev/classmate/core-paragraph.schema.json",
+  "title": "CoreParagraph",
+  "description": "코어가 Tiro 공식 API 에서 받아 core.sqlite 의 paragraphs 표에 둔 문단 한 줄입니다. uuid 기준으로 갱신되며 노트가 바뀌어도 같은 학습 묶음에 이어집니다.",
+  "type": "object",
+  "properties": {
+    "uuid": {
+      "description": "Tiro 가 준 문단 식별자입니다. 진행 중 문단이 갱신돼도 같은 값입니다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "noteGuid": {
+      "description": "이 문단이 속한 Tiro 노트의 guid 입니다.",
+      "type": "string",
+      "minLength": 1
+    },
+    "text": {
+      "description": "문단 원문입니다.",
+      "type": "string"
+    },
+    "summaryMd": {
+      "description": "Tiro 가 함께 준 마크다운 요약입니다. 없으면 생략합니다.",
+      "type": "string"
+    },
+    "timeFrom": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "timeTo": { "$ref": "common.schema.json#/definitions/IsoDateTime" },
+    "locked": {
+      "description": "true 면 확정된 문단, false 면 아직 바뀔 수 있는 진행 중 문단입니다.",
+      "type": "boolean"
+    }
+  },
+  "required": ["uuid", "noteGuid", "text", "timeFrom", "timeTo", "locked"],
+  "additionalProperties": false
+}

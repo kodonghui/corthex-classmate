@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 시험 네 갈래를 한 명령으로 묶는 러너입니다 (docs/plan/round-8-units.md `#### U-22`).
+// 시험 다섯 갈래를 한 명령으로 묶는 러너입니다 (docs/plan/round-8-units.md `#### U-22` · 2026-09-10 cargo-core 추가).
 //
 // 왜 있는가
 // ---------
@@ -20,8 +20,8 @@
 //
 // 쓰는 법
 // -------
-//   node scripts/run-all-tests.mjs                 자동 갈래 셋(vitest · cargo · node)
-//   node scripts/run-all-tests.mjs --with-e2e      e2e 까지 넷 다
+//   node scripts/run-all-tests.mjs                 자동 갈래 넷(vitest · cargo · cargo-core · node)
+//   node scripts/run-all-tests.mjs --with-e2e      e2e 까지 다섯 다
 //   node scripts/run-all-tests.mjs cargo node      고른 갈래만
 //   node scripts/run-all-tests.mjs --bail          첫 실패에서 멈춤
 //
@@ -67,6 +67,17 @@ export const BRANCHES = [
     command: 'cargo',
     args: ['test', '--workspace'],
     parse: parseCargo,
+    auto: true,
+  },
+  {
+    key: 'cargo-core',
+    label: 'cargo (core)',
+    note: 'apps/core — v0.3 Classmate Core (native-host 와 다른 워크스페이스)',
+    cwd: path.join(repoRoot, 'apps', 'core'),
+    command: 'cargo',
+    args: ['test'],
+    // 코어는 실제 튜터 CLI 를 부르지 않으므로 no_real_cli 가드가 없습니다. 건수만 읽습니다.
+    parse: parseCargoCounts,
     auto: true,
   },
   {
@@ -308,6 +319,37 @@ export function parseVitest(text) {
  * 여기서 no_real_cli 가드 두 개가 실제로 돌았는지도 함께 확인합니다.
  */
 export function parseCargo(text) {
+  const parsed = parseCargoCounts(text);
+  if (parsed.total === null) return parsed;
+
+  // 가드가 실제로 돌았는지. 파일이 지워지거나 이름이 바뀌면 cargo 는 조용히 잘 끝납니다.
+  const guardParts = [];
+  const missing = [];
+  for (const guard of REQUIRED_CARGO_GUARDS) {
+    const found = parsed.entries.find((entry) => entry.name === guard);
+    if (!found) {
+      missing.push(guard);
+      continue;
+    }
+    guardParts.push(`${guard} ${found.passed}건 ${found.ok ? 'ok' : 'FAILED'}`);
+    if (!found.ok) missing.push(`${guard}(빨감)`);
+  }
+
+  return {
+    ...parsed,
+    guardLine: guardParts.join(' · ') || '(하나도 못 찾음)',
+    guardProblem:
+      missing.length > 0
+        ? `no_real_cli 가드가 돌지 않았습니다 — ${missing.join(', ')}. 실제 CLI 호출을 막는 그물이라 통과로 셈하지 않습니다`
+        : undefined,
+  };
+}
+
+/**
+ * cargo 출력에서 건수만 읽습니다(가드 확인 없음). apps/core 갈래가 씁니다.
+ * 돌려주는 `entries` 는 parseCargo 가 가드를 찾는 데 다시 씁니다.
+ */
+export function parseCargoCounts(text) {
   const entries = [];
   let current = null;
 
@@ -345,28 +387,11 @@ export function parseCargo(text) {
   const total = sum(entries, 'passed') + sum(entries, 'failed');
   const failed = sum(entries, 'failed');
 
-  // 가드가 실제로 돌았는지. 파일이 지워지거나 이름이 바뀌면 cargo 는 조용히 잘 끝납니다.
-  const guardParts = [];
-  const missing = [];
-  for (const guard of REQUIRED_CARGO_GUARDS) {
-    const found = entries.find((entry) => entry.name === guard);
-    if (!found) {
-      missing.push(guard);
-      continue;
-    }
-    guardParts.push(`${guard} ${found.passed}건 ${found.ok ? 'ok' : 'FAILED'}`);
-    if (!found.ok) missing.push(`${guard}(빨감)`);
-  }
-
   return {
     total,
     failed,
     detail: `(단위·통합 ${sum(unit, 'passed') + sum(unit, 'failed')} + 문서 ${sum(docs, 'passed') + sum(docs, 'failed')} · 바이너리 ${entries.length})`,
-    guardLine: guardParts.join(' · ') || '(하나도 못 찾음)',
-    guardProblem:
-      missing.length > 0
-        ? `no_real_cli 가드가 돌지 않았습니다 — ${missing.join(', ')}. 실제 CLI 호출을 막는 그물이라 통과로 셈하지 않습니다`
-        : undefined,
+    entries,
   };
 }
 

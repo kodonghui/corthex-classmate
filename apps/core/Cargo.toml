@@ -1,0 +1,57 @@
+# Corthex Classmate Core — 트레이 상주 데몬 + stdio MCP 브리지 (docs/kickoff-v0.3.md · docs/plan/core-mvp-handoff.md §4).
+#
+# 독립 워크스페이스다. `apps/native-host/Cargo.toml` 이 자기 워크스페이스(providers · transport)의
+# 루트이므로, 이 크레이트를 그 멤버로 넣지 않고 따로 둔다(인수인계 §3: native-host 를 고치지 않는다).
+# 저장소 루트에서 `cargo build --manifest-path apps/core/Cargo.toml` 로 만든다.
+#
+# 의존성 규칙 (docs/DECISIONS.md 2026-09-10 (4))
+# ---------------------------------------------
+# 이 PC 의 gnu 툴체인에는 C 컴파일러도 어셈블러도 없다. 그래서
+#   1. C 소스를 빌드하는 크레이트(bundled sqlite · openssl · ring · aws-lc) 를 쓰지 않고,
+#   2. `raw-dylib` 로 Windows API 를 링크하는 크레이트(windows-sys 0.61+ · windows-link 0.2 · windows 0.6x)
+#      도 쓰지 않는다 — rustc 가 dlltool 을 부르는데 self-contained dlltool 은 `as` 가 없어 실패한다.
+# `windows 0.58` 은 windows-targets 0.52 의 미리 만든 import lib 로 링크되므로 된다(2026-09-10 실측).
+# tokio · rmcp · reqwest · keyring · rpassword 는 전부 2 에 걸려 못 쓴다. MCP stdio · WinHTTP ·
+# 자격 증명 관리자 · 콘솔 숨김 입력은 이 크레이트가 `windows 0.58` 위에서 직접 만든다.
+[workspace]
+
+[package]
+name = "classmate-core"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.80"
+description = "Corthex Classmate Core — Tiro 전사 · 순간 캡처 · SQLite · MCP stdio 서버"
+license = "MIT"
+publish = false
+build = "build.rs"
+
+[dependencies]
+serde = { version = "^1", features = ["derive"] }
+serde_json = "^1"
+# native-host 와 같은 이유로 Windows 내장 winsqlite3.dll 을 쓴다 (apps/native-host/README.md §2-3).
+rusqlite = { version = "=0.30.0", default-features = false, features = ["winsqlite3"] }
+# 순수 Rust 인코더만 켠다. avif(dav1d · C) · rayon 은 켜지 않는다.
+image = { version = "0.25", default-features = false, features = ["webp", "jpeg", "png"] }
+# 0.58 이 raw-dylib 없이 링크되는 마지막 큰 판이다(위 의존성 규칙 2).
+windows = { version = "0.58", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_Graphics_Dwm",
+  "Win32_UI_WindowsAndMessaging",
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_HiDpi",
+  "Win32_System_Threading",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Console",
+  "Win32_Security_Credentials",
+  "Win32_Networking_WinHttp",
+] }
+
+[lib]
+name = "classmate_core"
+path = "src/lib.rs"
+
+[[bin]]
+name = "classmate-core"
+path = "src/main.rs"

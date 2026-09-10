@@ -1,0 +1,12 @@
+{
+  "id": "m-1789012345678",
+  "createdAt": "2026-09-10T13:02:33.700+09:00",
+  "transcriptWindow": [],
+  "recentQa": [
+    { "id": 1, "askedAt": "2026-09-10T12:50:00+09:00", "question": "하나", "answer": "", "kind": "explain" },
+    { "id": 2, "askedAt": "2026-09-10T12:51:00+09:00", "question": "둘", "answer": "", "kind": "explain" },
+    { "id": 3, "askedAt": "2026-09-10T12:52:00+09:00", "question": "셋", "answer": "", "kind": "explain" },
+    { "id": 4, "askedAt": "2026-09-10T12:53:00+09:00", "question": "넷", "answer": "", "kind": "explain" }
+  ],
+  "source": "hotkey"
+}
