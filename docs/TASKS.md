@@ -1,5 +1,15 @@
 # 할 일
 
+## v0.3 Classmate Core 전환 · 2026-09-10
+
+- [x] 재설계 논의·승인, 기능별 시퀀스 설계, Tiro 공식 API 실측(지연 0~1초). 정본 `docs/kickoff-v0.3.md`.
+- [ ] 검증 2: Claude Desktop에 `mermaid-mcp-app` .mcpb 설치 → 채팅 안 렌더·Send to AI(sendMessage) 확인. 결과를 kickoff-v0.3 관문에 기록.
+- [ ] 작업 폴더 정리: `workspace-cleanup.ps1` dry-run 확인 후 `-Apply` (릴리스 worktree 태그 후 제거, 병합된 cc-wt 제거, _target 캐시·Blog `_to_delete` 휴지통).
+- [ ] `apps/core/` 크레이트 골격: `apps/native-host` store·transport 재사용, Tiro 공식 API 클라이언트(계정 키는 자격 증명 관리자), 전역 단축키 캡처, MCP stdio 서버(툴 계약 §코어 MCP 툴 계약), 트레이 설정 창.
+- [ ] `plugins/classmate/` Claude Code 플러그인(스킬·.mcp.json·훅) + `codex mcp add` 문서.
+- [ ] 흐름 2(타이핑+Alt+S) 실수업 통과 → 흐름 1(패널) → 흐름 6(그림). 통과 전 확장 0.1.6 유지.
+- 보존: 학습 데이터(Classmate-Blog frames·session-bundle·output), 현재 설치본, 미병합 브랜치.
+
 ## 0.1.5 숨김 AppData 설치 수정 · 2026-09-08
 
 - [x] 구 ZIP 실패·신 ZIP 성공 비교, 숨김 속성·기존 안전성 유지.

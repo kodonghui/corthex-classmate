@@ -561,3 +561,10 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 - 확인: 확장 885개 검사, 타입 검사, 실제 Chromium 설정 조작 1개 통과. 저장·이름 변경·충돌·페이지 복원 Rust 신규 4개 통과. 배포용 별도 작업 트리에서 전체 검사를 다시 수행한다.
 - 보존: 별도 report-ui worker 작업은 수정·커밋에서 제외한다. 기존 개인 블로그와 학습 데이터는 아직 수정하지 않았다. 사용 중인 확장 중지 응답 이후에만 설치 사본 적용 및 이전 기록 보관을 진행한다.
 - 제한: Drive 영상명을 자동으로 알아내지 않으며 한 번에 하나의 Tiro 공유 페이지를 연결한다. 블로그 원고 작성·외부 발행은 자동 실행하지 않는다. 자료 저장은 버튼을 눌렀을 때 수행한다.
+
+# 2026-09-10 — v0.3 재설계 논의·승인, Tiro 공식 API 실측, 작업 폴더 정리 계획
+
+- Cowork에서 0.1.6 설치본 코드(확장 번들·Rust 호스트 문자열)를 분석하고 Claude·Codex·Tiro·Chrome 2026-09 공식 자료를 조사해 5안을 비교했다. 사용자가 "Classmate Core + 순정 Claude/Codex 앱 + 3층 질문 입력 + 검증 순서"를 승인했다(DECISIONS 2026-09-10). 기능 11개 시퀀스·완료 기준·툴 계약 초안을 Notion 설계 문서에 고정했고(mermaid 11개 문법 검증), `docs/kickoff-v0.3.md`를 정본으로 추가했다.
+- Tiro 공식 API 실측(13:05 KST, 계정 키): `workspaces/me` 200, 진행 중 노트가 목록에 보이고 `paragraphs` 176개, 마지막 문단 timeTo와 실행 시각 차이 0~1초. Key ID만 넣으면 401(문서의 "흔한 실수"). 응답 형태는 kickoff-v0.3 §Tiro 공식 API. 실수업 자료는 커밋에 넣지 않았다(`app/tiro-paragraphs.json`은 Downloads 설치 폴더에만 있음).
+- 정리 계획: `C:\Users\elddl\kodonghui_myWs\workspace-cleanup.ps1`(기본 dry-run, `-Apply`로 실행). 릴리스 worktree 6개는 태그 확인 후 제거, cc-wt의 병합된 worktree만 제거, `_target*` 캐시와 Blog `output\archive\_to_delete`는 휴지통. 미실행 상태이며 사용자가 dry-run 결과를 본 뒤 실행한다.
+- 미확인: Claude Desktop 로컬 MCP App 렌더·sendMessage(검증 2), Codex 앱의 MCP 이미지 처리, `.mcpb` 키 입력 UI. 코드 변경 없음.

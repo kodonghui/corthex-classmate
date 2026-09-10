@@ -1,5 +1,11 @@
 # 결정 기록
 
+## 2026-09-10 — v0.3: Chrome 확장을 버리고 로컬 코어 + 순정 Claude/Codex 데스크톱 앱으로 옮긴다
+
+- 결정: 사용자가 Cowork 논의 1~4차 제안을 "나머지는 모두 승인"으로 확정했다. 실행 형태를 `Chrome 확장 + claude -p 하위 프로세스`에서 **`Classmate Core`(단일 exe: 전역 단축키 즉시 캡처 · Windows 창 캡처 · 변화 감지 타임라인 · Tiro 공식 API 폴링 · SQLite · MCP 서버 · 전사 패널 MCP App) + 공식 Claude/Codex 데스크톱 앱(대화·세션·메모리·Notion 담당)** 으로 바꾼다. 질문 입력은 타이핑 / Alt+S / 문단 클릭(Claude 패널) 3층. 배포는 GitHub Releases exe + `npx @corthex/classmate` + Claude Code 플러그인(corthex 마켓플레이스) + `.mcpb`. 현재 합의 정본은 `docs/kickoff-v0.3.md`, `kickoff-v0.2.md`의 제품 경계·불변 원칙·다섯 활동·V2 계약은 그대로 유효하고 Slice 3(Codex app-server 제공자)은 이 결정으로 대체된다.
+- 근거: 사용자 불편(세션 저장·Codex 연결·Notion을 직접 구현)은 Classmate가 하네스를 자처한 구조에서 온다. 두 벤더 정책상 "각자 공식 앱 로그인 + Tiro API 키"가 유일하게 깨끗한 범용 경로다(Claude 법무 문서: 비수정 바이너리 본인 로그인 허용, 제3자 앱의 자체 로그인·토큰 중개 불허; Codex: ChatGPT 계정 로그인, App Server/SDK 공식). 실측: 2026-09-10 13:05 KST Tiro 공식 API가 진행 중 노트 문단을 지연 0~1초로 반환(계정 키, `tiro-check.ps1`), 2026-03 공개 자료로 Claude Desktop이 로컬 stdio MCP App UI를 렌더하고 `sendMessage`·`callServerTool` 브리지를 제공함을 확인. 상세 조사·대안 5안 비교는 Notion 논의 문서(https://app.notion.com/p/3d7bf16cc3ec81a0a585fa4216dca4b6), 기능별 시퀀스는 https://app.notion.com/p/3d7bf16cc3ec81eebd4af8f1c177633e .
+- 대안·보류: Cowork 플러그인+컴퓨터 사용(0코드)은 지연·Pro/Max 한정으로 프로토타입용, Claude Code 채널은 연구 프리뷰(사용자 정의 채널은 개발 플래그)라 개인 옵션, Claude Artifact 패널은 host: 로컬 서버가 소유자 한정이라 보류, Tauri 앱은 "기능 하나하나 직접" 부담이 그대로라 3단계 이후. 확장 0.1.6은 코어가 실수업 흐름 1·2를 통과하기 전까지 사용자의 실제 도구이므로 삭제하지 않고 이후 `legacy/`로 이동한다. 라이브 공유 페이지 DOM 폴백은 만들지 않는다.
+
 ## 2026-09-08 — 공식 Claude 로그인 실행과 실제 응답 확인 분리
 
 - 사용자가 버튼형 연결 개선을 승인했다. 친구의 오류 화면 없이 개선하되 원인 확정·친구 PC 해결 완료로 표현하지 않는다.

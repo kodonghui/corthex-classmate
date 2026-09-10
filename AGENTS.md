@@ -1,9 +1,9 @@
 # Corthex Classmate — 에이전트 규칙 (정본)
 
 `AGENTS.md` 가 유일한 정본이고 `CLAUDE.md` 는 `@AGENTS.md` 한 줄입니다.
-전체 지시서는 `docs/master-prompt.md`, 현재 합의 정본은 `docs/kickoff-v0.2.md` 입니다.
-`docs/kickoff.md` 는 v0.1 역사 기록으로 보존합니다. 문서가 충돌하면
-`kickoff-v0.2.md` 가 우선하고 그 사실을 `docs/DECISIONS.md` 에 적습니다.
+전체 지시서는 `docs/master-prompt.md`, 현재 합의 정본은 `docs/kickoff-v0.3.md`(실행 형태: Classmate Core + 순정 Claude/Codex 앱) 입니다.
+`docs/kickoff-v0.2.md` 의 제품 경계·불변 원칙·다섯 활동·V2 계약은 그대로 유효하며, `docs/kickoff.md` 는 v0.1 역사 기록으로 보존합니다.
+문서가 충돌하면 `kickoff-v0.3.md` 가 우선하고 그 사실을 `docs/DECISIONS.md` 에 적습니다.
 
 ## 1. 현재 작업과 협업
 
@@ -39,6 +39,8 @@
 ```
 apps/browser-extension/   Chrome 확장 (WXT · React · TS · MV3 · Side Panel)   @classmate/browser-extension
 apps/native-host/         Windows 로컬 도우미 (Rust Native Messaging Host)    crate classmate-host
+apps/core/                (v0.3 예정) Classmate Core: 단축키 캡처 · Tiro API · SQLite · MCP 서버   crate classmate-core
+plugins/classmate/        (v0.3 예정) Claude Code 플러그인: 스킬 · .mcp.json · 훅
 packages/contracts/       JSON Schema 정본 → TS/Rust 타입 생성                @classmate/contracts
 packages/tutor-core/      상태기계·문맥 봉인 (Phase 2)                        @classmate/tutor-core
 packages/design-tokens/   Claude Design 토큰·컴포넌트 포팅 (Phase 2)          @classmate/design-tokens
