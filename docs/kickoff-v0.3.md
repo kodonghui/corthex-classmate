@@ -3,7 +3,7 @@
 - 날짜: 2026-09-10
 - 작성자: Claude (Cowork, 논의 1~4차 합의 정리)
 - 참여자: 사용자, Claude
-- 상태: 승인됨 · 구현 전 (검증 1단계 통과, 2단계 대기)
+- 상태: 승인됨 · 구현 착수 (검증 1 통과, 2 렌더 통과·sendMessage 대기, 3 Claude Code로 진행)
 - 이전 정본: `docs/kickoff-v0.2.md` — 제품 경계·불변 원칙·다섯 활동·V2 계약은 그대로 유효. 이 문서는 **실행 형태(Chrome 확장 + CLI 하위 프로세스 → 로컬 코어 + 공식 앱)** 만 바꾼다.
 - 원문 합의: Notion [재설계 논의 문서](https://app.notion.com/p/3d7bf16cc3ec81a0a585fa4216dca4b6) · [기능별 사용자 흐름 시퀀스](https://app.notion.com/p/3d7bf16cc3ec81eebd4af8f1c177633e) (2026-09-10 읽음, 사용자 "나머지는 모두 승인")
 
@@ -34,6 +34,12 @@ iPhone Tiro ─ Tiro 공식 API ─▶ Classmate Core (exe) ─ MCP stdio ─┤
 | 배포 | GitHub Releases exe + Install.cmd(현행) · `npx @corthex/classmate`(플랫폼 바이너리 래퍼) · Claude Code 플러그인 · `.mcpb`(Claude Desktop Chat) | `installer/` 확장 |
 | 유지 | `apps/browser-extension` + `classmate-host` 0.1.6 은 코어가 실제 수업에서 흐름 1·2를 통과할 때까지 그대로 사용. 그 뒤 `legacy/`로 이동(삭제 아님) | — |
 
+## 세션은 하나로 쭉 간다 (사용자 결정 2026-09-10)
+
+- 사용자는 실시간 수업보다 **집에서 녹화 영상(Drive·YouTube)** 을 보며 공부하는 경우가 대부분이다. 따라서 "교시"라는 단위와 교시 전환 UX는 만들지 않는다. 학습 묶음은 기본 하나(`현재 공부`, 이름 변경 가능)이고 날짜·영상·Tiro 노트가 바뀌어도 자동으로 이어진다. 영상별 파일·노트 지정을 요구하지 않는다.
+- 긴 대화는 앱 쪽 문제이므로 코어가 문맥을 들고 있는다: 모든 문답을 `session.log`에 쌓고, 스킬은 새 채팅을 열 때 `session.summary(recent)`로 최근 문답·용어를 자동 이월한다. 사용자는 채팅을 언제 새로 열어도 되고, 안 열어도 된다. 강제 전환·안내 없음.
+- 복습·블로그용 구간 나누기는 사용자에게 묻지 않고 Tiro 노트 경계와 30분 이상 공백으로 코어가 뒤에서 만든다(표시 이름은 날짜+첫 문단 요약).
+
 ## 질문 입력 3층 (사용자 흐름은 Notion 시퀀스 문서 §3~§8)
 
 1. **타이핑**: Claude/Codex 채팅에 적으면 스킬이 `moment.latest()` 또는 `transcript.recent(60s)`를 먼저 읽는다. "방금/지금/이거/화면" 지시어가 없으면 캡처를 생략한다.
@@ -50,7 +56,7 @@ iPhone Tiro ─ Tiro 공식 API ─▶ Classmate Core (exe) ─ MCP stdio ─┤
 | `transcript.recent` | `window_sec`, `until?` | `[{uuid, text, timeFrom, timeTo}]` |
 | `timeline.frames` | `around`(UTC), `span_sec` | 변화 감지 프레임 이미지들 |
 | `session.log` | `question, answer, paragraph_uuid?, moment_id?, kind` | ok |
-| `session.summary` | `period` | 문답 요약·핵심 용어 |
+| `session.summary` | `recent` 또는 `range` | 최근 문답 요약·핵심 용어(새 채팅 이월용) |
 | `diagram.show` | `kind, mermaid, caption` | 패널 렌더 / Codex는 SVG 파일 경로 |
 | `review.materials` / `review.save` | `period, bundle` / `attempts` | 자료 묶음 / ok |
 | 리소스 `ui://classmate/panel` | — | 전사 패널 HTML |
@@ -60,19 +66,20 @@ iPhone Tiro ─ Tiro 공식 API ─▶ Classmate Core (exe) ─ MCP stdio ─┤
 - 인증 `Authorization: Bearer <keyId.secret>` (계정 API Key, platform.tiro.ooo/me/api-keys). Key ID만 넣으면 401. 키는 Windows 자격 증명 관리자에 저장하고 `.mcp.json`·로그·커밋에 넣지 않는다(불변 원칙 §2-2).
 - `GET /v1/external/workspaces/me` → `{guid}`; `GET /v1/external/workspaces/{guid}/notes?size=8` → `{content:[{guid,title,sourceType,recordingStartAt,recordingEndAt(진행 중 null),webUrl}],nextCursor}`.
 - `GET /v1/external/notes/{guid}/paragraphs?size=1000` → `{content:[{uuid,transcript{type,content},summary{markdown},translated,diarizedSegments,timeFrom,timeTo,locked}],nextCursor}`. **진행 중 노트의 마지막 문단 timeTo가 실행 시각과 0~1초 차이** — 라이브 공유 페이지 DOM 폴백은 만들지 않는다. 문단 길이 8~34초, 폴링 2~5초, 키당 600req/60s.
-- 오늘 노트 선택: `recordingEndAt == null` 인 live-voice 노트 우선, 없으면 사용자가 트레이에서 선택.
+- 노트 선택(사용자 결정 2026-09-10 "영상별로 파일 지정하기 귀찮다"): 코어가 **녹음 중인 노트(`recordingEndAt == null`)를 자동으로 따라간다.** 사용자는 아무것도 고르지 않는다. 녹음 중인 노트가 여럿이면 가장 최근 시작한 것, 없으면 마지막 노트를 읽기 전용으로 붙인다. 트레이에서 수동 지정은 예외 경로.
 
 ## 화면 저장 용량 정책 (사용자 질문 2026-09-10 반영)
 
 - 2~5초는 **Tiro 폴링** 주기다. 화면은 약 1초마다 살펴보되 **해시가 바뀐 장면만** WebP 한 장으로 저장한다(불변 원칙 §2-4, 현재 확장의 offscreen 변화 감지와 같은 방식). 슬라이드 수업은 시간당 100~300장, 판서가 많으면 600장까지 추정(장당 50~150KB → 시간당 10~60MB, 8교시 최악 0.5GB). 수치는 추정이며 첫 실수업에서 실측해 여기 갱신한다.
-- 저장 위치: `%LOCALAPPDATA%\CorthexClassmate\<학습 묶음>\frames\` (현재 호스트 데이터 디렉터리 체계 유지). Corthex 서버 전송 없음.
+- 저장 위치: `%LOCALAPPDATA%\CorthexClassmate\core\frames\<학습 묶음>\` (호스트 0.1.6의 `sessions\`와 분리 — DECISIONS 2026-09-10 (2)·(3), 시험용 환경 변수 `CLASSMATE_CORE_DIR`). Corthex 서버 전송 없음.
 - 보존 규칙: 질문(`moment`)에 연결된 프레임은 영구 보관. 연결되지 않은 타임라인 프레임은 기본 7일 뒤 삭제하고, 일일 상한(기본 300MB) 초과 시 오래된 미참조 프레임부터 지운다. 트레이 설정에서 상한·보존 기간 변경, "연속 캡처 끄기"(그러면 Alt+S·클릭 순간만 저장), 캡처 영역 지정으로 장당 크기 축소를 제공한다.
 
 ## 검증 관문 (승인된 순서)
 
 1. [x] Tiro 공식 API 접근·지연 실측 (`tiro-check.ps1`, 2026-09-10 13:05 KST).
-2. [ ] Claude Desktop 로컬 MCP App 렌더 + `sendMessage` 실동작 — `mermaid-mcp-app` `.mcpb` 설치로 확인. 실패 시 3층(문단 클릭)만 코어의 작은 창으로 대체하고 나머지는 동일.
-3. [ ] 코어 MVP: 흐름 2(타이핑+Alt+S) → 흐름 1(패널) → 흐름 6(그림) 순서. 각 흐름의 완료 기준은 Notion 시퀀스 문서의 "완료 기준" 줄.
+2. [x] Claude Desktop **로컬** MCP App 렌더 — 2026-09-10 14:20 KST 사용자 실측: `mermaid-mcp-app` `.mcpb`를 설정→확장에서 설치, Chat에서 "REST 요청 흐름을 시퀀스 다이어그램으로 그려줘" → 채팅 안에 `Mermaid Diagram Renderer · mermaid-mcp-app` 패널 렌더 확인(인라인 높이 제한 있음 → 우리 패널은 내부 스크롤 + 전체화면 모드 제공). 같은 로컬 서버가 Cowork 세션에도 `mcp__remote-devices__Mermaid_Diagram_Renderer__*`로 노출되어 호출됨 → "코어 서버 하나가 Claude Chat·Cowork에 모두 보인다" 확인.
+   [ ] 패널→채팅 `sendMessage`(Send to AI 버튼) 실동작 — 확인 대기. 실패 시 3층(문단 클릭)만 코어의 작은 창으로 대체하고 나머지는 동일.
+3. [ ] 코어 MVP: 흐름 2(타이핑+Alt+S) → 흐름 1(패널) → 흐름 6(그림) 순서. 각 흐름의 완료 기준은 Notion 시퀀스 문서의 "완료 기준" 줄. **실행은 Claude Code(PC)** — 인수인계·1단계 상세 `docs/plan/core-mvp-handoff.md` (사용자 결정 2026-09-10 오후).
 4. [ ] 실제 수업 1교시에서 흐름 1·2 통과 후 확장 0.1.6을 `legacy/`로 이동.
 5. [ ] Codex 앱 `codex mcp add classmate` 경로(흐름 2·3·5) 확인 · MCP 이미지 처리 실측.
 

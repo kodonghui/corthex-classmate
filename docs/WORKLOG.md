@@ -568,3 +568,20 @@ sqlite3 "$d\$p.sqlite" "select json_extract(payload,'$.reason'), count(*) from e
 - Tiro 공식 API 실측(13:05 KST, 계정 키): `workspaces/me` 200, 진행 중 노트가 목록에 보이고 `paragraphs` 176개, 마지막 문단 timeTo와 실행 시각 차이 0~1초. Key ID만 넣으면 401(문서의 "흔한 실수"). 응답 형태는 kickoff-v0.3 §Tiro 공식 API. 실수업 자료는 커밋에 넣지 않았다(`app/tiro-paragraphs.json`은 Downloads 설치 폴더에만 있음).
 - 정리 계획: `C:\Users\elddl\kodonghui_myWs\workspace-cleanup.ps1`(기본 dry-run, `-Apply`로 실행). 릴리스 worktree 6개는 태그 확인 후 제거, cc-wt의 병합된 worktree만 제거, `_target*` 캐시와 Blog `output\archive\_to_delete`는 휴지통. 미실행 상태이며 사용자가 dry-run 결과를 본 뒤 실행한다.
 - 미확인: Claude Desktop 로컬 MCP App 렌더·sendMessage(검증 2), Codex 앱의 MCP 이미지 처리, `.mcpb` 키 입력 UI. 코드 변경 없음.
+
+# 2026-09-10 (오후) — 검증 2 실측, 작업 폴더 정리, 코어 MVP를 Claude Code로 인수인계
+
+- 검증 2: Claude Desktop Chat 탭에서 `mermaid-mcp-app` .mcpb 렌더 확인(14:20 KST). 같은 로컬 서버가 Cowork 세션에도 툴로 노출돼 호출됨. Cowork 화면의 위젯은 툴바만 보이고 캔버스가 비어 있음(원인 미확정). ChatGPT 웹·데스크톱 Codex·Work에서는 정상 렌더(사용자 스크린샷). sendMessage(Send to AI) 실동작은 미확인.
+- 작업 폴더 정리 실행: 릴리스 worktree 7개 태그 후 제거, `_target*` 캐시·Blog `_to_delete` 휴지통(약 9.4GB). cc-wt 20개는 미병합이라 보존. `docs/kickoff-v0.3.md`에 용량 정책·"세션은 하나로 쭉"·검증 결과를 갱신했고 이 커밋에 포함한다.
+- ChatGPT 경로 조사: 새 ChatGPT 데스크톱 앱은 Chat·Work·Codex 통합, 플러그인은 계정 단위 공용 디렉터리("Plugins work in Chat and Work across ChatGPT on the web, desktop, and mobile, and in Codex in the ChatGPT desktop app"). Secure MCP Tunnel은 OpenAI 플랫폼 API 키가 필요. 결론은 DECISIONS 2026-09-10 (2).
+- 인수인계: 사용자 결정 "전부 claude code한테 시키자"에 따라 `docs/plan/core-mvp-handoff.md`를 작성했다(읽는 순서, 현재 Git 상태, 환경 제약, 1단계 범위·계약·완료 판단, 커밋 규칙, 멈춤 조건, 시작 프롬프트). Cowork 세션은 PC 셸 마운트 실패로 빌드·테스트를 못 하므로 구현은 Claude Code가 맡는다. 코드 변경 없음.
+
+# 2026-09-10 (저녁) — Claude Code 착수: 인수인계 읽기 · 실제 상태 확인 · 툴체인 제약 실측
+
+- 읽은 것: `docs/plan/core-mvp-handoff.md` §0 순서대로 AGENTS.md · kickoff-v0.3 · native-host README §2·§5 · `src/store/{mod,frames,clock}.rs` · `packages/contracts`(생성·고정 규칙) · TASKS v0.3 절 · WORKLOG 2026-09-10 항목. 인수인계를 쓴 Cowork 세션 원문은 이 세션에서 열 수 없어(Code 탭 세션 목록에 없고 Notion 세션 검색은 Business 플랜 필요) Notion 재설계 논의(1~8차)·기능별 흐름 시퀀스 두 문서를 읽어 같은 맥락을 맞췄다.
+- 실제 `git status`(§2와 같음): main = d38eb62 = origin/main. 미커밋은 docs 4개 + 인수인계 문서(이 커밋)와 report-worker 6개(제외, `git add -- <경로>`로만 담음). worktree는 본체와 `.corthex/integration/classmate`(codex 브랜치) 둘.
+- 실수와 복구: 문서 편집 스크립트가 실패한 뒤 `git checkout -- docs/<4개>`를 잘못 실행해 Cowork의 미커밋 수정이 작업 트리에서 지워졌다. 이 세션이 앞서 읽어 둔 diff 전문으로 네 파일을 복원했고, `git diff --numstat`이 원래 값(DECISIONS 9+ · TASKS 3+/2- · WORKLOG 7+ · kickoff 12+/5-)과 같음을 확인했다. report-worker 6개 파일은 건드리지 않았다.
+- 환경 실측: cargo 1.98 · 기본 툴체인 `stable-x86_64-pc-windows-gnu` · C 컴파일러 없음(`gcc`·`cc` 없음) · Node 24.15 · pnpm 11.25 · crates.io 접근 가능.
+- 툴체인 제약 실측(스크래치 크레이트, 저장소 밖 짧은 경로): `windows-sys 0.61`·`windows-link 0.2`(raw-dylib)를 쓰는 크레이트는 이 툴체인에서 **링크 불가**. rustc가 `dlltool.exe`를 부르는데 rustup self-contained의 dlltool은 어셈블러(`as`)가 없어 import library를 못 만든다(`error calling dlltool 'dlltool.exe': program not found` → PATH에 넣어도 `CreateProcess` 실패). 이 갈래를 끌어오는 것은 tokio(mio 1.2)·socket2·schannel·rpassword·keyring의 windows 저장소·`windows 0.62`이므로 rmcp(tokio 필수)·reqwest·keyring·rpassword를 쓸 수 없다. `windows 0.58`(windows-targets 0.52 · 미리 만든 import lib)과 순수 Rust 크레이트(rusqlite winsqlite3 · image webp/jpeg/png)만 쓰는 두 번째 스크래치 빌드는 의존성 전부가 컴파일됐고, 링크·실행 확인 결과와 대안 결정은 커밋 (2)의 DECISIONS에 적는다. native-host 0.1.6 빌드는 영향 없음(그 lock에는 windows-sys가 없다).
+- 커밋 전 검사: `git diff --check` 통과. `Bearer|tiro.ooo/share|elddl` grep은 문서 안 경로(`C:\Users\elddl\...`, 2026-09-02 DECISIONS와 같은 관례)와 헤더 형식 설명(`Bearer <keyId.secret>`)만 걸리고 실제 키·공유 URL은 없다. 저장소는 비공개(2026-09-04 확인).
+- 코드 변경 없음. 다음: 커밋 (2) `apps/core` 골격 + 계약(JSON Schema) + SQLite 저장소.

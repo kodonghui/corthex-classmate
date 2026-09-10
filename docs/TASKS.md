@@ -3,8 +3,16 @@
 ## v0.3 Classmate Core 전환 · 2026-09-10
 
 - [x] 재설계 논의·승인, 기능별 시퀀스 설계, Tiro 공식 API 실측(지연 0~1초). 정본 `docs/kickoff-v0.3.md`.
-- [ ] 검증 2: Claude Desktop에 `mermaid-mcp-app` .mcpb 설치 → 채팅 안 렌더·Send to AI(sendMessage) 확인. 결과를 kickoff-v0.3 관문에 기록.
-- [ ] 작업 폴더 정리: `workspace-cleanup.ps1` dry-run 확인 후 `-Apply` (릴리스 worktree 태그 후 제거, 병합된 cc-wt 제거, _target 캐시·Blog `_to_delete` 휴지통).
+- [x] 검증 2(렌더): Claude Desktop Chat 탭에서 `mermaid-mcp-app` .mcpb 렌더 확인(14:20 KST). Cowork 화면은 위젯 캔버스가 비어 보임(원인 미확정, 수업 표면은 Chat 탭). Send to AI(sendMessage) 실동작은 ⏳ — 2단계에서 확인.
+- [x] 작업 폴더 정리: `workspace-cleanup.ps1 -Apply -NoSize` 실행(릴리스 worktree 태그 후 제거, `_target*` 캐시·Blog `_to_delete` 휴지통, 약 9.4GB). cc-wt 20개는 미병합이라 보존(`cleanup-cc-wt.ps1` 준비, 미실행).
+- [~] **코어 MVP 1단계(흐름 2)는 Claude Code(PC)에서 수행** — 인수인계 `docs/plan/core-mvp-handoff.md` §4(범위)·§4.9(완료 판단)·§9(시작 프롬프트). Cowork는 기획·기록만.
+  - [x] (1) docs — kickoff 갱신분 + 인수인계 문서 + TASKS/WORKLOG/DECISIONS (2026-09-10 저녁, Claude Code 착수)
+  - [ ] (2) `apps/core` 골격(독립 Cargo 워크스페이스) + 계약(`packages/contracts` 코어 스키마) + SQLite 저장소
+  - [ ] (3) Tiro 공식 API 클라이언트 + 가짜 서버 시험(페이지네이션·upsert·노트 전환·401/404)
+  - [ ] (4) 캡처(GDI)·dHash 타임라인·Alt+S·트레이·보존 정리
+  - [ ] (5) MCP stdio 서버(툴 7개) + `plugins/classmate` 스킬 + 루트 `.mcp.json`
+  - [ ] (6) `setup`/`doctor` · Claude Desktop config 병합 · README
+  - [!] 대기 §4.9 실제 확인 1~5 — 사용자가 순서대로 한 번에 하나씩(키 setup → 데몬 문단 수 → Alt+S → Claude Code 질문 → Claude Desktop Chat)
 - [ ] `apps/core/` 크레이트 골격: `apps/native-host` store·transport 재사용, Tiro 공식 API 클라이언트(계정 키는 자격 증명 관리자), 전역 단축키 캡처, MCP stdio 서버(툴 계약 §코어 MCP 툴 계약), 트레이 설정 창.
 - [ ] `plugins/classmate/` Claude Code 플러그인(스킬·.mcp.json·훅) + `codex mcp add` 문서.
 - [ ] 흐름 2(타이핑+Alt+S) 실수업 통과 → 흐름 1(패널) → 흐름 6(그림). 통과 전 확장 0.1.6 유지.

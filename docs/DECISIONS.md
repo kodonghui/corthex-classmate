@@ -1,5 +1,20 @@
 # 결정 기록
 
+## 2026-09-10 (3) — 코어 프레임 폴더는 `%LOCALAPPDATA%\CorthexClassmate\core\frames\<묶음>\` (kickoff 용량 정책 문구 정정)
+
+- 결정: kickoff-v0.3 §화면 저장 용량 정책의 "저장 위치 `%LOCALAPPDATA%\CorthexClassmate\<학습 묶음>\frames\`"는 (2)의 "코어는 `core\`를 쓴다" 결정보다 먼저 쓰인 문구라 서로 어긋났다. 코어는 `core\core.sqlite` + `core\frames\<묶음>\<id>.(webp|jpg)`를 쓰고, kickoff의 해당 줄을 이 커밋에서 같은 뜻으로 고친다(정본 순위대로 kickoff를 고쳐 맞춘 것이며 결정 자체는 (2)와 같다).
+- 근거: 호스트 0.1.6이 같은 상위 폴더의 `sessions\`를 쓰고 있어 코어가 `<묶음>\`을 상위에 바로 만들면 두 체계가 한 폴더에 섞인다. 인수인계 §2·§4.2도 `core\` 분리를 전제한다.
+- 대안: 코어를 `sessions\` 체계에 합치기 → 0.1.6은 교시 파일 하나 = SQLite 하나 구조라 "세션은 하나로 쭉" 결정과 맞지 않아 채택하지 않음.
+
+## 2026-09-10 (2) — 코어 MVP 구현은 Claude Code(PC)가, Cowork는 기획·기록 · MCP 툴 와이어 이름은 밑줄
+
+- 결정: 사용자 "전부 claude code한테 시키자". 코어 MVP 1~3단계 구현·빌드·테스트·커밋·push는 사용자 PC의 Claude Code가 수행하고, Cowork 세션은 기획·조사·Notion 기록만 맡는다. 인수인계 정본은 `docs/plan/core-mvp-handoff.md`(kickoff-v0.3이 우선).
+- 근거: Cowork 세션은 PC 폴더 마운트 실패로 셸이 없어 빌드·테스트·git을 사용자에게 대신 실행시켜야 했고(오늘 PowerShell 왕복), 코어는 Windows 네이티브(단축키·창 캡처·트레이)라 실제 동작 확인은 PC에서만 가능하다.
+- 계약 형식: Claude API 툴 이름은 `^[a-zA-Z0-9_-]{1,64}$`라 점을 쓸 수 없다. 문서의 `moment.capture` 같은 이름은 논리명으로 두고 MCP 와이어 이름은 `moment_capture`처럼 밑줄로 고정한다. `packages/contracts`에 코어 툴 스키마를 추가할 때 두 이름을 함께 적는다.
+- 데이터 분리: 코어는 `%LOCALAPPDATA%\CorthexClassmate\core\`를 쓴다. 호스트 0.1.6의 `sessions\`와 Classmate-Blog는 코어가 실수업 흐름 1·2를 통과할 때까지 읽기만 한다.
+- ChatGPT 경로(조사 결과, 실행은 3단계 이후): Codex 탭은 로컬 stdio MCP로 충분(키·서버 불필요)해 기본 경로. ChatGPT Chat/Work 탭까지 쓰려면 Secure MCP Tunnel(tunnel-client, OpenAI 플랫폼 API 키·개발자 모드 필요)이 선택 경로. Help Center는 "MCP apps web only"라고 적혀 있으나 사용자 실측(2026-09-10)에서 데스크톱 Codex·Work 렌더가 확인돼 문서가 뒤처진 것으로 본다.
+- 원문: Notion 논의 문서 7~8차(https://app.notion.com/p/3d7bf16cc3ec81a0a585fa4216dca4b6), 사용자 발언 2026-09-10 오후.
+
 ## 2026-09-10 — v0.3: Chrome 확장을 버리고 로컬 코어 + 순정 Claude/Codex 데스크톱 앱으로 옮긴다
 
 - 결정: 사용자가 Cowork 논의 1~4차 제안을 "나머지는 모두 승인"으로 확정했다. 실행 형태를 `Chrome 확장 + claude -p 하위 프로세스`에서 **`Classmate Core`(단일 exe: 전역 단축키 즉시 캡처 · Windows 창 캡처 · 변화 감지 타임라인 · Tiro 공식 API 폴링 · SQLite · MCP 서버 · 전사 패널 MCP App) + 공식 Claude/Codex 데스크톱 앱(대화·세션·메모리·Notion 담당)** 으로 바꾼다. 질문 입력은 타이핑 / Alt+S / 문단 클릭(Claude 패널) 3층. 배포는 GitHub Releases exe + `npx @corthex/classmate` + Claude Code 플러그인(corthex 마켓플레이스) + `.mcpb`. 현재 합의 정본은 `docs/kickoff-v0.3.md`, `kickoff-v0.2.md`의 제품 경계·불변 원칙·다섯 활동·V2 계약은 그대로 유효하고 Slice 3(Codex app-server 제공자)은 이 결정으로 대체된다.
