@@ -1,4 +1,4 @@
-# Classmate · GPT Terra / High
+# Classmate · GPT Terra / High · Claude Sonnet 5 / xhigh
 
 ### 창을 열고 닫으면 어떻게 되나요?
 
@@ -18,7 +18,7 @@ Chrome 확장 0.1.6과는 별개입니다. 기존 확장과 학습 기록은 삭
 4. 답변은 그 자리에서 생성되는 대로 보입니다. `이 설명에 이어 묻기`는 연결된 화면을 다시 사용합니다.
 5. `시퀀스 그림으로 설명해줘`를 누르거나 직접 요청합니다. 완성된 Mermaid는 그림으로 표시되며 확대·축소·맞춤과 원문 보기가 가능합니다.
 6. 문장을 잘못 눌렀으면 `취소 · Esc`, 이미 질문했다면 `답변 중지`를 누릅니다. 서로 다른 동작입니다.
-7. `화면 설정`에서 전사 글씨, 답변 글씨, 학습 영역 높이를 각각 조절합니다.
+7. `화면 설정`에서 전사 글씨, 답변 글씨, 학습 영역 높이를 각각 조절합니다. 같은 곳의 **대화 상대**에서 GPT Terra 와 Claude Sonnet 5 중 하나를 고릅니다. 선택은 이 PC 에 저장되며, 이미 대기열에 들어간 질문은 접수 당시의 상대가 답합니다.
 8. 문장을 선택하지 않아도 **화면 아래 ‘대화’**에서 질문할 수 있습니다. 문장 아래 질문과 별도의 대화이며, 답변과 이어지는 질문도 아래에 쌓입니다.
 9. 세션에 연결한 공유 페이지의 기존 전사와 이후 변경을 함께 저장합니다. 이전 세션을 보고 있어도 수집 대상은 바뀌지 않습니다. 과거 세션의 수집을 재개하려면 **녹음 연결 관리 → 녹음 연결**을 누르세요.
 10. 세션 목록 옆 **⋯**에서 **이름 변경·삭제·휴지통**을 사용합니다. 삭제 확인 후 휴지통으로 이동하며 **복원**할 수 있습니다. Tiro 원본·Core 원본은 삭제하지 않습니다. 수집 중인 세션을 삭제하면 이후 전사를 받을 빈 세션이 생성됩니다.
@@ -60,11 +60,17 @@ AI가 임의로 만든 질문을 기록하지 않습니다. 취소한 부분 답
 
 ## 로그인과 모델
 
-- **gpt-5.6-terra / high 고정**입니다. 다른 모델이나 API 키 결제로 자동 전환하지 않습니다.
-- 이 PC에 설치된 공식 Codex CLI의 **본인 ChatGPT 로그인**을 사용합니다. 다른 사람의 계정이나 다른 PC의 로그인을 찾는 기능이 아닙니다.
-- 설치·로그인이 없는 새 PC에서는 먼저 공식 Codex를 설치하고 `codex login`을 완료해야 합니다. 현재 시작 화면은 로그인 실패를 표시하지만, 최초 로그인 버튼까지 내장한 배포 설치기는 아직 아닙니다.
-- Classmate가 인증 파일을 복사하거나 읽어 로그인 토큰을 재사용하지 않습니다. 공식 app-server의 계정 확인을 사용합니다.
-- **웹 검색은 이 버전에 연결하지 않았습니다.** 법령·세법·시험 기준·최신 버전은 반드시 해당 시점의 공식 자료로 확인해야 합니다. 답변이 자동으로 최신 검증되었다고 표시하지 않습니다.
+대화 상대는 두 가지이며 `화면 설정 → 대화 상대`에서 고릅니다. 둘 다 **이 PC 에 설치된 공식 CLI 의 본인 로그인**을 쓰고, API 키 결제로 자동 전환하지 않습니다. Classmate 가 인증 파일을 복사하거나 읽어 토큰을 재사용하지 않습니다.
+
+| 대화 상대 | 고정 모델 / effort | 로그인 확인 | 실행 방식 |
+|---|---|---|---|
+| GPT Terra · High | `gpt-5.6-terra` / `high` | Codex app-server `account/read` (ChatGPT 계정) | `node codex.js app-server` 상주 프로세스, 질문마다 ephemeral thread |
+| Claude Sonnet 5 · xhigh | `claude-sonnet-5` / `xhigh` | `claude auth status` (claude.ai 계정) | 질문마다 `claude.exe -p` 1회 실행, stream-json 증분 |
+
+- 다른 모델로 바꾸지 않습니다. Codex 는 thread 의 model 이 다르면, Claude 는 `init`·`message_start` 의 model 이 다르면 그 답변을 중단합니다(설정의 fallback 모델로 넘어가는 것도 막습니다).
+- Claude 는 매 질문마다 `--safe-mode --strict-mcp-config --no-session-persistence --permission-mode manual --permission-prompts none --tools ""` 로 실행합니다. CLAUDE.md·스킬·플러그인·훅·MCP·세션 저장이 모두 꺼지고, 튜터 시스템 프롬프트는 Codex 와 같은 문장을 씁니다. 웹 검색을 켜면 `--tools WebSearch` 만 추가되며, CLI 가 그 밖의 도구를 실었다고 보고하면 답변을 중단합니다. 셸 환경의 `ANTHROPIC_API_KEY`·`ANTHROPIC_AUTH_TOKEN` 은 자식 프로세스에 전달하지 않습니다.
+- 설치·로그인이 없는 새 PC 에서는 공식 Codex 를 설치하고 `codex login`, 또는 공식 Claude Code 를 설치하고 `claude` 에서 로그인을 마쳐야 합니다. 둘 중 하나만 있어도 앱은 열리며, 없는 쪽은 `대화 상대` 목록에 ‘로그인 필요’ 로 표시됩니다. 최초 로그인 버튼까지 내장한 배포 설치기는 아직 아닙니다.
+- **웹 검색**은 `화면 설정 → 웹 검색`(필요할 때 자동 / 검색해서 답변 / 사용 안 함)으로 두 상대 모두에 적용됩니다. Codex 는 app-server 의 `web_search=live`, Claude 는 내장 `WebSearch` 도구입니다. 법령·세법·시험 기준·최신 버전은 답변의 출처 링크를 열어 해당 시점의 공식 자료로 확인하세요. 답변이 자동으로 최신 검증되었다고 표시하지 않습니다.
 
 ## 무엇이 실시간인가요?
 
@@ -96,8 +102,9 @@ cargo build --release --manifest-path apps/core/Cargo.toml
 node apps/study-desktop/smoke.mjs
 node apps/study-desktop/share-smoke.mjs
 node apps/study-desktop/delivery-smoke.mjs
-# 다음 시험만 실제 ChatGPT 사용량을 소량 사용합니다. 합성 전사만 전송합니다.
+# 다음 시험만 실제 ChatGPT·claude.ai 사용량을 소량 사용합니다. 합성 전사만 전송합니다.
 node apps/study-desktop/smoke.mjs --real-ai
+node apps/study-desktop/probe.mjs --real-ai --provider claude --entry "$env:APPDATA\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe"
 & ./apps/study-desktop/install-shortcut.ps1
 ```
 
@@ -106,6 +113,7 @@ node apps/study-desktop/smoke.mjs --real-ai
 공개 설치 ZIP에 포함하려면 Node/Codex 설치·로그인 안내, 서명/라이선스, 깨끗한 Windows 설치 검증을 추가로 마쳐야 합니다.
 
 공식 근거: [Codex app-server](https://learn.chatgpt.com/docs/app-server),
+[Claude Code CLI 참조](https://docs.claude.com/en/docs/claude-code/cli-reference),
 [Codex 설정 계약](https://learn.chatgpt.com/docs/config-schema.json),
 [Tiro 문단 데이터 모델](https://docs.tiro.ooo/en/developers/fundamentals/note-data-model),
 [Tiro API 제한](https://docs.tiro.ooo/en/developers/fundamentals/api-overview),

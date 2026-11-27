@@ -1,5 +1,13 @@
 # 결정 기록
 
+## 2026-09-15 — Local 대화 상대에 Claude Sonnet 5 / xhigh 를 추가
+
+- 사용자 요청: "이 앱에 claude 도 달아줄 수 있어? sonnet 5 xigh로." GPT Terra 를 대체하지 않고 **옆에 추가**한다. 기본값은 기존과 같은 Codex 이며, `화면 설정 → 대화 상대` 선택을 프로필에 저장한다.
+- 실행 방식: Anthropic SDK + API 키가 아니라 **이 PC 의 공식 Claude Code CLI(`claude.exe`) 와 본인 claude.ai 로그인**을 쓴다. Codex 경로와 같은 원칙(API 키 결제 없음, 인증 파일 미접근)을 지키기 위해서다. `--bare` 는 OAuth 를 끄므로 쓰지 않는다.
+- 격리: 질문마다 `--safe-mode --strict-mcp-config --no-session-persistence --permission-mode manual --permission-prompts none --tools ""` 로 새 프로세스를 띄운다. §4-6·§4-7 대로 셸·파일·MCP 가 없고, CLI 가 보고한 도구 목록에 WebSearch 외가 있으면 중단한다. 모델은 `init`·`message_start` 에서 대조해 설정의 fallback 모델로 넘어가는 것도 막는다.
+- 큐: 작업이 접수 시점의 제공자를 갖는다. 대기 중 상대를 바꿔도 이미 접수된 질문은 원래 상대가 답한다.
+- 반론·대안: (가) Agent SDK 로 앱 안에 내장 — 별도 의존성과 같은 로그인 의존, 이득 없음. (나) Claude 를 기본값으로 — 사용자가 "도" 라고 했으므로 기존 기본 유지. (다) 검색은 Codex 처럼 live 검색 — Claude 는 내장 WebSearch 도구 1개만 허용해 같은 세 단계 설정을 공유한다.
+
 ## 2026-09-14 — Local 선택 범위는 명시적 확인 전까지 조정 가능
 
 - 두 번째 문단 클릭으로 즉시 질문창을 여는 동작을 중단하고, 시작·끝 사이 전체를 강조한 뒤 `이 내용 질문`으로 확정한다. 세 번째 이후 클릭은 끝 문단을 갱신한다. 답변 위치는 범위 끝 문단 아래로 유지한다.

@@ -4,6 +4,7 @@ import {fileURLToPath} from 'node:url';
 import {Rpc} from '../rpc.mjs';
 import {selectContext,validPreferences} from '../server.mjs';
 import {MODEL,EFFORT,DISABLED_FEATURES} from '../tutor.mjs';
+import {ClaudeTutor,CLAUDE_MODEL,CLAUDE_EFFORT,CLAUDE_ISOLATION,claudeArgs,toContentBlocks} from '../claude-tutor.mjs';
 import {mkdtemp} from 'node:fs/promises';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
@@ -28,6 +29,31 @@ test('preferences and fixed tutor configuration cannot grant execution or switch
  assert.equal(validPreferences({transcript:999,answer:18,height:82}),false);
  assert.equal(MODEL,'gpt-5.6-terra');assert.equal(EFFORT,'high');
  for(const feature of ['shell_tool','unified_exec','apply_patch_freeform','apps','plugins','computer_use'])assert.ok(DISABLED_FEATURES.includes(feature));
+ assert.equal(CLAUDE_MODEL,'claude-sonnet-5');assert.equal(CLAUDE_EFFORT,'xhigh');
+ for(const flag of ['--safe-mode','--strict-mcp-config','--no-session-persistence','--permission-prompts','--no-chrome'])assert.ok(CLAUDE_ISOLATION.includes(flag));
+ const off=claudeArgs('off');assert.equal(off[off.indexOf('--tools')+1],'');assert.equal(off[off.indexOf('--max-turns')+1],'1');
+ const auto=claudeArgs('auto');assert.equal(auto[auto.indexOf('--tools')+1],'WebSearch');assert.ok(!auto.includes('bypassPermissions')&&!auto.includes('--bare')&&!auto.includes('--mcp-config'));
+ assert.ok(claudeArgs('required')[claudeArgs('required').indexOf('--system-prompt')+1].includes('검색한 뒤 출처와 함께'));
+ assert.deepEqual(toContentBlocks([{type:'text',text:'q'},{type:'image',url:'data:image/webp;base64,AAAA'}]),[{type:'text',text:'q'},{type:'image',source:{type:'base64',media_type:'image/webp',data:'AAAA'}}]);
+ assert.throws(()=>toContentBlocks([{type:'image',url:'file:///C:/secret.png'}]));
+});
+test('Claude tutor streams, converts screens, reports searches, refuses other models and stops on abort',async()=>{
+ const fixture=fileURLToPath(new URL('./claude-fixture.mjs',import.meta.url));const dir=await mkdtemp(join(tmpdir(),'classmate-claude-'));
+ const make=env=>{const t=new ClaudeTutor(process.execPath,dir,{prefixArgs:[fixture]});const original=t.spawn.bind(t);t.spawn=(args,stdin)=>{const saved={};for(const k of Object.keys(env))saved[k]=process.env[k];Object.assign(process.env,env);try{return original(args,stdin);}finally{for(const k of Object.keys(env)){if(saved[k]===undefined)delete process.env[k];else process.env[k]=saved[k];}}};return t;};
+ process.env.ANTHROPIC_API_KEY='must-not-reach-child';
+ try{
+  const t=make({});assert.deepEqual(await t.connect(),{loggedIn:true,model:CLAUDE_MODEL,effort:CLAUDE_EFFORT});
+  assert.equal((await make({CLASSMATE_FIXTURE_LOGGED_OUT:'1'}).connect()).loggedIn,false);
+  let streamed='';const events=[];
+  const result=JSON.parse(await t.answer([{type:'text',text:'검색해서 설명해 주세요'},{type:'image',url:'data:image/jpeg;base64,/9j/AA=='}],d=>{streamed+=d;},new AbortController().signal,e=>events.push(e.state),'required'));
+  assert.equal(result.text,'검색해서 설명해 주세요');assert.equal(result.images,1);assert.deepEqual(result.tools,['WebSearch']);assert.equal(result.safe,true);assert.equal(result.persist,false);assert.equal(result.prompts,'none');assert.equal(result.apiKey,null);assert.equal(result.system,'당신은 Classmate 학습 튜'.slice(0,12));
+  assert.equal(JSON.parse(streamed).text,result.text);assert.deepEqual(events,['searching','complete']);
+  await assert.rejects(make({CLASSMATE_FIXTURE_MODEL:'claude-opus-4-8'}).answer([{type:'text',text:'x'}],()=>{},undefined),/Sonnet 모델/);
+  await assert.rejects(make({CLASSMATE_FIXTURE_EXTRA_TOOL:'1'}).answer([{type:'text',text:'x'}],()=>{},undefined),/허용되지 않은 도구/);
+  await assert.rejects(make({CLASSMATE_FIXTURE_FAIL:'1'}).answer([{type:'text',text:'x'}],()=>{},undefined),/사용 한도/);
+  const hang=make({CLASSMATE_FIXTURE_HANG:'1'});const abort=new AbortController();const pending=hang.answer([{type:'text',text:'x'}],()=>{},abort.signal);
+  await new Promise(r=>setTimeout(r,300));abort.abort();await assert.rejects(pending,/답변을 중지했어요/);assert.equal(hang.current,null);
+ }finally{delete process.env.ANTHROPIC_API_KEY;}
 });
 
 test('study boundaries retain old paragraphs, isolate chat and survive a restart',async()=>{

@@ -39,10 +39,12 @@ catch{
 }
 try{
   const entry=[join(process.env.APPDATA??'','npm/node_modules/@openai/codex/bin/codex.js'),join(dirname(process.execPath),'node_modules/@openai/codex/bin/codex.js')].find(existsSync);
-  if(!entry)throw new Error('Codex 실행 파일을 찾지 못했어요. Codex CLI를 설치하고 로그인해 주세요.');
+  // Claude Code ships as a native binary; the app runs it directly and never reads its credentials.
+  const claudeEntry=[join(process.env.APPDATA??'','npm/node_modules/@anthropic-ai/claude-code/bin/claude.exe'),join(process.env.USERPROFILE??'','.local/bin/claude.exe')].find(existsSync);
+  if(!entry&&!claudeEntry)throw new Error('Codex 또는 Claude Code 실행 파일을 찾지 못했어요. 둘 중 하나를 설치하고 로그인해 주세요.');
   let app;let closing=false;
   const close=async()=>{if(closing)return;closing=true;await app?.close();await lock.close();await unlink(lockPath).catch(()=>{});await unlink(descriptor).catch(()=>{});setTimeout(()=>process.exit(0),1000);};
-  app=await startStudy({root,entry,profile,onIdle:()=>void close()});
+  app=await startStudy({root,entry,claudeEntry,profile,onIdle:()=>void close()});
   await writeFile(descriptor,JSON.stringify({origin:app.origin+'/',token:app.token,pid:process.pid}),{mode:0o600});
   openWindow(app.url,()=>void close());
   process.on('SIGINT',close);process.on('SIGTERM',close);

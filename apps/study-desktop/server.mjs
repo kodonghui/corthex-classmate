@@ -5,11 +5,17 @@ import {join} from 'node:path';
 import {CoreConnection} from './core-connection.mjs';
 import {WindowLease} from './window-lease.mjs';
 import {Tutor,MODEL,EFFORT} from './tutor.mjs';
+import {ClaudeTutor,CLAUDE_MODEL,CLAUDE_EFFORT} from './claude-tutor.mjs';
 import {Studies} from './studies.mjs';
 import {ShareReader,canonicalShareUrl} from './share-source.mjs';
 import {Screens} from './screens.mjs';
 import {validateSelection} from './selection.mjs';
 
+// Two tutors with the user's own logins. The selection is a profile preference; each queued job binds the provider chosen at acceptance.
+export const PROVIDERS={
+  codex:{label:'GPT Terra · High',model:MODEL,effort:EFFORT,loginHint:'먼저 Codex에서 ChatGPT 계정에 로그인해 주세요.',startError:'AI 연결을 시작하지 못했어요. Codex 로그인과 설치 상태를 확인해 주세요.'},
+  claude:{label:'Claude Sonnet 5 · xhigh',model:CLAUDE_MODEL,effort:CLAUDE_EFFORT,loginHint:'먼저 Claude Code에서 claude.ai 계정에 로그인해 주세요.',startError:'Claude 연결을 시작하지 못했어요. Claude Code 설치와 로그인 상태를 확인해 주세요.'}};
+export const DEFAULT_PROVIDER='codex';
 export function selectContext(snapshot,id){
   if(!id)return {recentLesson:snapshot.paragraphs.slice(-3).map(p=>({text:p.text.slice(0,12000),timeFrom:p.timeFrom,timeTo:p.timeTo,timeBasis:p.timeBasis??'source',timingNote:p.timeBasis==='observed'?'수신 시각입니다. 발화 시각이나 영상 위치가 아닙니다.':undefined})),previous:snapshot.recentQa.filter(q=>!q.paragraphUuid).slice(-8).map(q=>({question:q.question,answer:q.answer.slice(0,9000)}))};
   const index=snapshot.paragraphs.findIndex(p=>p.uuid===id);
@@ -20,7 +26,7 @@ export function selectContext(snapshot,id){
     previous:snapshot.recentQa.filter(q=>q.paragraphUuid===id).slice(-6).map(qa),
     otherRecentQuestions:snapshot.recentQa.filter(q=>q.paragraphUuid!==id).slice(-2).map(qa)};
 }
-export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverride,onIdle,coreExecutable,shareReaderFactory,coreOverride}){
+export async function startStudy({root,entry,claudeEntry,profile,port=0,coreDir,tutorOverride,claudeOverride,onIdle,coreExecutable,shareReaderFactory,coreOverride}){
   await mkdir(profile,{recursive:true});
   const screens=new Screens(profile);await screens.init();
   let preferences={transcript:19,answer:18,height:75};let preferenceWrites=Promise.resolve();
@@ -46,11 +52,18 @@ export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverrid
   // First read happens on the first UI request; the interval also works without a window.
   refreshTimer=setTimeout(tick,1000);
   const snapshot=async(id)=>{try{await refresh();}catch{if(!source)throw new Error('자료 연결을 복구하고 있어요.');}syncShare();const result=studies.snapshot(source,id);return {...result,screen:screens.status(),recording:{...result.recording,...(result.studyId===studies.active&&result.recording.mode==='share'?reader.state:{state:result.recording.mode==='share'?'history':result.recording.mode==='none'?'unlinked':'api'})},delivery:{lastCheckedAt,lastChangedAt,refreshError}};};
-  const tutor=tutorOverride??new Tutor(entry,profile);
-  let account={loggedIn:false,model:MODEL,effort:EFFORT};let aiError='';
-  try{account=await tutor.connect();}catch{aiError='AI 연결을 시작하지 못했어요. Codex 로그인과 설치 상태를 확인해 주세요.';}
+  const tutors={codex:tutorOverride??(entry?new Tutor(entry,profile):undefined),claude:claudeOverride??(claudeEntry?new ClaudeTutor(claudeEntry,profile):undefined)};
+  const accounts={};
+  await Promise.all(Object.entries(PROVIDERS).map(async([key,meta])=>{
+    let account={loggedIn:false};let aiError='';
+    if(!tutors[key])aiError=meta.startError;else try{account=await tutors[key].connect();}catch{aiError=meta.startError;}
+    accounts[key]={id:key,label:meta.label,loggedIn:account.loggedIn===true,model:account.model??meta.model,effort:account.effort??meta.effort,aiError,loginHint:meta.loginHint};
+  }));
+  let provider=DEFAULT_PROVIDER;let providerWrites=Promise.resolve();
+  try{const p=JSON.parse(await readFile(join(profile,'tutor-provider.json'),'utf8'));if(PROVIDERS[p?.provider])provider=p.provider;}catch{}
+  const status=()=>({...accounts[provider],provider,providers:Object.values(accounts).map(({loginHint,...a})=>a)});
   const token=randomBytes(32).toString('hex');const jobs=new Map();let busy=false;let origin;const queue=[];
-  const publicJob=j=>{const {abort,...safe}=j;return {...safe,queuePosition:j.state==='queued'?queue.findIndex(x=>x.job===j)+1:0};};
+  const publicJob=j=>{const {abort,...safe}=j;return {...safe,providerLabel:PROVIDERS[j.provider]?.label,queuePosition:j.state==='queued'?queue.findIndex(x=>x.job===j)+1:0};};
   const pump=()=>{if(busy||stopping)return;const next=queue.shift();if(!next)return;busy=true;next.job.state='preparing';void run(next.job,next.request);};
   const html=await readFile(join(root,'packages/study-panel/dist/index.html'));
   const json=(res,code,data)=>{res.writeHead(code,{'Content-Type':'application/json; charset=utf-8','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));};
@@ -67,7 +80,7 @@ export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverrid
       if(request.screen_id){const image=await screens.get(request.screen_id,request.study_id);input.push({type:'image',url:image.image});cap={screen_id:request.screen_id,captured_at:image.captured_at,title:image.title};}
       input.unshift({type:'text',text:JSON.stringify({question:request.question,referenceData:context,screen:cap??'화면 없음. 전사만 보고 설명하세요.'})});
       if(job.cancelled)throw new Error('답변을 중지했어요.');
-      const final=await tutor.answer(input,delta=>{job.answer+=delta;job.state='streaming';},job.abort.signal,event=>{job.searchState=event.state;},request.search_mode??'auto');
+      const final=await tutors[job.provider].answer(input,delta=>{job.answer+=delta;job.state='streaming';},job.abort.signal,event=>{job.searchState=event.state;},request.search_mode??'auto');
       if(job.cancelled)throw new Error('답변을 중지했어요.');
       if(final)job.answer=final;
       if(!job.answer.trim())throw new Error('AI가 답변을 반환하지 않았어요.');
@@ -102,7 +115,7 @@ export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverrid
         const heartbeat=setInterval(()=>{lease.touch(id,true);res.write(': alive\n\n');},15000);
         res.once('close',()=>{clearInterval(heartbeat);lease.touch(id,false);});return;
       }
-      if(req.method==='GET'&&req.url==='/api/status')return json(res,200,{...account,aiError});
+      if(req.method==='GET'&&req.url==='/api/status')return json(res,200,status());
       if(req.method==='GET'&&req.url==='/api/screen-pair')return json(res,200,{code:Buffer.from(JSON.stringify({origin,key:screens.key})).toString('base64'),extensionPath:join(root,'apps/study-desktop/screen-extension')});
       if(req.method==='GET'&&req.url==='/api/preferences')return json(res,200,preferences);
       if(req.method==='GET'&&new URL(req.url,origin).pathname==='/api/study'){const s=await snapshot(new URL(req.url,origin).searchParams.get('id')||undefined);return json(res,200,{...s,jobs:[...jobs.values()].filter(j=>j.studyId===s.studyId).map(publicJob)});}
@@ -132,6 +145,12 @@ export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverrid
         try{studies.connectShare(data.id,data.url);}catch(e){return json(res,400,{error:e.message});}
         shareTarget=undefined;return json(res,200,await snapshot(data.id));
       }
+      if(req.url==='/api/provider'){
+        if(!PROVIDERS[data.provider])return json(res,400,{error:'대화 상대를 확인해 주세요.'});
+        provider=data.provider;const serialized=JSON.stringify({provider});
+        providerWrites=providerWrites.catch(()=>{}).then(()=>writeFile(join(profile,'tutor-provider.json'),serialized,{mode:0o600}));await providerWrites;
+        return json(res,200,status());
+      }
       if(req.url==='/api/preferences'){
         if(!validPreferences(data))return json(res,400,{error:'글씨 크기와 영역 높이를 확인해 주세요.'});
         preferences={transcript:data.transcript,answer:data.answer,height:data.height,...(data.width!==undefined?{width:data.width}:{}),...(data.layout?{layout:data.layout}:{}),...(data.fold?{fold:data.fold}:{})};const serialized=JSON.stringify(preferences);
@@ -144,7 +163,7 @@ export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverrid
       }
       if(req.url==='/api/cancel'){const job=jobs.get(data.id);if(job&&['queued','preparing','streaming'].includes(job.state)){job.cancelled=true;job.abort.abort();if(job.state==='queued'){const index=queue.findIndex(x=>x.job===job);if(index>=0)queue.splice(index,1);job.state='cancelled';job.finishedAt=Date.now();}}return json(res,200,{ok:true});}
       if(req.url==='/api/question'){
-        if(!account.loggedIn||aiError)return json(res,503,{error:aiError||'먼저 Codex에서 ChatGPT 계정에 로그인해 주세요.'});
+        if(!accounts[provider].loggedIn||accounts[provider].aiError)return json(res,503,{error:accounts[provider].aiError||accounts[provider].loginHint});
         if(typeof data.id!=='string'||!/^[-a-zA-Z0-9]{10,64}$/.test(data.id)||typeof data.question!=='string'||!data.question.trim()||data.question.length>8000||data.paragraph_uuid!==undefined&&(typeof data.paragraph_uuid!=='string'||data.paragraph_uuid.length>100)||data.moment_id!==undefined&&(typeof data.moment_id!=='string'||data.moment_id.length>100))return json(res,400,{error:'질문을 입력해 주세요. 질문은 최대 8,000자입니다.'});
         if(data.search_mode!==undefined&&!['auto','off','required'].includes(data.search_mode))return json(res,400,{error:'검색 설정을 확인해 주세요.'});
         await refresh();data.study_id??=studies.active;
@@ -156,7 +175,7 @@ export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverrid
         if(data.screen_id){try{await screens.retain(data.screen_id,data.study_id);}catch(e){return json(res,400,{error:e.message});}}
         if(jobs.has(data.id))return json(res,200,{id:data.id});
         if(queue.length>=20)return json(res,409,{error:'대기 질문이 20개입니다. 잠시 후 다시 보내 주세요.'});
-        const job={id:data.id,studyId:data.study_id,paragraphUuid:data.paragraph_uuid,question:data.question,answer:'',state:'queued',abort:new AbortController()};jobs.set(data.id,job);queue.push({job,request:structuredClone(data)});
+        const job={id:data.id,studyId:data.study_id,paragraphUuid:data.paragraph_uuid,question:data.question,answer:'',state:'queued',provider,abort:new AbortController()};jobs.set(data.id,job);queue.push({job,request:structuredClone(data)});
         json(res,202,{id:data.id});pump();return;
       }
       return json(res,404,{error:'알 수 없는 요청입니다.'});
@@ -168,7 +187,7 @@ export async function startStudy({root,entry,profile,port=0,coreDir,tutorOverrid
   await writeFile(join(profile,'listen-port'),String(server.address().port),{mode:0o600});
   origin=`http://127.0.0.1:${server.address().port}`;
   let closing;
-  return {url:`${origin}/#classmate=${token}`,origin,token,account,close(){if(stopping)return closing;stopping=true;clearTimeout(refreshTimer);server.closeAllConnections();server.close();core.close();tutor.close();closing=Promise.allSettled([reader.close(),refreshing]).finally(()=>studies.close());return closing;}};
+  return {url:`${origin}/#classmate=${token}`,origin,token,account:status(),close(){if(stopping)return closing;stopping=true;clearTimeout(refreshTimer);server.closeAllConnections();server.close();core.close();for(const t of Object.values(tutors))t?.close();closing=Promise.allSettled([reader.close(),refreshing]).finally(()=>studies.close());return closing;}};
 }
 
 export function validPreferences(p){return p&&typeof p==='object'&&[['transcript',14,28],['answer',14,28],['height',5,95]].every(([key,min,max])=>Number.isFinite(p[key])&&p[key]>=min&&p[key]<=max)&&(p.width===undefined||Number.isFinite(p.width)&&p.width>=5&&p.width<=95)&&(p.layout===undefined||['rows','columns'].includes(p.layout))&&(p.fold===undefined||['none','transcript','chat'].includes(p.fold));}

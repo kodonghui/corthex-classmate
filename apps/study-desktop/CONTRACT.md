@@ -1,5 +1,12 @@
 # Local study API · 0.3.0 preview
 
+## Tutor provider · 2026-09-15 override
+
+Two tutors share one queue. `GET /api/status` returns the selected provider's `loggedIn`, `model`, `effort`, `aiError` (unchanged keys) plus `provider` (`codex` | `claude`), `label`, `loginHint`, and `providers[]` (`id`, `label`, `loggedIn`, `model`, `effort`, `aiError`). `POST /api/provider {provider}` stores the choice in the profile (`tutor-provider.json`, mode 0600) and returns the same status shape; 400 unknown provider. A job binds the provider selected at acceptance (`provider`, `providerLabel` on `GET /api/job/:id` and study jobs), so switching never retargets queued questions. 503 on `POST /api/question` now uses the selected provider's start error or login hint.
+
+Claude runs the official CLI per question with the user's own claude.ai login: `claude.exe -p --model claude-sonnet-5 --effort xhigh --safe-mode --strict-mcp-config --no-session-persistence --permission-mode manual --permission-prompts none --disable-slash-commands --no-chrome --tools "" | WebSearch --max-turns 1 | 8 --system-prompt <tutor prompt> --input-format stream-json --output-format stream-json --include-partial-messages`. The app strips `ANTHROPIC_API_KEY`/`ANTHROPIC_AUTH_TOKEN` from the child environment, never reads credential files, and aborts when `init` or `message_start` reports another model or an extra tool. Screens travel as base64 image blocks in the single stdin message; stderr is discarded; the process is killed on cancel or the 180 s timeout. Login is checked with `claude auth status` (JSON `loggedIn`).
+
+
 ## Question queue · 2026-09-14 override
 
 `POST /api/question` now accepts up to 20 waiting jobs in addition to one running job. Same ID remains idempotent (200); accepted new IDs return 202; 409 means waiting limit reached, not merely a busy tutor. Validation/authentication limits remain. Freeze selected/context text at acceptance; retain selected screen ID before enqueuing. FIFO executes one Tutor call at a time, with no automatic replay after failure. A failed or cancelled job does not block the next job. Follow-ups use their verified stored evidence; queued independent questions do not silently acquire later answers as their original context.
@@ -144,7 +151,8 @@ Local user control of processes/profile is outside this local CSRF boundary.
 
 | Method / path | Input | Success | Failure |
 |---|---|---|---|
-| GET /api/status | none | loggedIn, model, effort, aiError | 401/403/500 |
+| GET /api/status | none | loggedIn, model, effort, aiError, provider, providers[] | 401/403/500 |
+| POST /api/provider | provider: codex \| claude | status shape; stored in profile | 400 unknown, 401/403/500 |
 | GET /api/study?id=... | optional study ID, default collecting study | Core status + studyId/activeStudyId/studies, that study's accumulated paragraphs/recentQa, delivery lastCheckedAt/lastChangedAt | 401/403/500 |
 | POST /api/studies | name, 1..100 chars | 201 study snapshot; previous study preserved | 400 invalid, 409 busy, 500 |
 | POST /api/studies/edit | id, action: rename/trash/restore, name for rename | snapshot; reversible trash, never deletes Core data | 400 invalid/missing, 409 busy, 500 |

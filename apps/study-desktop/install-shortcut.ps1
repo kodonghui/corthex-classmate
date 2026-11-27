@@ -12,6 +12,6 @@ $shortcut = $shell.CreateShortcut($shortcutPath)
 $shortcut.TargetPath = Join-Path $env:WINDIR 'System32\wscript.exe'
 $shortcut.Arguments = '"' + $scriptTarget + '"'
 $shortcut.WorkingDirectory = $PSScriptRoot
-$shortcut.Description = 'Classmate · GPT Terra High · 문장 아래에서 함께 공부'
+$shortcut.Description = 'Classmate · GPT Terra High / Claude Sonnet 5 · 문장 아래에서 함께 공부'
 $shortcut.Save()
 Write-Output 'Classmate shortcut installed; previous shortcut preserved.'

@@ -1,4 +1,4 @@
-import type {Bridge,LiveAnswer} from './bridge';
+import type {Bridge,Host,LiveAnswer} from './bridge';
 
 export function createLocalBridge(token:string):Bridge {
   const active=new Set<string>();let studyId:string|undefined;let closed=false;
@@ -14,9 +14,12 @@ export function createLocalBridge(token:string):Bridge {
     const r=await fetch(`/api/${path}`,{method:data===undefined?'GET':'POST',headers:{'x-classmate-key':token,...(data===undefined?{}:{'Content-Type':'application/json'})},body:data===undefined?undefined:JSON.stringify(data),signal:AbortSignal.timeout(35000)});
     const value=await r.json();if(!r.ok)throw new Error(value.error??'Classmate 연결 오류');return value;
   };
+  // Status carries every provider with its own login state; the selected one decides canSend.
+  const host=(s:{provider?:string;loggedIn:boolean;aiError?:string;loginHint?:string;providers?:{id:string;label:string;loggedIn:boolean;aiError?:string}[]}):Host=>({name:s.providers?.find(p=>p.id===s.provider)?.label??'GPT Terra · High',canSend:s.loggedIn&&!s.aiError,canExpand:false,provider:s.provider,providers:s.providers?.map(p=>({id:p.id,label:p.label,canSend:p.loggedIn&&!p.aiError,...(p.aiError?{error:p.aiError}:{})})),hint:s.aiError||s.loginHint});
   return {
     local:true,
-    async connect(){await presence(true);void watchWindow();presenceTimer=setInterval(()=>void presence(true),20000);window.addEventListener('pagehide',leaving);window.addEventListener('pageshow',returning);const s=await request('status');return {name:'GPT Terra · High',canSend:s.loggedIn&&!s.aiError,canExpand:false};},
+    async connect(){await presence(true);void watchWindow();presenceTimer=setInterval(()=>void presence(true),20000);window.addEventListener('pagehide',leaving);window.addEventListener('pageshow',returning);const s=await request('status');return host(s);},
+    async chooseProvider(id){return host(await request('provider',{provider:id}));},
     async refresh(){const id=studyId;const s=await request(`study${id?'?id='+encodeURIComponent(id):''}`);if(id!==studyId)return request(`study?id=${encodeURIComponent(studyId!)}`);studyId=s.studyId;return s;},
     async chooseStudy(id){const s=await request(`study?id=${encodeURIComponent(id)}`);studyId=s.studyId;return s;},
     async newStudy(name,url){const s=await request('studies',{name,url});studyId=s.studyId;return s;},

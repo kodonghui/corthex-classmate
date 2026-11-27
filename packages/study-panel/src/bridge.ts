@@ -6,10 +6,13 @@ export interface SelectionPart {uuid:string;start:number;end:number;text:string}
 export interface Qa {id:number; question:string; answer:string; paragraphUuid?:string; momentId?:string; askedAt:string;screenId?:string;screen?:{captured_at:string;title?:string};selection?:SelectionPart[]}
 export interface Snapshot {jobs?:LiveAnswer[];screen?:{connected:boolean;title:string;capturedAt?:string};recording?:{mode:string;url?:string;state:string;title?:string;lastCheckedAt?:string;message?:string};studyId?:string;activeStudyId?:string;studies?:{id:string;name:string;startedAt:string;deletedAt?:string}[];delivery?:{lastCheckedAt?:string;lastChangedAt?:string;refreshError?:boolean};bundleName:string; paragraphs:Paragraph[]; recentQa:Qa[]; status:{daemon:string; tiroState:string; noteTitle?:string; noteRecording?:boolean; lastParagraphAt?:string;lastPollAt?:string;lastTiroSuccessAt?:string;lastTranscriptReceivedAt?:string;collectionPaused?:boolean}; paragraphLimit:number; qaLimit:number}
 export interface Capture {moment_id?:string;screen_id?:string;preview?:string;title?:string;captured_at:string}
-export interface LiveAnswer {id:string;paragraphUuid?:string;question:string;answer:string;state:string;queuePosition?:number;searchState?:string;savedId?:number;error?:string}
+export interface LiveAnswer {id:string;paragraphUuid?:string;question:string;answer:string;state:string;queuePosition?:number;searchState?:string;savedId?:number;error?:string;providerLabel?:string}
+export interface TutorProvider {id:string;label:string;canSend:boolean;error?:string}
+export interface Host {name:string;canSend:boolean;canExpand:boolean;provider?:string;providers?:TutorProvider[];hint?:string}
 export interface Bridge {
   local?:boolean;
-  connect():Promise<{name:string; canSend:boolean; canExpand:boolean}>;
+  connect():Promise<Host>;
+  chooseProvider?(id:string):Promise<Host>;
   refresh():Promise<Snapshot>;
   chooseStudy?(id:string):Promise<Snapshot>;
   newStudy?(name:string,url?:string):Promise<Snapshot>;

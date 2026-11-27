@@ -15,8 +15,9 @@ const dir=await mkdtemp(join(tmpdir(),'classmate-desktop-test-'));
 await writeFile(join(dir,'config.json'),JSON.stringify({capture:{max_edge:16},timeline:{enabled:false}}));
 const answer='필요한 객체를 **밖에서 전달하는 것**이 의존성 주입입니다.\n\n```mermaid\nsequenceDiagram\n participant U as 사용자\n participant S as 서버\n U->>S: 회원 정보 요청\n S-->>U: 회원 정보 응답\n```';
 let calls=0;
+const claudeTutor={async connect(){return {loggedIn:true,model:'claude-sonnet-5',effort:'xhigh'};},async answer(input,delta,signal){calls++;delta('Claude 시험 답변입니다.');return 'Claude 시험 답변입니다.';},close(){}};
 const tutor={async connect(){return {loggedIn:true,model:'gpt-5.6-terra',effort:'high'};},async answer(input,delta,signal){calls++;await new Promise((resolve,reject)=>{const timer=setTimeout(resolve,1200);signal.addEventListener('abort',()=>{clearTimeout(timer);reject(new Error('답변을 중지했어요.'));},{once:true});});delta(answer.slice(0,25));await new Promise(r=>setTimeout(r,500));delta(answer.slice(25));return answer;},close(){}};
-const appOptions={root,entry:join(process.env.APPDATA,'npm/node_modules/@openai/codex/bin/codex.js'),profile:join(dir,'profile'),coreDir:dir,coreExecutable:process.env.CLASSMATE_TEST_CORE_EXE,tutorOverride:realAi?undefined:tutor};
+const appOptions={root,entry:join(process.env.APPDATA,'npm/node_modules/@openai/codex/bin/codex.js'),profile:join(dir,'profile'),coreDir:dir,coreExecutable:process.env.CLASSMATE_TEST_CORE_EXE,tutorOverride:realAi?undefined:tutor,claudeEntry:join(process.env.APPDATA,'npm/node_modules/@anthropic-ai/claude-code/bin/claude.exe'),claudeOverride:realAi?undefined:claudeTutor};
 let app=await startStudy(appOptions);
 const db=new DatabaseSync(join(dir,'core.sqlite'));
 const p1='11111111-1111-4111-8111-111111111111',p2='22222222-2222-4222-8222-222222222222';
@@ -37,7 +38,8 @@ try{
  await page.getByRole('button',{name:'답변 중지'}).waitFor();
  await page.locator('.answer:not(.live-answer) .diagram-scroll svg').first().waitFor({timeout:90000});
  assert.equal(db.prepare('SELECT count(*) AS n FROM qa_log').get().n,1);
- await page.getByRole('button',{name:'화면 설정'}).click();
+ // Pick the stacked layout explicitly: an auto-picked layout is persisted with the first slider change, and the narrow-width and vertical-drag checks below assume rows.
+ await page.getByRole('button',{name:'화면 설정'}).click();await page.getByRole('button',{name:'상하',exact:true}).click();
  await page.getByRole('slider',{name:'답변 글씨'}).fill('23');
  assert.equal(await page.locator('.answer:not(.live-answer) .answer-body').evaluate(e=>getComputedStyle(e).fontSize),'23px');
  await page.locator('.cm-tf__ln').filter({hasText:'생성자는 객체가 처음 만들어질 때 값을 채워 줍니다.'}).click();
@@ -46,19 +48,31 @@ try{
  await page.reload();await page.locator('.answer .diagram-scroll svg').first().waitFor();
  assert.equal(await page.locator('.answer-body').first().evaluate(e=>getComputedStyle(e).fontSize),'23px');
  await page.setViewportSize({width:430,height:860});
- const geometry=await page.locator('.diagram-scroll svg').first().evaluate(e=>{const r=e.getBoundingClientRect(),p=e.closest('.diagram-scroll').getBoundingClientRect();return {width:r.width,parent:p.width,left:r.left,right:r.right,parentRight:p.right};});
+ // Re-query after the resize: the pane observer re-renders and Playwright's earlier element handle can be detached.
+ await page.waitForTimeout(400);const geometry=await page.evaluate(()=>{const e=document.querySelector('.diagram-scroll svg');const r=e.getBoundingClientRect(),p=e.closest('.diagram-scroll').getBoundingClientRect();return {width:r.width,parent:p.width,left:r.left,right:r.right,parentRight:p.right};});
  assert.ok(geometry.width>100&&geometry.right<=geometry.parentRight+2);
  assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
  // Free chat is separate from the still-working inline paragraph composer.
  const chat=page.getByRole('region',{name:'자유 대화',exact:true});
+ // The masthead is hidden once session navigation exists; the selected session shows in the picker instead.
+ const study=name=>page.waitForFunction(n=>document.querySelector('select[aria-label="세션 선택"]')?.selectedOptions[0]?.textContent.startsWith(n),name);
  await chat.getByRole('textbox',{name:'대화 질문'}).fill('방금 수업을 정리해줘');await chat.getByRole('button',{name:'대화 보내기'}).click();
- const stopButton=chat.getByRole('button',{name:'생성 중지'});await stopButton.waitFor();
- assert.ok(await stopButton.evaluate(e=>{const s=getComputedStyle(e);return s.whiteSpace==='nowrap'&&e.getBoundingClientRect().height<50&&e.getBoundingClientRect().width>=70;}));
- await chat.locator('.answer:not(.live-answer)').waitFor({timeout:90000});
+ // Local mode cancels from the live card (queue UI), not from the chat form; the narrow-width layout check follows that button.
+ const stopButton=chat.getByRole('button',{name:'답변 중지'});await stopButton.waitFor();
+ assert.ok(await stopButton.evaluate(e=>{const s=getComputedStyle(e);return s.whiteSpace!=='normal'||e.getBoundingClientRect().height<50;}));
+ await chat.locator('.answer:not(.live-answer)').first().waitFor({timeout:90000});
  assert.equal(db.prepare('SELECT count(*) AS n FROM qa_log WHERE paragraph_uuid IS NULL').get().n,1);
+ // The second tutor uses the same queue and record path; the choice lives in the profile, not the page.
+ await page.getByRole('button',{name:'화면 설정'}).click();await page.getByRole('combobox',{name:'대화 상대'}).selectOption('claude');
+ await page.getByText('대화 상대 · Claude Sonnet 5 · xhigh',{exact:true}).waitFor();
+ await chat.getByRole('textbox',{name:'대화 질문'}).fill('Claude에게 묻는 시험 질문');await chat.getByRole('button',{name:'대화 보내기'}).click();
+ await chat.getByText('Claude 시험 답변입니다.',{exact:true}).waitFor({timeout:90000});
+ assert.equal(db.prepare('SELECT count(*) AS n FROM qa_log WHERE paragraph_uuid IS NULL').get().n,2);
+ const statusOf=async()=>(await fetch(`${app.origin}/api/status`,{headers:{'x-classmate-key':app.token}})).json();
+ assert.equal((await statusOf()).provider,'claude');
  const firstStudy=await page.getByRole('combobox',{name:'세션 선택'}).inputValue();
  await page.getByRole('button',{name:'＋ 새 세션'}).click();await page.getByLabel('세션 이름',{exact:true}).fill('Spring 04~06');await page.getByRole('button',{name:'세션 시작',exact:true}).click();
- await page.getByRole('heading',{name:'Spring 04~06',exact:true}).waitFor();
+ await study('Spring 04~06');
  assert.equal(await page.locator('.answer').count(),0);assert.equal(await page.locator('.cm-tf__ln').count(),0);
  const p3='33333333-3333-4333-8333-333333333333';const later=new Date().toISOString();
  insert.run(p3,'synthetic-note','새 세션의 전사입니다.',later,later,Date.now(),Date.now(),later);
@@ -67,28 +81,29 @@ try{
  await page.getByRole('combobox',{name:'세션 선택'}).selectOption(firstStudy);await page.locator('.answer .diagram-scroll svg').first().waitFor();
  assert.equal(await page.locator('.cm-tf__ln').filter({hasText:'새 세션의 전사입니다.'}).count(),0);
  // A real process/service restart gets preferences and studies from disk, not localStorage.
- app.close();await new Promise(r=>setTimeout(r,100));app=await startStudy(appOptions);await page.goto(app.url);
- await page.getByRole('heading',{name:'Spring 04~06',exact:true}).waitFor();
- await page.getByRole('combobox',{name:'세션 선택'}).selectOption(firstStudy);await chat.locator('.answer:not(.live-answer)').waitFor();
+ app.close();await new Promise(r=>setTimeout(r,100));app=await startStudy(appOptions);await page.goto('about:blank');await page.goto(app.url); // same port + new token would otherwise be a fragment-only navigation
+ await study('Spring 04~06');
+ await page.getByRole('combobox',{name:'세션 선택'}).selectOption(firstStudy);await chat.locator('.answer:not(.live-answer)').first().waitFor();
  assert.equal(await page.locator('.answer-body').first().evaluate(e=>getComputedStyle(e).fontSize),'23px');
- assert.equal(db.prepare('SELECT count(*) AS n FROM qa_log').get().n,2);
+ assert.equal(db.prepare('SELECT count(*) AS n FROM qa_log').get().n,3);
+ assert.equal((await statusOf()).provider,'claude');
  // Rename, reversible deletion and restoration never delete Core learning records.
  await page.getByRole('button',{name:'세션 관리'}).click();await page.getByRole('button',{name:'이름 변경',exact:true}).click();
- await page.getByRole('textbox',{name:'세션 이름',exact:true}).fill('복습할 Spring');await page.getByRole('button',{name:'변경 저장'}).click();await page.getByRole('heading',{name:'복습할 Spring',exact:true}).waitFor();
+ await page.getByRole('textbox',{name:'세션 이름',exact:true}).fill('복습할 Spring');await page.getByRole('button',{name:'변경 저장'}).click();await study('복습할 Spring');
  await page.getByRole('button',{name:'세션 관리'}).click();await page.getByRole('button',{name:'삭제',exact:true}).click();
- await page.getByRole('button',{name:'휴지통으로 이동'}).click();await page.getByRole('heading',{name:'Spring 04~06',exact:true}).waitFor();
- assert.equal(db.prepare('SELECT count(*) AS n FROM qa_log').get().n,2);
- await page.getByRole('button',{name:'세션 관리'}).click();await page.getByRole('button',{name:'휴지통',exact:true}).click();await page.getByRole('button',{name:'복원',exact:true}).click();await page.getByRole('heading',{name:'복습할 Spring',exact:true}).waitFor();await page.getByRole('button',{name:'휴지통 닫기'}).click();
+ await page.getByRole('button',{name:'휴지통으로 이동'}).click();await study('Spring 04~06');
+ assert.equal(db.prepare('SELECT count(*) AS n FROM qa_log').get().n,3);
+ await page.getByRole('button',{name:'세션 관리'}).click();await page.getByRole('button',{name:'휴지통',exact:true}).click();await page.getByRole('button',{name:'복원',exact:true}).click();await study('복습할 Spring');await page.getByRole('button',{name:'휴지통 닫기'}).click();
  const divider=page.getByRole('separator',{name:'전사와 대화 크기 조절'});const splitBefore=Number(await divider.getAttribute('aria-valuenow'));const rect=await divider.boundingBox();
  await page.mouse.move(rect.x+rect.width/2,rect.y+rect.height/2);await page.mouse.down();await page.mouse.move(rect.x+rect.width/2,rect.y-90,{steps:8});await page.mouse.up();
  const splitAfter=Number(await divider.getAttribute('aria-valuenow'));assert.ok(splitAfter<splitBefore);
  await page.getByText('설정 저장됨',{exact:true}).waitFor();await page.reload();await divider.waitFor();assert.equal(Number(await divider.getAttribute('aria-valuenow')),splitAfter);
  await divider.focus();await page.keyboard.press('ArrowDown');assert.equal(Number(await divider.getAttribute('aria-valuenow')),Math.min(90,splitAfter+2));
- app.close();await new Promise(r=>setTimeout(r,100));app=await startStudy(appOptions);await page.goto(app.url);await page.getByRole('combobox',{name:'세션 선택'}).selectOption(firstStudy);await page.getByRole('heading',{name:'복습할 Spring',exact:true}).waitFor();await page.getByText('설정 저장됨',{exact:true}).waitFor();assert.equal(Number(await divider.getAttribute('aria-valuenow')),Math.min(90,splitAfter+2));
+ app.close();await new Promise(r=>setTimeout(r,100));app=await startStudy(appOptions);await page.goto('about:blank');await page.goto(app.url); // same port + new token would otherwise be a fragment-only navigationawait page.getByRole('combobox',{name:'세션 선택'}).selectOption(firstStudy);await study('복습할 Spring');await page.getByText('설정 저장됨',{exact:true}).waitFor();assert.equal(Number(await divider.getAttribute('aria-valuenow')),Math.min(90,splitAfter+2));
  const screenshots=join(root,'docs/screenshots');await mkdir(screenshots,{recursive:true});
  await page.locator('.transcript-scroll').evaluate(e=>e.scrollTop=0);
  await page.screenshot({path:join(screenshots,'study-desktop-narrow.png'),fullPage:true});
  await page.setViewportSize({width:1050,height:960});await page.locator('.transcript-scroll').evaluate(e=>e.scrollTop=0);await page.screenshot({path:join(screenshots,'study-desktop.png'),fullPage:true});
  assert.deepEqual(errors,[]);
- console.log(JSON.stringify({pass:true,checks:['auth','cross-origin','unknown-route','inline-question','incremental-answer','sqlite-save','sequence-svg','separate-font-setting','cancel','reload-persistence','430px-no-overflow','separate-free-chat','new-study','study-isolation','new-transcript','history','service-restart-persistence','rename','trash-restore','drag-split','keyboard-split','split-restart-persistence','narrow-stop-button'],aiCalls:realAi?3:calls,fixture:'isolated',realAi}));
+ console.log(JSON.stringify({pass:true,checks:['auth','cross-origin','unknown-route','inline-question','incremental-answer','sqlite-save','sequence-svg','separate-font-setting','cancel','reload-persistence','430px-no-overflow','separate-free-chat','claude-provider-switch','provider-restart-persistence','new-study','study-isolation','new-transcript','history','service-restart-persistence','rename','trash-restore','drag-split','keyboard-split','split-restart-persistence','narrow-stop-button'],aiCalls:realAi?4:calls,fixture:'isolated',realAi}));
 }catch(e){console.log(JSON.stringify({pageErrors:errors,visible:await page?.locator('body').innerText()}));throw e;}finally{await browser?.close();db.close();app.close();}
