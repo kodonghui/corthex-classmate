@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Classmate Orca · Meet",
+  "description": "Explicitly select one Meet tab for requested Classmate screenshots.",
+  "version": "1.0.0",
+  "minimum_chrome_version": "116",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEApCg1/AuU9WjRN+7E9dG/mOUiuDDG1FJ0yyQgE0poR9800bGIcDRsW76f69eLwdZppq2hmKjCfIvuRLgv1WRMMKXrrrPZYjBh/Jip07W6yNugtri8baimeK5Uboz8Cg/bN0/1/XKSYNdQvsKYOhEESemD8XKZ7uSo1oSDX4adTLCO9vpVT9m9zRNw3ONy30UC/zye5i/iuHzc7ff8IJnldkgLPUMi+I5+jPP4+rbd4LmsCzs+XOyVvB4gYnnjddn6y34FtCHE08+TcuR6I83+VKWoZIrocEzWVnZMi9+NIjfq3O8jCiYymKebe7Mc92FceQrGUKIv6ZLtsSbLcDk0BQIDAQAB",
+  "incognito": "not_allowed",
+  "permissions": ["activeTab", "tabCapture", "offscreen", "storage", "nativeMessaging"],
+  "background": {"service_worker": "background.mjs", "type": "module"},
+  "action": {"default_title": "Classmate Orca: select this Meet tab"}
+}

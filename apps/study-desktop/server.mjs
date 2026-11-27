@@ -8,6 +8,7 @@ import {Tutor,MODEL,EFFORT,WEB_MODES} from './tutor.mjs';
 import {ClaudeTutor,CLAUDE_MODEL,CLAUDE_EFFORT} from './claude-tutor.mjs';
 import {Studies} from './studies.mjs';
 import {ShareReader,canonicalShareUrl} from './share-source.mjs';
+import {OrcaTranscript} from './orca-transcript.mjs';
 import {Screens} from './screens.mjs';
 import {validateSelection} from './selection.mjs';
 import {SubscriptionAccounts} from './accounts.mjs';
@@ -63,15 +64,21 @@ export async function startStudy({root,entry,claudeEntry,profile,port=0,coreDir,
   const replay=new Replay(studies);
   review.init();
   replay.init();
+  let orcaTranscript=new OrcaTranscript();
   const shareOptions={onSnapshot:async(link,data)=>{
-    if(stopping||studies.active!==link.id||studies.source()?.key!==link.key)return;
+    const context=orcaTranscript;
+    const stillCurrent=()=>!stopping&&context===orcaTranscript&&studies.active===link.id&&studies.source()?.key===link.key;
+    if(!stillCurrent())return;
     const before=studies.shareRows(link.id);const rows=studies.prepareShare(link,data);
     const changed=rows.filter((p,i)=>!before[i]||JSON.stringify(before[i])!==JSON.stringify(p));
-    if(changed.length){await core.ingestShare(link.key,changed);if(!stopping&&studies.saveShare(link,rows))lastChangedAt=new Date().toISOString();}
+    if(changed.length)await core.ingestShare(link.key,changed);
+    if(!stillCurrent())return;
+    if(changed.length&&studies.saveShare(link,rows))lastChangedAt=new Date().toISOString();
+    context.observe(before,rows);
   }};
   const reader=shareReaderFactory?shareReaderFactory(shareOptions):new ShareReader(shareOptions);
   let shareTarget;
-  const syncShare=()=>{const target=studies.source();const key=target?.mode==='share'?target.key:undefined;if(key===shareTarget)return;shareTarget=key;void(key?reader.connect(target):reader.close());};
+  const syncShare=()=>{const target=studies.source();const key=target?.mode==='share'?target.key:undefined;if(key===shareTarget)return;shareTarget=key;orcaTranscript=new OrcaTranscript();void(key?reader.connect(target):reader.close());};
   const refresh=()=>refreshing??(refreshing=(async()=>{try{const next=(await call('study_refresh')).structuredContent;const changed=studies.ingest(next);source=next;lastCheckedAt=new Date().toISOString();if(changed)lastChangedAt=lastCheckedAt;refreshError=false;}catch(e){refreshError=true;throw e;}finally{refreshing=undefined;}})());
   // Continue collecting into the current study while an older study is being read.
   let stopping=false;let refreshTimer;
@@ -157,6 +164,11 @@ export async function startStudy({root,entry,claudeEntry,profile,port=0,coreDir,
         res.writeHead(200,{'Content-Type':'text/html; charset=utf-8','Cache-Control':'no-store','Referrer-Policy':'no-referrer','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data:; connect-src 'self'; font-src data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"});return res.end(html);
       }
       if(req.headers['x-classmate-key']!==token)return json(res,401,{error:'바탕화면의 Classmate 바로가기로 다시 열어 주세요.'});
+      if(req.url==='/api/orca-context/transcript'){
+        if(req.method==='HEAD')return res.writeHead(204,{'Cache-Control':'no-store'}).end();
+        if(req.method==='GET')return json(res,200,evidenceLocked()
+          ?{status:'review-locked'}:orcaTranscript.read(studies.source(),reader,canonicalShareUrl));
+      }
       if(req.method==='GET'&&new URL(req.url,origin).pathname==='/api/window'){
         const id=new URL(req.url,origin).searchParams.get('id');if(!id||!/^[-a-zA-Z0-9]{10,64}$/.test(id))return json(res,400,{error:'창 연결을 확인해 주세요.'});
         lease.touch(id,true);res.writeHead(200,{'Content-Type':'text/event-stream','Cache-Control':'no-store'});res.flushHeaders();res.write(': connected\n\n');
