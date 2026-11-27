@@ -200,10 +200,16 @@ impl TutorSources {
     pub fn from_env() -> Self {
         let read = |name: &str| env::var_os(name).filter(|value| !value.is_empty());
         Self {
-            claude_cli: read(Self::CLAUDE_CLI_ENV).map(PathBuf::from).filter(|p| p.is_file()).or_else(|| {
-                if read("CLASSMATE_DISABLE_CLI_DISCOVERY").is_some_and(|v| v == "1") { None }
-                else { crate::connection::discover() }
-            }),
+            claude_cli: read(Self::CLAUDE_CLI_ENV)
+                .map(PathBuf::from)
+                .filter(|p| p.is_file())
+                .or_else(|| {
+                    if read("CLASSMATE_DISABLE_CLI_DISCOVERY").is_some_and(|v| v == "1") {
+                        None
+                    } else {
+                        crate::connection::discover()
+                    }
+                }),
             claude_prefix_args: Vec::new(),
             model: read(Self::MODEL_ENV).map(|value| value.to_string_lossy().into_owned()),
             reuse_session: read(Self::SESSION_ENV).is_some_and(|value| value == Self::SESSION_ON),
@@ -288,7 +294,9 @@ impl Router {
             },
             "ping" => hello(),
             "provider.check" => crate::connection::check(self.tutor_sources.claude_cli.as_deref()),
-            "provider.setup" => crate::provider_setup::handle(self.tutor_sources.claude_cli.as_deref(), &msg),
+            "provider.setup" => {
+                crate::provider_setup::handle(self.tutor_sources.claude_cli.as_deref(), &msg)
+            }
             "event.append" => self
                 .try_append(&msg)
                 .unwrap_or_else(|error| store_failure(kind, &error)),

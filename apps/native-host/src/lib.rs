@@ -12,9 +12,9 @@
 //! `classmate_transport::framing` 하나가 정본이다 (2라운드에서 복사본이던
 //! `src/protocol.rs` 를 지웠다).
 
-pub mod router;
 pub mod connection;
 pub mod provider_setup;
+pub mod router;
 pub mod store;
 pub mod study;
 pub mod tutor;
