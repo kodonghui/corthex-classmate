@@ -1,7 +1,9 @@
 import React, {useEffect, useId, useState} from 'react';
-import {marked, type Tokens} from 'marked';
+import {marked, type Token, type Tokens} from 'marked';
 import DOMPurify from 'dompurify';
 import mermaid from 'mermaid';
+import {normalizeDiagramSource} from './diagramSource';
+import {ListFigure} from './ListFigure';
 
 mermaid.initialize({startOnLoad:false, securityLevel:'strict', suppressErrorRendering:true,
   maxTextSize:20000, maxEdges:100, theme:'neutral', htmlLabels:false,
@@ -19,7 +21,7 @@ export function Diagram({source}:{source:string}) {
     let active=true; setSvg('');setFailed(false);
     // Diagrams cannot override security settings or attach actions/URLs.
     if(source.length>20000 || /%%\{|^\s*---|^\s*(?:click|link|links)\s/im.test(source)) {setFailed(true);return;}
-    mermaid.render(id,source).then(({svg})=>{
+    mermaid.render(id,normalizeDiagramSource(source)).then(({svg})=>{
       if(active)setSvg(DOMPurify.sanitize(svg,{USE_PROFILES:{svg:true,svgFilters:true},
         FORBID_TAGS:['foreignObject','a','image','script'],FORBID_ATTR:['href','xlink:href']}));
     }).catch(()=>{if(active)setFailed(true);});
@@ -38,26 +40,44 @@ export function Diagram({source}:{source:string}) {
   </figure>;
 }
 
+const legacyMarker = /\[\[(?:수업#\d+|장면|보탬|확인)\]\]/g;
+const partialMarker = /\[\[(?:(?:수(?:업(?:#\d*)?)?|장(?:면)?|보(?:탬)?|확(?:인)?)\]?)?$/;
+
 /** Markdown tokens → React, not arbitrary generated HTML. External media is never auto-loaded. */
-export function AnswerBody({text}:{text:string}) {
-  const inline=(source:string):React.ReactNode=>marked.Lexer.lexInline(source).map((t,i)=>{
-      if(t.type==='strong')return <strong key={i}>{inline(t.text)}</strong>;
-      if(t.type==='em')return <em key={i}>{inline(t.text)}</em>;
+export function AnswerBody({text,streaming=false}:{text:string;streaming?:boolean}) {
+  const prose=(value:string)=>{
+    const visible=value.replace(legacyMarker,'');
+    return streaming?visible.replace(partialMarker,''):visible;
+  };
+  // Walk parsed child tokens: re-lexing a URL label would auto-link itself forever.
+  const inline=(source:string|Token[]):React.ReactNode=>(typeof source==='string'?marked.Lexer.lexInline(source):source).map((t,i)=>{
+      if(t.type==='strong')return <strong key={i}>{t.tokens?inline(t.tokens):prose(t.text)}</strong>;
+      if(t.type==='em')return <em key={i}>{t.tokens?inline(t.tokens):prose(t.text)}</em>;
       if(t.type==='codespan')return <code key={i}>{t.text}</code>;
       if(t.type==='br')return <br key={i}/>;
-      if(t.type==='del')return <del key={i}>{inline(t.text)}</del>;
-      if(t.type==='link')return <span key={i}>{inline(t.text)} ({t.href})</span>;
-      if(t.type==='image')return <span key={i}>[이미지: {t.text}]</span>;
-      return <React.Fragment key={i}>{'text' in t?t.text:t.raw}</React.Fragment>;
+      // Exact, attribute-free line breaks only; never interpret arbitrary model HTML.
+      if(t.type==='html'&&/^<br\s*\/?\s*>$/i.test(t.raw.trim()))return <br key={i}/>;
+      if(t.type==='del')return <del key={i}>{t.tokens?inline(t.tokens):prose(t.text)}</del>;
+      if(t.type==='link')return <span key={i}>{t.tokens?inline(t.tokens):prose(t.text)} ({t.href})</span>;
+      if(t.type==='image')return <span key={i}>[이미지: {prose(t.text)}]</span>;
+      const value='text' in t?t.text:t.raw;
+      return <React.Fragment key={i}>{typeof value==='string'?prose(value):value}</React.Fragment>;
     });
   return <div className="answer-body">{marked.lexer(text,{gfm:true}).map((t,i)=>{
     if(t.type==='space')return null;
-    if(t.type==='code')return t.lang?.trim().toLowerCase()==='mermaid'?<Diagram key={i} source={t.text}/>:<pre key={i}><code>{t.text}</code></pre>;
+    if(t.type==='code'){
+      const lang=t.lang?.trim().toLowerCase();
+      if(!streaming&&lang==='mermaid')return <Diagram key={i} source={t.text}/>;
+      if(!streaming&&(lang==='list-cells'||lang==='json'&&/"template"\s*:\s*"list-cells"/.test(t.text)))return <ListFigure key={i} raw={t.text}/>;
+      return <pre key={i}><code>{t.text}</code></pre>;
+    }
     if(t.type==='heading')return <h3 key={i}>{inline(t.text)}</h3>;
     if(t.type==='list') {const list=t as Tokens.List;const Tag=list.ordered?'ol':'ul';return <Tag key={i}>{list.items.map((item,j)=><li key={j}>{inline(item.text)}</li>)}</Tag>;}
     if(t.type==='blockquote')return <blockquote key={i}>{inline(t.text)}</blockquote>;
     if(t.type==='table'){const table=t as Tokens.Table;return <div className="table-scroll" key={i}><table><thead><tr>{table.header.map((c,j)=><th key={j}>{inline(c.text)}</th>)}</tr></thead><tbody>{table.rows.map((r,j)=><tr key={j}>{r.map((c,k)=><td key={k}>{inline(c.text)}</td>)}</tr>)}</tbody></table></div>;}
     if(t.type==='hr')return <hr key={i}/>;
-    return <p key={i}>{inline('text' in t?t.text:t.raw)}</p>;
+    const source='text' in t?t.text:t.raw;
+    if(!prose(source).trim())return null;
+    return <p key={i}>{inline(source)}</p>;
   })}</div>;
 }

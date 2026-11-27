@@ -1,9 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, mkdirSync, existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, isAbsolute, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { safeRelative, validateExtension } from './package-friend.mjs';
@@ -47,8 +47,13 @@ test('Windows 5.1 validates and installs with a non-ASCII/spaced path without re
   const installed = bench.run('Install'); assert.equal(installed.status, 0, installed.stdout + installed.stderr);
   assert.match(installed.stdout, /no registry\/environment writes/);
   const target = join(bench.testRoot, bench.release.bundleId);
-  assert.deepEqual(JSON.parse(readFileSync(join(target, 'com.corthex.classmate.json'), 'utf8')),
-    { ...buildManifest(bench.release.extensionId, join(target, 'app/host/classmate-host.exe')), description: 'Corthex Classmate local tutor' });
+  const hostPath = join(target, 'app/host/classmate-host.exe');
+  const manifest = JSON.parse(readFileSync(join(target, 'com.corthex.classmate.json'), 'utf8'));
+  assert.ok(isAbsolute(manifest.path), 'the native host path must be absolute');
+  // The runner can expose TEMP through an 8.3 alias that PowerShell expands.
+  const expectedManifest = buildManifest(bench.release.extensionId, realpathSync.native(hostPath));
+  assert.deepEqual({ ...manifest, path: realpathSync.native(manifest.path) },
+    { ...expectedManifest, description: 'Corthex Classmate local tutor' });
   assert.equal(existsSync(join(target, 'installation-state.json')), false);
   assert.equal(bench.run('Diagnose').status, 0);
   assert.equal(bench.run('Disconnect').status, 0);

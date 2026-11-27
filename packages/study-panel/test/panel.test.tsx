@@ -2,7 +2,7 @@ import React from 'react';
 import {render,fireEvent,screen,waitFor,cleanup} from '@testing-library/react';
 import {afterEach,describe,it,expect,vi} from 'vitest';
 import {StudyPanel} from '../src/StudyPanel';
-import {questionMessage,type Bridge,type Snapshot} from '../src/bridge';
+import {questionMessage,type Bridge,type Host,type Snapshot} from '../src/bridge';
 afterEach(cleanup);
 const paragraph=(uuid:string,text:string)=>({uuid,text,timeFrom:'2026-09-10T12:00:00Z',timeTo:'2026-09-10T12:00:20Z',locked:true});
 function fixture(canSend=true){
@@ -27,7 +27,7 @@ describe('실시간 학습 패널',()=>{
  it('문단 전환·전사 갱신 뒤에도 각각의 답과 접기를 유지한다',async()=>{
   const {bridge,state}=fixture();state.recentQa=[{id:1,paragraphUuid:'p1',question:'첫 질문',answer:'첫 설명',askedAt:'2026-09-10T12:01:00Z'}];
   render(<StudyPanel bridge={bridge} pollMs={15}/>);
-  await screen.findByText('첫 설명');fireEvent.click(screen.getByRole('button',{name:'접기'}));
+  await screen.findByText('첫 설명');fireEvent.click(screen.getAllByRole('button',{name:'접기'})[0]);
   fireEvent.click(screen.getByText('생성자는 처음 값을 넣습니다.'));
   state.recentQa=[{id:2,paragraphUuid:'p2',question:'두 번째 질문',answer:'두 번째 설명',askedAt:'2026-09-10T12:02:00Z'}];
   await screen.findByText('두 번째 설명');expect(screen.getByText('첫 질문')).toBeTruthy();expect(screen.queryByText('첫 설명')).toBeNull();
@@ -65,5 +65,17 @@ describe('실시간 학습 패널',()=>{
   fireEvent.click(screen.getByText('스프링은 객체를 관리합니다.'));
   expect(screen.getByRole('textbox',{name:'추가 질문'})).toBeTruthy();expect(screen.getByRole('textbox',{name:'대화 질문'})).toBeTruthy();
   expect(screen.queryByText('문장에 연결되지 않은 대화')).toBeNull();
+ });
+ it('대화 상대를 바꾸면 선택한 제공자의 로그인 상태가 전송 가능 여부와 안내를 정한다',async()=>{
+  const {bridge}=fixture();const hosts:Record<string,Host>={codex:{name:'GPT Terra · High',canSend:true,canExpand:false,provider:'codex',providers:[{id:'codex',label:'GPT Terra · High',canSend:true},{id:'claude',label:'Claude Sonnet 5 · xhigh',canSend:false,error:'Claude 연결을 시작하지 못했어요.'}]},claude:{name:'Claude Sonnet 5 · xhigh',canSend:false,canExpand:false,provider:'claude',hint:'Claude 연결을 시작하지 못했어요.',providers:[]}};
+  bridge.local=true;bridge.connect=vi.fn(async()=>hosts.codex);bridge.chooseProvider=vi.fn(async(id:string)=>hosts[id]);
+  render(<StudyPanel bridge={bridge} pollMs={15}/>);
+  await screen.findByText('스프링은 객체를 관리합니다.');fireEvent.click(screen.getByRole('button',{name:'화면 설정'}));
+  const select=screen.getByRole('combobox',{name:'대화 상대'}) as HTMLSelectElement;expect(select.value).toBe('codex');
+  expect(screen.getByRole('option',{name:'Claude Sonnet 5 · xhigh · 로그인 필요'})).toBeTruthy();
+  fireEvent.change(select,{target:{value:'claude'}});
+  await waitFor(()=>expect(bridge.chooseProvider).toHaveBeenCalledWith('claude'));
+  await screen.findByText(/Claude 연결을 시작하지 못했어요. 로그인과 사용 한도를 확인한 뒤/);
+  expect((screen.getByRole('textbox',{name:'대화 질문'}).closest('form')!.querySelector('button.primary') as HTMLButtonElement).disabled).toBe(true);
  });
 });

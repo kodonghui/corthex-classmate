@@ -94,16 +94,28 @@ pub struct EnvelopeRule {
 /// 여기 없는 `type` 은 호스트가 `unknown-message-type` 으로 답하므로 이 표도 모르는 것으로 답합니다.
 pub const ENVELOPE_RULES: [EnvelopeRule; 14] = [
     EnvelopeRule {
-        message_type: "provider.setup", needs_period_id: false, needs_question_id: false,
-        payload: None, extra: ExtraCheck::None, summary: "사용자 요청으로 공식 로그인 또는 합성 답변 시험을 실행합니다",
+        message_type: "provider.setup",
+        needs_period_id: false,
+        needs_question_id: false,
+        payload: None,
+        extra: ExtraCheck::None,
+        summary: "사용자 요청으로 공식 로그인 또는 합성 답변 시험을 실행합니다",
     },
     EnvelopeRule {
-        message_type: "study.manage", needs_period_id: false, needs_question_id: false,
-        payload: None, extra: ExtraCheck::None, summary: "사용자가 학습 묶음을 관리하고 블로그 자료를 저장합니다",
+        message_type: "study.manage",
+        needs_period_id: false,
+        needs_question_id: false,
+        payload: None,
+        extra: ExtraCheck::None,
+        summary: "사용자가 학습 묶음을 관리하고 블로그 자료를 저장합니다",
     },
     EnvelopeRule {
-        message_type: "provider.check", needs_period_id: false, needs_question_id: false,
-        payload: None, extra: ExtraCheck::None, summary: "공식 CLI 로그인 상태를 읽기 전용으로 점검합니다",
+        message_type: "provider.check",
+        needs_period_id: false,
+        needs_question_id: false,
+        payload: None,
+        extra: ExtraCheck::None,
+        summary: "공식 CLI 로그인 상태를 읽기 전용으로 점검합니다",
     },
     EnvelopeRule {
         message_type: "ping",
@@ -793,8 +805,8 @@ mod tests {
         // Existing requests plus read-only official CLI connection check.
         const EXPECTED: [&str; 14] = [
             "provider.setup",
-                "study.manage",
-                "provider.check",
+            "study.manage",
+            "provider.check",
             "ping",
             "event.append",
             "session.status",

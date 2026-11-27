@@ -928,7 +928,10 @@ impl Worker {
 
         self.emit_queued_once(question_id);
         self.mark_provider_off(reason);
-        if !matches!(reason, "provider-auth" | "provider-limit" | "provider-spawn" | "provider-not-implemented") {
+        if !matches!(
+            reason,
+            "provider-auth" | "provider-limit" | "provider-spawn" | "provider-not-implemented"
+        ) {
             self.schedule_auto_retry(question_id, manual);
         }
     }
@@ -1135,12 +1138,26 @@ fn provider_reason(error: &ProviderError) -> &'static str {
         ProviderError::NonZeroExit { stderr_tail, .. } => {
             // Classify a few known failures locally; never expose raw stderr or credentials.
             let text = stderr_tail.to_lowercase();
-            if ["not logged in", "authentication failed", "invalid api key", "please run /login", "please run claude auth login"].iter().any(|p| text.contains(p)) {
+            if [
+                "not logged in",
+                "authentication failed",
+                "invalid api key",
+                "please run /login",
+                "please run claude auth login",
+            ]
+            .iter()
+            .any(|p| text.contains(p))
+            {
                 "provider-auth"
-            } else if ["rate limit", "usage limit", "credit balance is too low"].iter().any(|p| text.contains(p)) {
+            } else if ["rate limit", "usage limit", "credit balance is too low"]
+                .iter()
+                .any(|p| text.contains(p))
+            {
                 "provider-limit"
-            } else { "provider-exit" }
-        },
+            } else {
+                "provider-exit"
+            }
+        }
         ProviderError::NotImplemented => "provider-not-implemented",
         ProviderError::Queue(_) => "provider-queue",
     }

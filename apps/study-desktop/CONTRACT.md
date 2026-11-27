@@ -1,6 +1,56 @@
 # Local study API · 0.3.0 preview
 
+## Classmate 2 학습 기능 이식 · 2026-11-26
+
+- `POST /api/replay/create {name,items,speed}`는 로컬 JSON 전사 배열을 재생 세션으로 만듭니다. 문단은 `{text,offsetMs}` 또는 `{text,arrivedAt}`로 통일하고 속도는 1·2·10배입니다. `POST /api/replay/control {studyId,action}`의 `play`와 `pause`로 조작합니다. 문단과 재생 위치를 한 트랜잭션으로 저장합니다. 재실행 시 다음 문단에서 재개할 수 있습니다. 재생 시각은 파일에서 계산한 가상 세션 시각입니다.
+- `POST /api/studies/source {id,url?}`에서 URL을 생략하면 저장된 링크에 다시 연결합니다. 전사를 아직 받지 않은 공유만 다른 URL로 바꾸거나 `{id,disconnect:true}`로 해제할 수 있습니다. 응답은 저장된 URL을 돌려주지 않습니다.
+- `POST /api/review/mark {studyId,paragraphId,marked}`는 문단 표시만 저장합니다.
+- `POST /api/review/cards`의 `open`, `answer`, `grade`, `close`는 창 임대와 함께 사용합니다. 제출 뒤 정답과 출처가 열립니다. 하루 10장 한도에서 학습 결과로 다음 확인 날짜를 계산합니다. 복습 동안 관련 전사·보낸 자료·답변을 가리고 새 질문을 막습니다.
+- 질문의 선택적 `intent`는 `meaning`, `example`, `figure`, `trace`입니다. 답변은 전체 본문을 표시하고 당시의 텍스트 입력과 이미지 참조를 저장합니다. `POST /api/question/sent {studyId,answerId}`는 같은 세션의 저장된 실제 입력과 이미지를 읽습니다. 이전 기록에 없는 보낸 자료는 재구성하지 않습니다.
+- Chrome 확장에서 연결한 수업 탭을 질문에 첨부할 수 있습니다. 이전에 저장한 WebP 정지 장면은 기존 답변의 첨부 자료에서 읽을 수 있습니다. 이전 회상 기록은 저장소에 남고 전사와 답변 열람을 잠그지 않습니다.
+
+## Subscription connections · 2026-11-05 override
+
+The Local UI exposes independent GPT and Claude subscription connection controls. Credentials stay in the official Codex/Claude Code stores. Classmate does not implement Claude.ai OAuth or read/copy credential files. GPT uses official app-server `account/login/start {type:"chatgpt"}` and its completion/cancel messages; Claude opens the unmodified installed `claude auth login --claudeai` in a visible terminal so browser and manual-code completion remain available. Only fixed provider identifiers are accepted; clients cannot supply a command, executable, URL, token, or credential. Login output is never logged or returned to the UI.
+
+`GET /api/status` retains existing fields and adds `available`, `loginState` (`idle` | `waiting` | `error`), and `loginError` to provider records and the selected provider. Subscription-only account checks refresh at most once per 30 seconds per idle provider, share concurrent checks, and refresh immediately after login. `POST /api/account/check {provider}` forces a check/reconnect without changing the selected provider. `POST /api/account/login {provider}` returns 202 and starts the official subscription login; repeated requests reuse the pending operation. `POST /api/account/cancel {provider}` cancels that managed login only. Each returns the full current status. Unknown providers return 400; missing installations return 503; a login during an active or queued question for that provider returns 409. New questions are also blocked while their provider is logging in. Login failure, cancellation, and a five-minute timeout return fixed local guidance, never upstream errors or authentication material.
+
+The UI polls connection status without reloading, preserves drafts/records, and exposes both controls under `AI 연결`; a disconnected selected provider expands the same controls immediately. Connecting one provider never changes the chosen conversation provider. API-only Claude sessions are not considered a subscription connection. App-managed tutor/login child processes remove API-key and token environment overrides so account recovery cannot silently switch billing methods. This does not change the user's global environment or the official binary's available authentication methods.
+
+## Tutor provider · 2026-09-15 override
+
+Two tutors share one queue. `GET /api/status` returns the selected provider's `loggedIn`, `model`, `effort`, `aiError` (unchanged keys) plus `provider` (`codex` | `claude`), `label`, `loginHint`, and `providers[]` (`id`, `label`, `loggedIn`, `model`, `effort`, `aiError`). `POST /api/provider {provider}` stores the choice in the profile (`tutor-provider.json`, mode 0600) and returns the same status shape; 400 unknown provider. A job binds the provider selected at acceptance (`provider`, `providerLabel` on `GET /api/job/:id` and study jobs), so switching never retargets queued questions. 503 on `POST /api/question` now uses the selected provider's start error or login hint.
+
+Claude runs the official CLI per question with the user's own claude.ai login. It uses `-p --model claude-sonnet-5 --effort xhigh --safe-mode --strict-mcp-config --no-session-persistence --permission-mode manual --permission-prompts none --disable-slash-commands --no-chrome` and stream JSON input/output. Web modes enable `--tools WebSearch,WebFetch --allowedTools WebSearch WebFetch --max-turns 8`. Off uses `--tools "" --max-turns 1`. The app strips `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` from the child environment and checks the reported model and tool list. Images travel as ordered base64 blocks in one stdin message. The app discards stderr and stops the child on cancel or the 180 s timeout. Login is checked with `claude auth status` (JSON `loggedIn`).
+
+
+## Question queue · 2026-09-14 override
+
+`POST /api/question` now accepts up to 20 waiting jobs in addition to one running job. Same ID remains idempotent (200); accepted new IDs return 202; 409 means waiting limit reached, not merely a busy tutor. Validation/authentication limits remain. Freeze selected/context text at acceptance; retain selected screen ID before enqueuing. FIFO executes one Tutor call at a time, with no automatic replay after failure. A failed or cancelled job does not block the next job. Follow-ups use their verified stored evidence; queued independent questions do not silently acquire later answers as their original context.
+
+`GET /api/job/:id` adds `studyId` and `queuePosition` (one-based while queued, zero otherwise). State is queued → preparing → streaming → done/unsaved/error/cancelled. `POST /api/cancel {id}` removes a queued job or aborts the specified active job only. `GET /api/study` adds public jobs for that study, without abort handles, image bytes or context snapshots. UI reload while the service lives reattaches to these jobs; final Local shutdown discards unfinished in-memory jobs, never replays them on restart. Completed records remain. Session mutation remains blocked while processing jobs.
+
+```mermaid
+sequenceDiagram
+ actor U as 사용자
+ participant UI as 전사와 대화
+ participant Q as Local 대기열
+ participant AI as GPT
+ U->>UI: 질문 여러 개 보내기
+ UI->>Q: 각 질문과 선택 전사 및 화면 ID
+ Q-->>UI: 접수 및 대기 순서
+ UI-->>U: 입력 비움과 질문 카드
+ loop 접수 순서
+ Q->>AI: 접수 시 고정한 자료로 질문
+ AI-->>Q: 답변 또는 오류
+ Q-->>UI: 해당 질문 카드 갱신
+ end
+ Note over U,UI: 접기는 표시만 변경하며 생성은 계속
+```
+
 2026-09-11. Internal loopback contract, not a public network API. Compatible with the existing Core MCP record schemas.
+
+Design-only extension (2026-09-12): [mobile control + official Voice](../../docs/plan/mobile-voice-design.md) defines proposed remote authentication, context/answer coordination and additive Core contracts. None of those endpoints are implemented by this document; the loopback-only runtime contract below remains current.
 
 ## Per-session share source · latest override
 
@@ -118,7 +168,8 @@ Local user control of processes/profile is outside this local CSRF boundary.
 
 | Method / path | Input | Success | Failure |
 |---|---|---|---|
-| GET /api/status | none | loggedIn, model, effort, aiError | 401/403/500 |
+| GET /api/status | none | loggedIn, model, effort, aiError, provider, providers[] | 401/403/500 |
+| POST /api/provider | provider: codex \| claude | status shape; stored in profile | 400 unknown, 401/403/500 |
 | GET /api/study?id=... | optional study ID, default collecting study | Core status + studyId/activeStudyId/studies, that study's accumulated paragraphs/recentQa, delivery lastCheckedAt/lastChangedAt | 401/403/500 |
 | POST /api/studies | name, 1..100 chars | 201 study snapshot; previous study preserved | 400 invalid, 409 busy, 500 |
 | POST /api/studies/edit | id, action: rename/trash/restore, name for rename | snapshot; reversible trash, never deletes Core data | 400 invalid/missing, 409 busy, 500 |
@@ -154,3 +205,15 @@ cancel without completed record, reload persistence, 430px no page overflow, sep
 new transcript delivery and preferences/study restoration across a real service restart, rename/trash/restore, pointer drag,
 keyboard split resizing, saved split after restart, and narrow streaming stop-button layout. API key authentication is not accepted.
 `probe.mjs --real-ai --entry ...`: synthetic text-only first-token/total-time measurement, no study data.
+## Local photo attachments, web tools and input resizing
+
+- POST /api/image: same loopback session key/Origin checks as questions. Input {jpeg, study_id?, paragraph_uuid?}. JPEG data URL <=1,500,000 characters; request <=1,600,000 characters. Paragraph must belong to study. Returns {screen_id,captured_at,preview,title}; 400 invalid image/paragraph, 403 auth/origin. No Chrome pairing permission needed.
+- The client decodes PNG/JPEG/WebP <=20MiB, limits decoded area to 40MP, and re-encodes pixels as JPEG with a long edge <=1920. The composer accumulates up to eight photos from the file picker and clipboard, shows previews, and removes individual attachments. Images are uploaded when the user sends the question.
+- The automatic Chrome capture can accompany the photos. The tutor receives the lesson image first, then the photos in composer order, with `imageOrder` describing each image. Image-only submission uses a visible default question.
+- Acceptance clears submitted photos and text while preserving a newer draft. Rejection before acceptance leaves the draft available for retry.
+- Free-chat input has its own upward draggable/keyboard separator, height capped by available chat panel and 55vh. Height stored per local origin; double-click resets. Separate from transcript/chat splitter.
+- `CLASSMATE_INPUT_ONLY=1 node local-ui-smoke.mjs` exercises the multiple-file picker, clipboard, retry, question attachments and web modes with synthetic images and a fake tutor.
+
+`POST /api/question` accepts optional `pasted_image_ids` with up to eight unique image UUIDs, in display order. Omission inherits the preceding answer's attachments for `followup_id`, and an explicit empty list clears them. Legacy `pasted_image_id` remains supported as a single UUID or `null`. Use one field per request. `exclude_screen=true` suppresses the automatic screen and inherited moment. The server validates all image ownership before retaining attachments and enqueuing the question. Completed QA stores `screenId` and ordered `pastedImageIds` in the existing answer JSON. Older single-image answers are read through `pastedImageId`.
+
+`search_mode` is `auto`, `required` (search), `fetch` (open a public page), or `off`. For GPT, enabled modes use `web_search=live` and `webSearch.action` identifies search, open-page and find-in-page events when provided. For Claude, enabled modes allow `WebSearch` and `WebFetch` in the official CLI, under its normal permissions and domain checks. The job reports a search or page-read status without returning tool queries or URLs in progress events. Off disables both web operations. Answer sources use ordinary Markdown URLs.

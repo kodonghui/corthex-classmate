@@ -272,7 +272,9 @@ impl SessionCatalog {
             if !frames::is_contract_period_id(session_id) {
                 continue;
             }
-            if crate::study::is_archived(&self.data_dir, session_id) { continue; }
+            if crate::study::is_archived(&self.data_dir, session_id) {
+                continue;
+            }
 
             let summary = match self.summary_from_path(session_id, &path) {
                 Ok(summary) => summary,
@@ -404,7 +406,11 @@ impl SessionCatalog {
     }
 
     /// Paged replay stays below Native Messaging limits. Never writes old events.
-    pub fn study_events(&self, id: &str, after: u64) -> Result<(Vec<SessionEvent>, u64, bool), SessionReadError> {
+    pub fn study_events(
+        &self,
+        id: &str,
+        after: u64,
+    ) -> Result<(Vec<SessionEvent>, u64, bool), SessionReadError> {
         let connection = open_read_only(&self.session_path(id)?)?;
         let events = read_events(&connection)?;
         let mut result = Vec::new();
@@ -412,10 +418,15 @@ impl SessionCatalog {
         let mut next = after;
         let mut more = false;
         for stored in events.iter().filter(|e| e.seq > after) {
-            let size = serde_json::to_vec(&stored.event).map_err(|_| SessionReadError::Json)?.len();
+            let size = serde_json::to_vec(&stored.event)
+                .map_err(|_| SessionReadError::Json)?
+                .len();
             if result.len() >= 80 || bytes + size > 600_000 {
-                if result.is_empty() { return Err(SessionReadError::Json); }
-                more = true; break;
+                if result.is_empty() {
+                    return Err(SessionReadError::Json);
+                }
+                more = true;
+                break;
             }
             bytes += size;
             next = stored.seq;

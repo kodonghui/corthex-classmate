@@ -35,6 +35,7 @@ export interface TranscriptFlowProps {
   /** lg 는 19/31(기본값), md 는 16/25 로 기록 상세에서 씁니다. */
   size?: "lg" | "md";
   className?: string;
+  selectedIds?: string[];
   style?: React.CSSProperties;
 }
 
@@ -55,6 +56,7 @@ export function TranscriptFlow({
   showTimes = false,
   size = "lg",
   className,
+  selectedIds = [],
   style,
 }: TranscriptFlowProps): React.JSX.Element {
   const n = lines.length;
@@ -79,9 +81,13 @@ export function TranscriptFlow({
           : {};
         return (
           <Fragment key={ln.id}>
-            <p className={cx("cm-tf__ln", `cm-tf__ln--${lvl}`, onSentence && "cm-tf__ln--tap")} {...sentenceA11y}>
+            <p
+              className={cx("cm-tf__ln", `cm-tf__ln--${lvl}`, onSentence && "cm-tf__ln--tap")}
+              data-transcript-selected={selectedIds.includes(ln.id) || undefined}
+              {...sentenceA11y}
+            >
               {showTimes && ln.time ? <span className="cm-tf__tm">{ln.time}</span> : null}
-              {ln.segments.map((s, j) => {
+              <span data-transcript-text={ln.id}>{ln.segments.map((s, j) => {
                 if (!s.term) return <Fragment key={j}>{s.text}</Fragment>;
                 const termA11y = onTerm
                   ? ({
@@ -112,7 +118,7 @@ export function TranscriptFlow({
                     {s.text}
                   </u>
                 );
-              })}
+              })}</span>
             </p>
             {after ? <div className="cm-tf__after">{after}</div> : null}
           </Fragment>
