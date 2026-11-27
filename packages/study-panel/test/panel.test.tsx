@@ -27,7 +27,7 @@ describe('실시간 학습 패널',()=>{
  it('문단 전환·전사 갱신 뒤에도 각각의 답과 접기를 유지한다',async()=>{
   const {bridge,state}=fixture();state.recentQa=[{id:1,paragraphUuid:'p1',question:'첫 질문',answer:'첫 설명',askedAt:'2026-09-10T12:01:00Z'}];
   render(<StudyPanel bridge={bridge} pollMs={15}/>);
-  await screen.findByText('첫 설명');fireEvent.click(screen.getByRole('button',{name:'접기'}));
+  await screen.findByText('첫 설명');fireEvent.click(screen.getAllByRole('button',{name:'접기'})[0]);
   fireEvent.click(screen.getByText('생성자는 처음 값을 넣습니다.'));
   state.recentQa=[{id:2,paragraphUuid:'p2',question:'두 번째 질문',answer:'두 번째 설명',askedAt:'2026-09-10T12:02:00Z'}];
   await screen.findByText('두 번째 설명');expect(screen.getByText('첫 질문')).toBeTruthy();expect(screen.queryByText('첫 설명')).toBeNull();

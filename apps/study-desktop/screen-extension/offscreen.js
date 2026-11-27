@@ -1,0 +1,8 @@
+const video=document.querySelector('video'),canvas=document.querySelector('canvas');let stream,timer,generation=0;
+function stop(){generation++;clearTimeout(timer);for(const t of stream?.getTracks()??[]){t.onended=null;t.stop();}stream=undefined;video.srcObject=null;}
+chrome.runtime.onMessage.addListener((m,sender,reply)=>{if(sender.id!==chrome.runtime.id||m.target!=='offscreen')return;void(async()=>{
+  stop();if(m.type!=='start')return {ok:true};const g=generation;
+  stream=await navigator.mediaDevices.getUserMedia({audio:false,video:{mandatory:{chromeMediaSource:'tab',chromeMediaSourceId:m.streamId}}});
+  video.srcObject=stream;await video.play();stream.getVideoTracks()[0].onended=()=>void chrome.runtime.sendMessage({type:'ended'});
+  const tick=async()=>{if(g!==generation)return;try{if(video.readyState>=2&&video.videoWidth){const scale=Math.min(1,1600/Math.max(video.videoWidth,video.videoHeight));canvas.width=Math.round(video.videoWidth*scale);canvas.height=Math.round(video.videoHeight*scale);canvas.getContext('2d').drawImage(video,0,0,canvas.width,canvas.height);const jpeg=canvas.toDataURL('image/jpeg',.75);const r=await fetch(m.pair.origin+'/api/screen/frame',{method:'POST',headers:{'Content-Type':'application/json','x-classmate-screen-key':m.pair.key},body:JSON.stringify({binding:m.binding,jpeg}),signal:AbortSignal.timeout(4000)});if(!r.ok)throw Error('disconnected');}}catch{if(g===generation){stop();void chrome.runtime.sendMessage({type:'ended'});}return;}if(g===generation)timer=setTimeout(tick,1000);};void tick();return {ok:true};
+})().then(reply,()=>{stop();reply({ok:false});});return true;});

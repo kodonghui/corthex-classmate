@@ -1,0 +1,11 @@
+{
+  "manifest_version":3,
+  "name":"Classmate Local · 수업 화면 연결",
+  "version":"0.1.0",
+  "minimum_chrome_version":"116",
+  "description":"선택한 Chrome 수업 탭의 화면만 이 PC의 Classmate Local에 연결합니다. 음성·다운로드·원격 서버 전송 없음.",
+  "permissions":["tabCapture","offscreen","storage","activeTab"],
+  "host_permissions":["http://127.0.0.1/*"],
+  "background":{"service_worker":"background.js"},
+  "action":{"default_popup":"popup.html","default_title":"Classmate Local 수업 화면 연결"}
+}

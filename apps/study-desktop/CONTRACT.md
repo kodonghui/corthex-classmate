@@ -1,6 +1,32 @@
 # Local study API · 0.3.0 preview
 
+## Question queue · 2026-09-14 override
+
+`POST /api/question` now accepts up to 20 waiting jobs in addition to one running job. Same ID remains idempotent (200); accepted new IDs return 202; 409 means waiting limit reached, not merely a busy tutor. Validation/authentication limits remain. Freeze selected/context text at acceptance; retain selected screen ID before enqueuing. FIFO executes one Tutor call at a time, with no automatic replay after failure. A failed or cancelled job does not block the next job. Follow-ups use their verified stored evidence; queued independent questions do not silently acquire later answers as their original context.
+
+`GET /api/job/:id` adds `studyId` and `queuePosition` (one-based while queued, zero otherwise). State is queued → preparing → streaming → done/unsaved/error/cancelled. `POST /api/cancel {id}` removes a queued job or aborts the specified active job only. `GET /api/study` adds public jobs for that study, without abort handles, image bytes or context snapshots. UI reload while the service lives reattaches to these jobs; final Local shutdown discards unfinished in-memory jobs, never replays them on restart. Completed records remain. Session mutation remains blocked while processing jobs.
+
+```mermaid
+sequenceDiagram
+ actor U as 사용자
+ participant UI as 전사와 대화
+ participant Q as Local 대기열
+ participant AI as GPT
+ U->>UI: 질문 여러 개 보내기
+ UI->>Q: 각 질문과 선택 전사 및 화면 ID
+ Q-->>UI: 접수 및 대기 순서
+ UI-->>U: 입력 비움과 질문 카드
+ loop 접수 순서
+ Q->>AI: 접수 시 고정한 자료로 질문
+ AI-->>Q: 답변 또는 오류
+ Q-->>UI: 해당 질문 카드 갱신
+ end
+ Note over U,UI: 접기는 표시만 변경하며 생성은 계속
+```
+
 2026-09-11. Internal loopback contract, not a public network API. Compatible with the existing Core MCP record schemas.
+
+Design-only extension (2026-09-12): [mobile control + official Voice](../../docs/plan/mobile-voice-design.md) defines proposed remote authentication, context/answer coordination and additive Core contracts. None of those endpoints are implemented by this document; the loopback-only runtime contract below remains current.
 
 ## Per-session share source · latest override
 

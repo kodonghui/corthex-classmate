@@ -1,7 +1,7 @@
 import type {Bridge,LiveAnswer} from './bridge';
 
 export function createLocalBridge(token:string):Bridge {
-  let active:string|undefined;let studyId:string|undefined;let closed=false;
+  const active=new Set<string>();let studyId:string|undefined;let closed=false;
   const windowId=crypto.randomUUID();let presenceTimer:ReturnType<typeof setInterval>|undefined;
   const presence=(open:boolean)=>fetch('/api/presence',{method:'POST',headers:{'x-classmate-key':token,'Content-Type':'application/json'},body:JSON.stringify({id:windowId,open}),keepalive:true}).catch(()=>{});
   const leaving=()=>{void presence(false);};
@@ -22,16 +22,18 @@ export function createLocalBridge(token:string):Bridge {
     async newStudy(name,url){const s=await request('studies',{name,url});studyId=s.studyId;return s;},
     async connectSource(id,url){const s=await request('studies/source',{id,url});studyId=s.studyId;return s;},
     async editStudy(id,action,name){const s=await request('studies/edit',{id,action,name});studyId=s.studyId;return s;},
-    async capture(uuid){return request('capture',{paragraph_uuid:uuid});},
-    async send(text,progress){
-      const data=JSON.parse(text.slice(text.indexOf('\n')+1));const id=crypto.randomUUID();active=id;
-      await request('question',{...data,id,study_id:studyId});
-      try{while(!closed){const job:LiveAnswer=await request(`job/${id}`);progress?.(job);
+    async screenPair(){return request('screen-pair');},
+    async capture(uuid){return request('capture',{paragraph_uuid:uuid,study_id:studyId});},
+    async send(text,progress,accepted){
+      const data=JSON.parse(text.slice(text.indexOf('\n')+1));const id=crypto.randomUUID();active.add(id);
+      try{await request('question',{...data,id,study_id:studyId});
+      progress?.({id,paragraphUuid:data.paragraph_uuid,question:data.question,answer:'',state:'queued'});accepted?.();
+      while(!closed){const job:LiveAnswer=await request(`job/${id}`);progress?.(job);
         if(['done','unsaved','error','cancelled'].includes(job.state)){if(job.state==='error')throw new Error(job.error);return;}
         await new Promise(resolve=>setTimeout(resolve,250));
-      }}finally{active=undefined;}
+      }}finally{active.delete(id);}
     },
-    async cancel(){if(active)await request('cancel',{id:active});},
+    async cancel(id){const target=id??active.values().next().value;if(target)await request('cancel',{id:target});},
     async loadPreferences(){return request('preferences');},
     async storePreferences(p){await request('preferences',p);},
     async expand(){},
