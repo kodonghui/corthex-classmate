@@ -121,18 +121,21 @@ impl ProviderQueue {
     fn enqueue(&self, req: AskRequest, sink: Option<EventSink>) -> OutcomeReceiver {
         let (reply, receiver) = mpsc::channel();
 
-        let taken = self
-            .pending
-            .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |now| {
-                if now >= self.capacity {
-                    None
-                } else {
-                    Some(now + 1)
-                }
-            });
-        if taken.is_err() {
-            let _ = reply.send(Err(ProviderError::Queue("full".to_string())));
-            return receiver;
+        let mut pending = self.pending.load(Ordering::SeqCst);
+        loop {
+            if pending >= self.capacity {
+                let _ = reply.send(Err(ProviderError::Queue("full".to_string())));
+                return receiver;
+            }
+            match self.pending.compare_exchange_weak(
+                pending,
+                pending + 1,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                Ok(_) => break,
+                Err(current) => pending = current,
+            }
         }
 
         let Some(tx) = self.tx.as_ref() else {
