@@ -103,11 +103,30 @@ test('Windows private configuration writer uses stdin, rejects malformed inputs,
       assert.equal(second.status,0,second.stderr);
       assert.deepEqual(JSON.parse(await readFile(config,'utf8')),{shareUrl:replacement});
       assert.deepEqual(await readdir(folder),['orca-context-tiro.json']);
-      const verifyAcl = '$acl=Get-Acl -LiteralPath (Join-Path $env:LOCALAPPDATA "CorthexClassmate/orca-context-tiro.json"); '+
-        'if (!$acl.AreAccessRulesProtected -or $acl.Access.Count -ne 1) {exit 1}';
-      const permissions = spawnSync(ps,['-NoProfile','-NonInteractive','-Command',verifyAcl],{
-        env:{...process.env,LOCALAPPDATA:local},windowsHide:true,timeout:5000,
+      const verifyAcl = `
+        $ErrorActionPreference = 'Stop'
+        try {
+          $path = Join-Path $env:LOCALAPPDATA 'CorthexClassmate/orca-context-tiro.json'
+          $acl = [IO.File]::GetAccessControl($path, [Security.AccessControl.AccessControlSections]::Access)
+          $rules = $acl.GetAccessRules($true, $true, [Security.Principal.SecurityIdentifier])
+          $currentUser = [Security.Principal.WindowsIdentity]::GetCurrent().User
+          $fullControl = [Security.AccessControl.FileSystemRights]::FullControl
+          $ownFullControl = $rules.Count -eq 1 -and $rules[0].IdentityReference -eq $currentUser -and
+            !$rules[0].IsInherited -and $rules[0].AccessControlType -eq 'Allow' -and
+            ($rules[0].FileSystemRights -band $fullControl) -eq $fullControl
+          if (!$acl.AreAccessRulesProtected -or !$ownFullControl) {
+            [Console]::Error.WriteLine('ACL protected={0}, rule count={1}, current-user-only full control={2}',
+              $acl.AreAccessRulesProtected, $rules.Count, $ownFullControl)
+            exit 1
+          }
+        } catch {
+          [Console]::Error.WriteLine('Could not read the test file DACL: ' + $_.Exception.GetType().Name)
+          exit 1
+        }`;
+      const encoded = Buffer.from(verifyAcl,'utf16le').toString('base64');
+      const permissions = spawnSync(ps,['-NoProfile','-NonInteractive','-EncodedCommand',encoded],{
+        env:{...process.env,LOCALAPPDATA:local},encoding:'utf8',windowsHide:true,timeout:5000,
       });
-      assert.equal(permissions.status,0);
+      assert.equal(permissions.status,0,permissions.error?.message || permissions.stderr);
     } finally {await rm(local,{recursive:true,force:true});}
   });
