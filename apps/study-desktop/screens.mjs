@@ -1,5 +1,5 @@
 import {randomBytes,randomUUID,timingSafeEqual} from 'node:crypto';
-import {readFile,writeFile,mkdir} from 'node:fs/promises';
+import {readFile,writeFile,mkdir,rename,unlink} from 'node:fs/promises';
 import {join} from 'node:path';
 
 export class Screens {
@@ -12,5 +12,27 @@ export class Screens {
   status(){return {connected:!!this.frame&&!!this.binding&&this.now()-this.frame.received<10000,title:this.title??'',capturedAt:this.frame?.captured_at};}
   capture(studyId,paragraphUuid){if(!this.status().connected)throw Error('수업 화면이 연결되지 않았습니다. 설정에서 Chrome 수업 탭을 연결해 주세요.');for(const [id,c]of this.captures)if(this.now()-c.created>600000)this.captures.delete(id);if(this.captures.size>=100)throw Error('선택한 화면이 너무 많습니다. 잠시 후 다시 선택해 주세요.');const id=randomUUID(),c={...this.frame,screen_id:id,studyId,paragraphUuid,title:this.title,created:this.now()};this.captures.set(id,c);return {screen_id:id,captured_at:c.captured_at,preview:c.image,title:c.title};}
   async get(id,studyId){if(typeof id!=='string'||!/^[a-f0-9-]{36}$/.test(id))throw Error('화면 참조가 잘못됐습니다.');let c=this.captures.get(id);if(!c){try{c=JSON.parse(await readFile(join(this.dir,id+'.json'),'utf8'));}catch{throw Error('선택한 화면이 만료되었습니다. 다시 선택해 주세요.');}}if(c.studyId!==studyId)throw Error('다른 세션의 화면은 사용할 수 없습니다.');return c;}
-  async retain(id,studyId){const c=await this.get(id,studyId);await writeFile(join(this.dir,id+'.json'),JSON.stringify(c),{mode:0o600});return c;}
+  async retain(id,studyId){
+    const capture=await this.get(id,studyId);
+    if(this.captures.get(id)!==capture)return capture;
+    const path=join(this.dir,id+'.json');
+    const temporary=path+'.'+randomUUID()+'.tmp';
+    try{
+      await writeFile(temporary,JSON.stringify(capture),{mode:0o600});
+      await rename(temporary,path);
+      this.captures.delete(id);
+    }catch(error){
+      await unlink(temporary).catch(()=>{});
+      throw error;
+    }
+    return capture;
+  }
+  upload(jpeg,studyId,paragraphUuid){
+    if(typeof jpeg!=='string'||jpeg.length>1500000||!/^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(jpeg))throw Error('JPEG 스크린샷 형식을 확인해 주세요.');
+    const bytes=Buffer.from(jpeg.split(',')[1],'base64');if(bytes.length<4||bytes[0]!==255||bytes[1]!==216||bytes[2]!==255)throw Error('JPEG 스크린샷이 아닙니다.');
+    for(const [id,c]of this.captures)if(this.now()-c.created>600000)this.captures.delete(id);
+    if(this.captures.size>=100)throw Error('첨부가 너무 많습니다. 잠시 후 다시 시도해 주세요.');
+    const id=randomUUID(),c={image:jpeg,screen_id:id,studyId,paragraphUuid,title:'직접 붙인 스크린샷',captured_at:new Date(this.now()).toISOString(),created:this.now()};this.captures.set(id,c);
+    return {screen_id:id,captured_at:c.captured_at,preview:jpeg,title:c.title};
+  }
 }

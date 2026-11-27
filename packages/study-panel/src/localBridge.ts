@@ -15,22 +15,33 @@ export function createLocalBridge(token:string):Bridge {
     const value=await r.json();if(!r.ok)throw new Error(value.error??'Classmate 연결 오류');return value;
   };
   // Status carries every provider with its own login state; the selected one decides canSend.
-  const host=(s:{provider?:string;loggedIn:boolean;aiError?:string;loginHint?:string;providers?:{id:string;label:string;loggedIn:boolean;aiError?:string}[]}):Host=>({name:s.providers?.find(p=>p.id===s.provider)?.label??'GPT Terra · High',canSend:s.loggedIn&&!s.aiError,canExpand:false,provider:s.provider,providers:s.providers?.map(p=>({id:p.id,label:p.label,canSend:p.loggedIn&&!p.aiError,...(p.aiError?{error:p.aiError}:{})})),hint:s.aiError||s.loginHint});
+  const host=(s:{provider?:string;loggedIn:boolean;aiError?:string;loginHint?:string;loginState?:'idle'|'waiting'|'error';providers?:{id:string;label:string;loggedIn:boolean;aiError?:string;available?:boolean;loginState?:'idle'|'waiting'|'error';loginError?:string}[]}):Host=>({name:s.providers?.find(p=>p.id===s.provider)?.label??'GPT Terra · High',canSend:s.loggedIn&&!s.aiError&&s.loginState!=='waiting',canExpand:false,provider:s.provider,providers:s.providers?.map(p=>({id:p.id,label:p.label,canSend:p.loggedIn&&!p.aiError&&p.loginState!=='waiting',available:p.available,loginState:p.loginState,loginError:p.loginError,...(p.aiError?{error:p.aiError}:{})})),hint:s.aiError||s.loginHint});
   return {
     local:true,
     async connect(){await presence(true);void watchWindow();presenceTimer=setInterval(()=>void presence(true),20000);window.addEventListener('pagehide',leaving);window.addEventListener('pageshow',returning);const s=await request('status');return host(s);},
     async chooseProvider(id){return host(await request('provider',{provider:id}));},
+    async accountStatus(){return host(await request('status'));},
+    async loginProvider(id){return host(await request('account/login',{provider:id}));},
+    async checkProvider(id){return host(await request('account/check',{provider:id}));},
+    async cancelLogin(id){return host(await request('account/cancel',{provider:id}));},
     async refresh(){const id=studyId;const s=await request(`study${id?'?id='+encodeURIComponent(id):''}`);if(id!==studyId)return request(`study?id=${encodeURIComponent(studyId!)}`);studyId=s.studyId;return s;},
     async chooseStudy(id){const s=await request(`study?id=${encodeURIComponent(id)}`);studyId=s.studyId;return s;},
     async newStudy(name,url){const s=await request('studies',{name,url});studyId=s.studyId;return s;},
     async connectSource(id,url){const s=await request('studies/source',{id,url});studyId=s.studyId;return s;},
+    async disconnectSource(id){return request('studies/source',{id,disconnect:true});},
+    async newReplay(name,items,speed){const s=await request('replay/create',{name,items,speed});studyId=s.studyId;return s;},
+    async controlReplay(id,action){await request('replay/control',{studyId:id,action});},
+    async toggleMark(id,paragraphId,marked){await request('review/mark',{studyId:id,paragraphId,marked});},
+    async cards(action,data){return request('review/cards',{...data,windowId,action});},
+    async sentMaterial(id,answerId){return request('question/sent',{studyId:id,answerId});},
     async editStudy(id,action,name){const s=await request('studies/edit',{id,action,name});studyId=s.studyId;return s;},
     async screenPair(){return request('screen-pair');},
     async capture(uuid){return request('capture',{paragraph_uuid:uuid,study_id:studyId});},
+    async uploadImage(jpeg,uuid){return request('image',{jpeg,paragraph_uuid:uuid,study_id:studyId});},
     async send(text,progress,accepted){
       const data=JSON.parse(text.slice(text.indexOf('\n')+1));const id=crypto.randomUUID();active.add(id);
       try{await request('question',{...data,id,study_id:studyId});
-      progress?.({id,paragraphUuid:data.paragraph_uuid,question:data.question,answer:'',state:'queued'});accepted?.();
+      progress?.({id,paragraphUuid:data.paragraph_uuid,question:data.question,photoCount:data.pasted_image_ids?.length,answer:'',state:'queued'});accepted?.();
       while(!closed){const job:LiveAnswer=await request(`job/${id}`);progress?.(job);
         if(['done','unsaved','error','cancelled'].includes(job.state)){if(job.state==='error')throw new Error(job.error);return;}
         await new Promise(resolve=>setTimeout(resolve,250));

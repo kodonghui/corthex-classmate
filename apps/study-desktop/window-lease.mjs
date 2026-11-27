@@ -7,4 +7,5 @@ export class WindowLease {
     this.deadline=this.now()+8000;
   }
   expired(){const now=this.now();for(const [id,until]of this.clients)if(until<now)this.clients.delete(id);return !this.clients.size&&now>=this.deadline;}
+  has(id){return (this.clients.get(id)??0)>this.now();}
 }

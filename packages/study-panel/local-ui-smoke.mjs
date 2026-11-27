@@ -5,22 +5,109 @@ import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {startStudy} from '../../apps/study-desktop/server.mjs';
-const root=fileURLToPath(new URL('../../',import.meta.url));
+const root=process.env.CLASSMATE_UI_BUILD_ROOT??fileURLToPath(new URL('../../',import.meta.url));
 const dir=await mkdtemp(join(tmpdir(),'classmate-local-ui-'));
 const paragraphs=Array.from({length:12},(_,i)=>({uuid:'p'+i,text:`${i+1}번째 설명: 생성자 주입은 객체가 필요한 다른 객체를 생성자로 전달받는 방식입니다. 직접 새로 만들지 않고 외부에서 전달하면 구현을 바꾸거나 테스트하기 쉬워집니다.`,timeFrom:`2026-09-14T01:${String(i).padStart(2,'0')}:00Z`,timeTo:'2026-09-14T01:13:00Z'}));
-const source={bundleName:'Spring · 화면 검증용 가상 수업',paragraphs,recentQa:[],status:{daemon:'alive',tiroState:'connected'}};
-let saved=0,finish,input;
+const brokenDiagram='sequenceDiagram\n    참여자 개발자\n    참여자 javac컴파일러\n    참여자 java실행기\n    개발자->>javac컴파일러: Example.java 컴파일 요청\n    javac컴파일러-->>개발자: Example.class 생성\n    개발자->>java실행기: java Example 실행\n    java실행기-->>개발자: 결과 출력';
+const source={bundleName:'Spring · 화면 검증용 가상 수업',paragraphs,recentQa:[{id:990,question:'렌더링 검증용 질문',answer:'```mermaid\n'+brokenDiagram+'\n```\n\n|파일|의미|\n|---|---|\n|Example.class|결과<br>다음 줄|',askedAt:'2026-09-25T01:00:00Z'}],status:{daemon:'alive',tiroState:'connected'}};
+let saved=0,finish,input,frameTimer,webMode;
 const core={connect:async()=>{},close(){},call:async name=>({structuredContent:name==='study_refresh'?source:{id:++saved}})};
-const tutor={connect:async()=>({loggedIn:true}),close(){},answer:async(i,delta)=>{input=i;delta('생성자 주입은 필요한 객체를 전달받는 방식입니다.');await new Promise(r=>finish=r);return '생성자 주입은 필요한 객체를 전달받는 방식입니다.';}};
+const tutor={connect:async()=>({loggedIn:true}),close(){},answer:async(i,delta,_signal,reportWeb,mode)=>{
+ input=i;webMode=mode;
+ const kind=mode==='fetch'?'fetch':mode==='required'?'search':undefined;
+ if(kind)reportWeb({id:'synthetic-web',kind,state:'searching'});
+ delta('생성자 주입은 필요한 객체를 전달받는 방식입니다.');
+ await new Promise(resolve=>finish=resolve);
+ if(kind)reportWeb({id:'synthetic-web',kind,state:'complete'});
+ return '생성자 주입은 필요한 객체를 전달받는 방식입니다.';
+}};
 const app=await startStudy({root,profile:dir,coreOverride:core,tutorOverride:tutor});
-const browser=await chromium.launch({headless:true});const page=await browser.newPage({viewport:{width:1400,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+const browser=await chromium.launch({headless:true,channel:process.env.CLASSMATE_UI_BROWSER});const page=await browser.newPage({viewport:{width:1400,height:900}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
 try{
  await page.goto(app.url);await page.locator('[data-transcript-text="p0"]').waitFor();
+ await page.locator('[data-testid="answer-990"] .diagram-scroll svg').waitFor();assert.equal(await page.locator('[data-testid="answer-990"] td br').count(),1);await page.locator('[data-testid="answer-990"] .study-diagram').screenshot({path:join(dir,'repaired-diagram.png')});
+ await page.locator('[data-testid="answer-990"] header').getByRole('button',{name:'접기',exact:true}).click();
+ if(process.env.CLASSMATE_INPUT_ONLY){
+ const pairResponse=await fetch(app.origin+'/api/screen-pair',{headers:{'x-classmate-key':app.token}});const pair=JSON.parse(Buffer.from((await pairResponse.json()).code,'base64'));
+ const headers={'Content-Type':'application/json','origin':'chrome-extension://'+'a'.repeat(32),'x-classmate-screen-key':pair.key};
+ const {binding}=await(await fetch(app.origin+'/api/screen/start',{method:'POST',headers,body:JSON.stringify({title:'Synthetic lesson screen'})})).json();
+ const jpeg=await page.evaluate(()=>{const c=document.createElement('canvas');c.width=100;c.height=50;return c.toDataURL('image/jpeg');});
+ const frame=()=>fetch(app.origin+'/api/screen/frame',{method:'POST',headers,body:JSON.stringify({binding,jpeg})});await frame();frameTimer=setInterval(()=>void frame(),1000);
+ await page.reload();await page.locator('[data-transcript-text="p0"]').waitFor();
  await page.getByRole('button',{name:'좌우',exact:true}).click();
+ const field=page.getByRole('textbox',{name:'대화 질문'});
+ await field.fill('유지할 초안');
+ const grip=page.getByRole('separator',{name:'질문 입력칸 높이 조절'});const b=await grip.boundingBox();
+ await page.mouse.move(b.x+b.width/2,b.y+8);await page.mouse.down();await page.mouse.move(b.x+b.width/2,400,{steps:12});await page.mouse.up();
+ assert.ok((await page.locator('.resizable-composer').boundingBox()).height>300);assert.equal(await field.inputValue(),'유지할 초안');
+ await page.reload();await grip.waitFor();assert.ok((await page.locator('.resizable-composer').boundingBox()).height>300);
+ const waitForPhotos=async count=>page.waitForFunction(n=>document.querySelectorAll('.photo-attachments li').length===n,count);
+ const waitForInput=async()=>{for(let i=0;i<100&&!input;i++)await page.waitForTimeout(40);assert.ok(input);};
+ const pastePhotos=async(selector,colors)=>page.locator(selector).evaluate(async(el,colors)=>{
+  const data=new DataTransfer();
+  for(const color of colors){
+   const canvas=document.createElement('canvas');canvas.width=320;canvas.height=180;
+   const ctx=canvas.getContext('2d');ctx.fillStyle=color;ctx.fillRect(0,0,canvas.width,canvas.height);
+   const blob=await new Promise(resolve=>canvas.toBlob(resolve,'image/png'));
+   data.items.add(new File([blob],`${color}.png`,{type:'image/png'}));
+  }
+  el.dispatchEvent(new ClipboardEvent('paste',{clipboardData:data,bubbles:true,cancelable:true}));
+ },colors);
+ const files=await page.evaluate(()=>['red','blue'].map(color=>{
+  const canvas=document.createElement('canvas');canvas.width=320;canvas.height=180;
+  const ctx=canvas.getContext('2d');ctx.fillStyle=color;ctx.fillRect(0,0,320,180);
+  return {name:`${color}.png`,data:canvas.toDataURL().split(',')[1]};
+ }));
+ const chat=page.getByRole('region',{name:'자유 대화'});
+ const chooser=page.waitForEvent('filechooser');
+ await chat.getByRole('button',{name:'사진 첨부'}).click();
+ const picker=await chooser;assert(picker.isMultiple());
+ await picker.setFiles(files.map(file=>({name:file.name,mimeType:'image/png',buffer:Buffer.from(file.data,'base64')})));
+ await waitForPhotos(2);
+ await pastePhotos('#free-question',['green','yellow']);await waitForPhotos(4);
+ await chat.getByRole('button',{name:'첨부 사진 2 삭제'}).click();await waitForPhotos(3);
+ const selectedPhotos=await chat.locator('.photo-attachments img').evaluateAll(images=>images.map(img=>img.getAttribute('src')));
+ await chat.getByRole('combobox',{name:'웹 도구'}).selectOption('fetch');
+ await page.route('**/api/question',route=>route.fulfill({status:503,json:{error:'시험용 전송 실패'}}),{times:1});
+ await field.press('Enter');await chat.getByText('시험용 전송 실패',{exact:true}).waitFor();
+ assert.equal(await chat.locator('.photo-attachments li').count(),3);
+ await page.screenshot({path:join(dir,'input-paste.png'),fullPage:true});
+ await field.press('Enter');await waitForPhotos(0);await waitForInput();
+ assert.equal(webMode,'fetch');
+ await chat.getByText('웹페이지 읽는 중…',{exact:false}).waitFor();
+ assert.deepEqual(input.filter(part=>part.type==='image').map(part=>part.url),[jpeg,...selectedPhotos]);
+ finish();await page.locator('[data-testid="answer-1"]').getByText('사진 3장',{exact:false}).waitFor();
+
+ await page.locator('.transcript-scroll').evaluate(el=>el.scrollTop=0);
+ await page.locator('[data-transcript-text="p0"]').click();
+ const inline=page.getByRole('region',{name:'선택한 문장에 질문'});
+ await pastePhotos('#q-p0',['purple','orange']);await waitForPhotos(2);input=undefined;
+ await inline.getByRole('combobox',{name:'웹 도구'}).selectOption('required');
+ await inline.getByText('첨부 화면',{exact:false}).click();await inline.getByRole('button',{name:'화면 제외',exact:true}).click();
+ await page.locator('#q-p0').press('Enter');await waitForPhotos(0);await waitForInput();
+ assert.equal(webMode,'required');
+ await page.getByText('공개 웹 자료 검색 중…',{exact:false}).waitFor();
+ assert.equal(input.filter(part=>part.type==='image').length,2,'excluding lesson keeps both photos');
+ finish();const previous=page.locator('[data-testid="answer-2"]');await previous.waitFor();
+ await previous.getByRole('button',{name:'이 설명에 이어 묻기'}).click();
+ await waitForPhotos(2);await inline.getByText('이전 사진 2').waitFor();
+ await inline.getByRole('button',{name:'첨부 사진 1 삭제'}).click();
+ await inline.getByRole('combobox',{name:'웹 도구'}).selectOption('off');
+ input=undefined;await page.locator('#q-p0').press('Enter');await waitForPhotos(0);await waitForInput();
+ assert.equal(webMode,'off');assert.equal(input.filter(part=>part.type==='image').length,1);
+ finish();await page.locator('[data-testid="answer-3"]').waitFor();
+ assert.equal(errors.length,0,errors.join('\n'));
+ console.log(JSON.stringify({passed:['input resize and saved height','multi-file picker','multi-photo clipboard','remove one','retain photos on send error','photo-only chat with ordered photos and lesson screen','separate search and page reading status','inline follow-up retains selected photos'],screenshot:join(dir,'input-paste.png')}));
+ }else if(process.env.CLASSMATE_RENDER_ONLY){assert.equal(errors.length,0);console.log(JSON.stringify({passed:['translated participant renders as SVG','table br renders safely'],screenshot:join(dir,'repaired-diagram.png')}));}else{
+ await page.getByRole('button',{name:'좌우',exact:true}).click();
+ const inputGrip=page.getByRole('separator',{name:'질문 입력칸 높이 조절'});const gripBox=await inputGrip.boundingBox();
+ await page.mouse.move(gripBox.x+gripBox.width/2,gripBox.y+gripBox.height/2);await page.mouse.down();await page.mouse.move(gripBox.x+gripBox.width/2,450,{steps:12});await page.mouse.up();
+ const expanded=await page.locator('.resizable-composer').boundingBox();assert.ok(expanded.height>300&&expanded.y<500,'input grows upward to the middle');
+ await page.screenshot({path:join(dir,'expanded-input.png'),fullPage:true});await page.reload();await inputGrip.waitFor();assert.ok((await page.locator('.resizable-composer').boundingBox()).height>300,'input height survives reload');await inputGrip.dblclick();assert.ok((await page.locator('.resizable-composer').boundingBox()).height<=95);
  for(const width of [1400,790]){await page.setViewportSize({width,height:900});const left=await page.locator('.transcript-heading h2').boundingBox(),right=await page.locator('.chat-heading h2').boundingBox();assert.ok(Math.abs(left.y-right.y)<1,'headings must align');const transcript=await page.locator('.transcript-scroll').boundingBox(),chat=await page.locator('.chat-history').boundingBox();assert.ok(Math.abs(transcript.y-chat.y)<1,'content start lines must align');}
  assert.equal(await page.getByRole('button',{name:'문단 선택',exact:true}).evaluate(el=>el.previousElementSibling?.textContent),'화면 설정');
  await page.setViewportSize({width:790,height:800});
- const divider=page.getByRole('separator');await divider.press('ArrowRight');
+ const divider=page.getByRole('separator',{name:'전사와 대화 크기 조절'});await divider.press('ArrowRight');
  const bounds=await page.locator('.reading-panes').boundingBox();const grip=await divider.boundingBox();
  await page.mouse.move(grip.x+grip.width/2,grip.y+grip.height/2);await page.mouse.down();await page.mouse.move(bounds.x+bounds.width*.75,grip.y+grip.height/2,{steps:10});await page.mouse.up();
  assert.ok((await page.locator('.chat-dock').boundingBox()).width>=270,'chat should not become a narrow sliver');
@@ -29,8 +116,8 @@ try{
  const question='코드를 설명해 주세요.\npublic class Example {\n    private int value;\n}\n\n마지막 질문';
  const inputBox=page.getByRole('textbox',{name:'대화 질문'});await inputBox.fill(question);await inputBox.press('Enter');await page.waitForFunction(()=>document.querySelector('#free-question').value==='');
  const sentQuestion=page.locator('.chat-dock .answer header strong').last();assert.equal(await sentQuestion.textContent(),question);assert.equal(await sentQuestion.evaluate(el=>getComputedStyle(el).whiteSpace),'pre-wrap');
- assert.ok(finish,'Tutor should still be waiting');await inputBox.fill('대기 질문 시험');await inputBox.press('Enter');await page.getByRole('button',{name:'대기 취소'}).waitFor();await page.getByRole('button',{name:'대기 취소'}).click();await page.getByText('취소됨',{exact:true}).waitFor();const firstCard=page.locator('.chat-dock .answer').first();await firstCard.locator('header').getByRole('button',{name:'접기',exact:true}).click();assert.equal(await firstCard.locator('.answer-body').count(),0);await inputBox.fill('다음 질문 초안');finish();await page.locator('[data-testid="answer-1"]').waitFor();assert.equal(await page.locator('[data-testid="answer-1"] .answer-body').count(),0);assert.equal(await inputBox.inputValue(),'다음 질문 초안');await inputBox.fill('');
- await page.getByRole('separator').press('Home');await page.getByRole('button',{name:'전사 열기'}).click();await page.getByRole('separator').press('End');await page.getByRole('button',{name:'대화 열기'}).click();
+ assert.ok(finish,'Tutor should still be waiting');await inputBox.fill('대기 질문 시험');await inputBox.press('Enter');await page.getByRole('button',{name:'대기 취소'}).waitFor();await page.getByRole('button',{name:'대기 취소'}).click();await page.getByText('취소됨',{exact:true}).waitFor();const firstCard=page.locator('.chat-dock .live-answer').first();await firstCard.locator('header').getByRole('button',{name:'접기',exact:true}).click();assert.equal(await firstCard.locator('.answer-body').count(),0);await inputBox.fill('다음 질문 초안');finish();await page.locator('[data-testid="answer-1"]').waitFor();assert.equal(await page.locator('[data-testid="answer-1"] .answer-body').count(),0);assert.equal(await inputBox.inputValue(),'다음 질문 초안');await inputBox.fill('');
+ await page.getByRole('separator',{name:'전사와 대화 크기 조절'}).press('Home');await page.getByRole('button',{name:'전사 열기'}).click();await page.getByRole('separator',{name:'전사와 대화 크기 조절'}).press('End');await page.getByRole('button',{name:'대화 열기'}).click();
  await page.locator('.transcript-scroll').evaluate(el=>el.scrollTop=0);
  const a=await page.locator('[data-transcript-text="p0"]').boundingBox(),b=await page.locator('[data-transcript-text="p1"]').boundingBox();
  await page.mouse.move(a.x+55,a.y+8);await page.mouse.down();await page.mouse.move(b.x+190,b.y+8,{steps:15});await page.mouse.up();
@@ -46,4 +133,5 @@ try{
  await page.getByRole('button',{name:'상하',exact:true}).click();await page.setViewportSize({width:900,height:900});await page.screenshot({path:join(dir,'rows.png'),fullPage:true});
  await page.reload();await page.locator('.layout-rows').waitFor();assert.equal(errors.length,0,errors.join('\n'));
  console.log(JSON.stringify({passed:['acceptance clears input before completion','new draft preserved','both panes fold and restore','real mouse drag across two paragraphs','inline range answer','layout survives reload'],screenshots:[join(dir,'columns.png'),join(dir,'rows.png')]}));
-}finally{finish?.();await browser.close();await app.close();}
+}
+}finally{clearInterval(frameTimer);finish?.();await browser.close();await app.close();}

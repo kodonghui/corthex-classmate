@@ -22,9 +22,19 @@ export class Studies {
   source(id=this.active){return this.db.prepare('SELECT id,source_mode AS mode,source_url AS url,source_key AS key FROM studies WHERE id=? AND deleted_at IS NULL').get(id);}
   connectShare(id,url){
     url=canonicalShareUrl(url);const old=this.source(id);if(!old)throw new Error('세션을 먼저 선택해 주세요.');
-    if(old.url&&old.url!==url)throw new Error('다른 녹음은 새 세션에 연결해 주세요. 기존 기록이 섞이지 않게 보존합니다.');
-    this.db.prepare("UPDATE studies SET source_mode='share',source_url=?,source_key=COALESCE(source_key,?) WHERE id=?").run(url,`share-${randomUUID()}`,id);
-    this.db.prepare("INSERT OR REPLACE INTO state VALUES('active',?)").run(id);return this.source(id);
+    if(old.mode==='replay'||old.url&&old.url!==url&&this.db.prepare('SELECT 1 FROM paragraphs WHERE study_id=? LIMIT 1').get(id))throw new Error('다른 녹음은 새 세션에 연결해 주세요. 기존 기록이 섞이지 않게 보존합니다.');
+    this.db.exec('BEGIN');
+    try {
+      const key=old.url===url&&old.key?old.key:`share-${randomUUID()}`;
+      this.db.prepare("UPDATE studies SET source_mode='share',source_url=?,source_key=? WHERE id=?").run(url,key,id);
+      this.db.prepare("INSERT OR REPLACE INTO state VALUES('active',?)").run(id);
+      this.db.exec('COMMIT');
+    } catch(error){this.db.exec('ROLLBACK');throw error;}
+    return this.source(id);
+  }
+  disconnectEmptyShare(id){
+    if(this.source(id)?.mode!=='share'||this.db.prepare('SELECT 1 FROM paragraphs WHERE study_id=? LIMIT 1').get(id))throw new Error('전사가 있는 세션의 녹음은 해제할 수 없어요.');
+    this.db.prepare("UPDATE studies SET source_mode='none',source_url=NULL,source_key=NULL WHERE id=?").run(id);
   }
   shareRows(id){return this.db.prepare("SELECT data FROM paragraphs WHERE study_id=? AND json_extract(data,'$.source')='tiro-share' ORDER BY CAST(json_extract(data,'$.sourceIndex') AS INTEGER)").all(id).map(r=>JSON.parse(r.data));}
   prepareShare(source,data){return mapShareRows(source.key,data.paragraphs,this.shareRows(source.id));}
@@ -34,11 +44,11 @@ export class Studies {
     try{for(const p of rows)changed+=this.db.prepare('INSERT INTO paragraphs VALUES(?,?,?) ON CONFLICT(study_id,uuid) DO UPDATE SET data=excluded.data WHERE data<>excluded.data').run(source.id,p.uuid,JSON.stringify(p)).changes;this.db.exec('COMMIT');}
     catch(e){this.db.exec('ROLLBACK');throw e;}return changed;
   }
-  create(name,{mode='api'}={}){
+  create(name,{mode='api',onCreate}={}){
     if(typeof name!=='string'||!name.trim()||name.trim().length>100)throw new Error('세션 이름은 1~100자로 입력해 주세요.');
     const id=randomUUID();this.db.exec('BEGIN');
     try{this.db.prepare('INSERT INTO studies(id,name,started_at,source_mode) VALUES(?,?,?,?)').run(id,name.trim(),new Date().toISOString(),mode);
-      this.db.prepare("INSERT OR REPLACE INTO state VALUES('active',?)").run(id);this.db.exec('COMMIT');}
+      this.db.prepare("INSERT OR REPLACE INTO state VALUES('active',?)").run(id);onCreate?.(id);this.db.exec('COMMIT');}
     catch(e){this.db.exec('ROLLBACK');throw e;}return id;
   }
   edit(id,action,name){
@@ -108,6 +118,11 @@ export class Studies {
     }catch(e){this.db.exec('ROLLBACK');throw e;}
   }
   save(id,q){this.db.prepare('INSERT OR REPLACE INTO answers VALUES(?,?,?)').run(id,q.id,JSON.stringify(q));}
+  answer(id,answerId){
+    if(!Number.isSafeInteger(answerId))return undefined;
+    const row=this.db.prepare('SELECT data FROM answers WHERE study_id=? AND id=?').get(id,answerId);
+    return row&&JSON.parse(row.data);
+  }
   snapshot(source,id=this.active){
     const study=this.list().find(s=>s.id===id&&!s.deletedAt);if(!study)throw new Error('세션 기록을 찾지 못했어요. 휴지통에 있다면 복원해 주세요.');
     const paragraphs=this.db.prepare('SELECT data FROM paragraphs WHERE study_id=?').all(id).map(r=>JSON.parse(r.data)).sort((a,b)=>a.timeFrom.localeCompare(b.timeFrom)||(a.sourceIndex??0)-(b.sourceIndex??0));

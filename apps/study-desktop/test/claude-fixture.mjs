@@ -13,10 +13,13 @@ const rl=createInterface({input:process.stdin});rl.on('line',async raw=>{
   line({type:'system',subtype:'init',model,tools:[...tools,...(process.env.CLASSMATE_FIXTURE_EXTRA_TOOL?['Bash']:[])],mcp_servers:[],permissionMode:flag('--permission-mode')});
   if(process.env.CLASSMATE_FIXTURE_HANG){setInterval(()=>{},1000);return;} // stays alive until the parent kills it
   line({type:'stream_event',event:{type:'message_start',message:{model}}});
-  if(tools.includes('WebSearch')&&text.includes('검색')){
-    line({type:'stream_event',event:{type:'content_block_start',index:0,content_block:{type:'tool_use',id:'toolu_1',name:'WebSearch'}}});
-    line({type:'assistant',message:{content:[{type:'tool_use',id:'toolu_1',name:'WebSearch',input:{query:'fixture'}}]}});
-    line({type:'user',message:{content:[{type:'tool_result',tool_use_id:'toolu_1',content:'fixture result'}]}});
+  for(const [index,[name,trigger]] of [['WebSearch','검색'],['WebFetch','본문']].entries()){
+    if(!tools.includes(name)||!text.includes(trigger))continue;
+    const id=`toolu_${index+1}`;
+    const tool={type:'tool_use',id,name};
+    line({type:'stream_event',event:{type:'content_block_start',index:0,content_block:tool}});
+    line({type:'assistant',message:{content:[tool]}});
+    line({type:'user',message:{content:[{type:'tool_result',tool_use_id:id,content:'fixture result'}]}});
     line({type:'stream_event',event:{type:'message_start',message:{model}}});
   }
   const answer=JSON.stringify({text,images,tools,safe:args.includes('--safe-mode'),persist:!args.includes('--no-session-persistence'),prompts:flag('--permission-prompts'),system:(flag('--system-prompt')??'').slice(0,12),apiKey:process.env.ANTHROPIC_API_KEY??null});

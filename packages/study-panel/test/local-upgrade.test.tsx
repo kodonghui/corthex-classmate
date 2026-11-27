@@ -23,7 +23,7 @@ it('selects a contiguous paragraph range, renders composer below its end and lea
 });
 it('omits empty inline answer regions and folds/restores either pane',async()=>{
  const b=fixture();const {container}=render(<StudyPanel bridge={b}/>);await screen.findByText('문단 하나');expect(container.querySelectorAll('.cm-tf__after')).toHaveLength(0);
- fireEvent.keyDown(screen.getByRole('separator'),{key:'Home'});fireEvent.click(screen.getByRole('button',{name:'전사 열기'}));fireEvent.keyDown(screen.getByRole('separator'),{key:'End'});fireEvent.click(screen.getByRole('button',{name:'대화 열기'}));expect(container.querySelector('.fold-none')).toBeTruthy();
+ fireEvent.keyDown(screen.getByRole('separator',{name:'전사와 대화 크기 조절'}),{key:'Home'});fireEvent.click(screen.getByRole('button',{name:'전사 열기'}));fireEvent.keyDown(screen.getByRole('separator',{name:'전사와 대화 크기 조절'}),{key:'End'});fireEvent.click(screen.getByRole('button',{name:'대화 열기'}));expect(container.querySelector('.fold-none')).toBeTruthy();
 });
 it('accepts another question while answering and collapses an in-progress answer without cancelling it',async()=>{
  const b=fixture();const finishes:Array<()=>void>=[];vi.mocked(b.send).mockImplementation((text,progress,accept)=>{const question=JSON.parse(text.split('\n')[1]).question;progress?.({id:'job-'+question,question,answer:'설명 '+question,state:finishes.length?'queued':'streaming'});accept?.();return new Promise(r=>finishes.push(r));});

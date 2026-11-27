@@ -2,6 +2,7 @@ import type {Snapshot} from './bridge';
 export function transcriptStatus(snapshot?:Snapshot,now=Date.now()){
   const r=snapshot?.recording;
   if(r?.mode==='none')return 'Tiro 링크를 연결해 주세요';
+  if(r?.mode==='replay')return r.state==='replay_done'?'전사 재생 완료':r.state==='replay_playing'?'전사 재생 중':'전사 재생 일시정지';
   if(r?.mode==='share'){
     if(r.state==='history')return '저장된 전사';
     if(r.state==='connected'&&r.lastCheckedAt&&now-Date.parse(r.lastCheckedAt)<10000)return '● 공유 전사 연결됨';
