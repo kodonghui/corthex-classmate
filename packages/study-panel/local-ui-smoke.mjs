@@ -128,7 +128,7 @@ try{
  assert.equal(JSON.parse(input[0].text).referenceData.selectedRange.length,2);finish();await page.locator('[data-testid="answer-2"]').waitFor();await page.locator('[data-testid="answer-2"] .answer-footer').getByRole('button',{name:'접기',exact:true}).click();assert.equal(await page.locator('[data-testid="answer-2"] .answer-body').count(),0);
  await page.getByRole('button',{name:'문단 선택',exact:true}).click();
  for(const id of ['p0','p1','p4'])await page.locator(`[data-transcript-text="${id}"]`).click();
- assert.equal(await page.locator('.cm-tf__ln--selected').count(),5);await page.getByRole('button',{name:'이 내용 질문'}).click();assert.match(await composer.innerText(),/5개 문단/);
+ assert.equal(await page.locator('.cm-tf__ln[data-transcript-selected]').count(),5);await page.getByRole('button',{name:'이 내용 질문'}).click();assert.match(await composer.innerText(),/5개 문단/);
  await page.screenshot({path:join(dir,'columns.png'),fullPage:true});
  await page.getByRole('button',{name:'상하',exact:true}).click();await page.setViewportSize({width:900,height:900});await page.screenshot({path:join(dir,'rows.png'),fullPage:true});
  await page.reload();await page.locator('.layout-rows').waitFor();assert.equal(errors.length,0,errors.join('\n'));

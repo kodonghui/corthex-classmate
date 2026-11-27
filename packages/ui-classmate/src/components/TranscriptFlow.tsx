@@ -81,7 +81,11 @@ export function TranscriptFlow({
           : {};
         return (
           <Fragment key={ln.id}>
-            <p className={cx("cm-tf__ln", `cm-tf__ln--${lvl}`, onSentence && "cm-tf__ln--tap", selectedIds.includes(ln.id) && "cm-tf__ln--selected")} {...sentenceA11y}>
+            <p
+              className={cx("cm-tf__ln", `cm-tf__ln--${lvl}`, onSentence && "cm-tf__ln--tap")}
+              data-transcript-selected={selectedIds.includes(ln.id) || undefined}
+              {...sentenceA11y}
+            >
               {showTimes && ln.time ? <span className="cm-tf__tm">{ln.time}</span> : null}
               <span data-transcript-text={ln.id}>{ln.segments.map((s, j) => {
                 if (!s.term) return <Fragment key={j}>{s.text}</Fragment>;
